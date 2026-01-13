@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform } from 'react-native';
-import MapView, { Polyline, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
 import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
 import WeatherWidget from '../../components/WeatherWidget';
+import NativeMap, { Polyline, Marker } from '../../components/NativeMap';
 
 export default function TrekScreen() {
     const [location, setLocation] = useState(null);
@@ -76,7 +76,7 @@ export default function TrekScreen() {
         if (!trekId) return;
 
         try {
-            await client.put(`/treks/update/${trekId}`, { status: 'completed' });
+            await client.put(`/trek/update/${trekId}`, { status: 'completed' });
             setIsTracking(false);
             clearInterval(timerRef.current);
             Alert.alert("Trek Completed!", "Your hike has been saved.");
@@ -96,9 +96,7 @@ export default function TrekScreen() {
         <View style={styles.container}>
             {location ? (
                 <View style={styles.mapContainer}>
-                    <MapView
-                        style={styles.map}
-                        provider={PROVIDER_DEFAULT}
+                    <NativeMap
                         initialRegion={{
                             latitude: location.latitude,
                             longitude: location.longitude,
@@ -111,7 +109,7 @@ export default function TrekScreen() {
                         {routeCoordinates.length > 0 && (
                             <Polyline coordinates={routeCoordinates} strokeWidth={4} strokeColor="#28a745" />
                         )}
-                    </MapView>
+                    </NativeMap>
                     <View style={styles.weatherOverlay}>
                         <WeatherWidget compact={true} />
                     </View>
@@ -148,9 +146,6 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     mapContainer: {
-        flex: 1,
-    },
-    map: {
         flex: 1,
     },
     weatherOverlay: {

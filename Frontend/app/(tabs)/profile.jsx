@@ -1,10 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Alert } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function Profile() {
     const { user, logout } = useAuth();
+    const router = useRouter();
 
     const handleLogout = () => {
         Alert.alert("Logout", "Are you sure?", [

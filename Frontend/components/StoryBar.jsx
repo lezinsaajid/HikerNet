@@ -47,7 +47,7 @@ export default function StoryBar() {
 
                 {/* Friend Stories */}
                 {stories.map((storyGroup) => (
-                    <TouchableOpacity key={storyGroup._id} style={styles.item} onPress={() => handleView(storyGroup._id)}>
+                    <TouchableOpacity key={storyGroup.user._id} style={styles.item} onPress={() => handleView(storyGroup.user._id)}>
                         <View style={[styles.ring, styles.activeRing]}>
                             <Image source={{ uri: storyGroup.user.profileImage }} style={styles.avatar} />
                         </View>

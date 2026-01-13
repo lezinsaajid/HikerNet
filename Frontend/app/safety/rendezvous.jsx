@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
+import NativeMap, { Marker } from '../../components/NativeMap';
 
 export default function RendezvousFinder() {
     const [markers, setMarkers] = useState([]);
@@ -76,9 +76,7 @@ export default function RendezvousFinder() {
             </View>
 
             {currentPos ? (
-                <MapView
-                    style={styles.map}
-                    provider={PROVIDER_DEFAULT}
+                <NativeMap
                     initialRegion={{
                         latitude: currentPos.latitude,
                         longitude: currentPos.longitude,
@@ -86,7 +84,6 @@ export default function RendezvousFinder() {
                         longitudeDelta: 0.05,
                     }}
                     onPress={handleMapPress}
-                    showsUserLocation={true}
                 >
                     {markers.map((marker, index) => (
                         <Marker
@@ -107,7 +104,7 @@ export default function RendezvousFinder() {
                             </View>
                         </Marker>
                     )}
-                </MapView>
+                </NativeMap>
             ) : (
                 <ActivityIndicator size="large" color="#007AFF" style={styles.loader} />
             )}
@@ -168,9 +165,6 @@ const styles = StyleSheet.create({
         color: '#007AFF',
         fontSize: 13,
         marginLeft: 8,
-    },
-    map: {
-        flex: 1,
     },
     loader: {
         flex: 1,

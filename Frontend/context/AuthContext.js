@@ -68,11 +68,17 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         if (isLoading) return;
 
-        const inAuthGroup = segments[0] === '(auth)';
+        // segments[0] can be '(auth)', 'login', 'register' or undefined (for index)
+        const inAuthGroup = segments.some(seg => seg === '(auth)' || seg === 'login' || seg === 'register');
+        const isIndex = segments.length === 0 || (segments.length === 1 && (segments[0] === 'index' || segments[0] === undefined));
 
-        if (!user && !inAuthGroup) {
-            router.replace('/login');
-        } else if (user && inAuthGroup) {
+        console.log("Auth Guard Check:", { user: !!user, segments, inAuthGroup, isIndex });
+
+        if (!user && !inAuthGroup && !isIndex) {
+            console.log("Redirecting to Welcome (unauthenticated)");
+            router.replace('/');
+        } else if (user && (inAuthGroup || isIndex)) {
+            console.log("Redirecting to Home (authenticated)");
             router.replace('/(tabs)');
         }
     }, [user, segments, isLoading]);
