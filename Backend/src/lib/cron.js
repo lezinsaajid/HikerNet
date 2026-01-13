@@ -1,13 +1,29 @@
 import cron from "cron";
 import https from "https";
+import http from "http";
 
 const job = new cron.CronJob("*/14 * * * *", function () {
-    https
-        .get(process.env.API_URL, (res) => {
-            if (res.statusCode === 200) console.log("GET request sent successfully");
-            else console.log("GET request failed", res.statusCode);
+    const url = process.env.API_URL;
+    if (!url) {
+        // console.log("Cron: No API_URL defined, skipping keep-alive ping.");
+        return;
+    }
+
+    const client = url.startsWith("https") ? https : http;
+
+    client
+        .get(url, (res) => {
+            if (res.statusCode === 200) console.log("Cron: Keep-alive ping successful");
+            else console.log("Cron: Keep-alive ping failed", res.statusCode);
         })
-        .on("error", (e) => console.error("Error while sending request", e));
+        .on("error", (e) => {
+            // Silently log in dev to avoid noise, or log specifically
+            if (process.env.NODE_ENV !== "production") {
+                console.log("Cron: Ping failed (expected in dev if URL is incorrect or HTTPS is used on local)");
+            } else {
+                console.error("Cron: Error while sending request", e.message);
+            }
+        });
 });
 
 export default job;
