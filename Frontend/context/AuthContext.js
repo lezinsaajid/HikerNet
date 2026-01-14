@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import { getItem, setItem, deleteItem } from '../utils/platformStorage';
 import client from '../api/client';
 import { useRouter, useSegments } from 'expo-router';
 
@@ -14,8 +14,8 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         const loadUser = async () => {
             try {
-                const token = await SecureStore.getItemAsync('token');
-                const storedUser = await SecureStore.getItemAsync('user');
+                const token = await getItem('token');
+                const storedUser = await getItem('user');
 
                 if (token && storedUser) {
                     setUser(JSON.parse(storedUser));
@@ -36,8 +36,8 @@ export const AuthProvider = ({ children }) => {
             const res = await client.post('/auth/login', { email, password });
             const { token, user } = res.data;
 
-            await SecureStore.setItemAsync('token', token);
-            await SecureStore.setItemAsync('user', JSON.stringify(user));
+            await setItem('token', token);
+            await setItem('user', JSON.stringify(user));
             setUser(user);
             return { success: true };
         } catch (error) {
@@ -50,8 +50,8 @@ export const AuthProvider = ({ children }) => {
             const res = await client.post('/auth/register', { username, email, password });
             const { token, user } = res.data;
 
-            await SecureStore.setItemAsync('token', token);
-            await SecureStore.setItemAsync('user', JSON.stringify(user));
+            await setItem('token', token);
+            await setItem('user', JSON.stringify(user));
             setUser(user);
             return { success: true };
         } catch (error) {
@@ -60,9 +60,14 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logout = async () => {
-        await SecureStore.deleteItemAsync('token');
-        await SecureStore.deleteItemAsync('user');
-        setUser(null);
+        try {
+            await deleteItem('token');
+            await deleteItem('user');
+        } catch (e) {
+            console.error("Logout error:", e);
+        } finally {
+            setUser(null);
+        }
     };
 
     useEffect(() => {
@@ -75,8 +80,8 @@ export const AuthProvider = ({ children }) => {
         console.log("Auth Guard Check:", { user: !!user, segments, inAuthGroup, isIndex });
 
         if (!user && !inAuthGroup && !isIndex) {
-            console.log("Redirecting to Welcome (unauthenticated)");
-            router.replace('/');
+            console.log("Redirecting to Login (unauthenticated)");
+            router.replace('/login');
         } else if (user && (inAuthGroup || isIndex)) {
             console.log("Redirecting to Home (authenticated)");
             router.replace('/(tabs)');

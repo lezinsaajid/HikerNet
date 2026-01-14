@@ -1,5 +1,5 @@
 import axios from 'axios';
-import * as SecureStore from 'expo-secure-store';
+import { getItem } from '../utils/platformStorage';
 import { Platform } from 'react-native';
 
 // UPDATE THIS WITH YOUR LOCAL IP ADDRESS IF TESTING ON REAL DEVICE
@@ -13,7 +13,7 @@ const client = axios.create({
 
 client.interceptors.request.use(async (config) => {
     try {
-        const token = await SecureStore.getItemAsync('token');
+        const token = await getItem('token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
