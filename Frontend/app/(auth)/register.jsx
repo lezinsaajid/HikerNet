@@ -149,7 +149,7 @@ export default function Register() {
                                 <Text style={styles.footerText}>Already have an account? </Text>
                                 <Link href="/login" asChild>
                                     <TouchableOpacity>
-                                        <Text style={styles.signUpText}>Sign up</Text>
+                                        <Text style={styles.signUpText}>Sign In</Text>
                                     </TouchableOpacity>
                                 </Link>
                             </View>
