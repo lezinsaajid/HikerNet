@@ -70,6 +70,16 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const updateUserData = async (newData) => {
+        try {
+            const updatedUser = { ...user, ...newData };
+            setUser(updatedUser);
+            await setItem('user', JSON.stringify(updatedUser));
+        } catch (error) {
+            console.error("Error updating local user data:", error);
+        }
+    };
+
     useEffect(() => {
         if (isLoading) return;
 
@@ -89,7 +99,7 @@ export const AuthProvider = ({ children }) => {
     }, [user, segments, isLoading]);
 
     return (
-        <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
+        <AuthContext.Provider value={{ user, setUser, updateUserData, isLoading, login, register, logout }}>
             {children}
         </AuthContext.Provider>
     );
