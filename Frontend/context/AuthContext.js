@@ -88,10 +88,15 @@ export const AuthProvider = ({ children }) => {
         try {
             await deleteItem('token');
             await deleteItem('user');
+            if (Platform.OS === 'web') {
+                localStorage.clear(); // Nuclear option for web logout debugging
+            }
         } catch (e) {
             console.error("Logout error:", e);
         } finally {
             setUser(null);
+            // Ensure we redirect to login
+            router.replace('/login');
         }
     };
 

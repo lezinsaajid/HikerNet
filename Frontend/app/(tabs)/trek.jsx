@@ -1,209 +1,226 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform } from 'react-native';
-import * as Location from 'expo-location';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Image, SafeAreaView } from 'react-native';
+import { useRouter } from 'expo-router';
 import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
-import WeatherWidget from '../../components/WeatherWidget';
-import NativeMap, { Polyline, Marker } from '../../components/NativeMap';
 
-export default function TrekScreen() {
-    const [location, setLocation] = useState(null);
-    const [isTracking, setIsTracking] = useState(false);
-    const [trekId, setTrekId] = useState(null);
-    const [routeCoordinates, setRouteCoordinates] = useState([]);
-    const [stats, setStats] = useState({ distance: 0, duration: 0 });
 
-    // Timer Ref
-    const timerRef = useRef(null);
+
+
+export default function TrekDashboard() {
+    const router = useRouter();
+    const [searchQuery, setSearchQuery] = useState('');
+
+
+    const [treks, setTreks] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        (async () => {
-            let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert('Permission to access location was denied');
-                return;
-            }
+        loadTreks();
 
-            let currentLocation = await Location.getCurrentPositionAsync({});
-            setLocation(currentLocation.coords);
-        })();
+        // Refresh when screen comes into focus
+        const unsubscribe = router.addListener?.('focus', loadTreks); // Or useFocusEffect from expo-router if available
+        // Simple initial load is enough for now
     }, []);
 
-    const startTrek = async () => {
+    const loadTreks = async () => {
         try {
-            const res = await client.post('/treks/start', { name: `Hike on ${new Date().toLocaleDateString()}` });
-            setTrekId(res.data._id);
-            setIsTracking(true);
-            setRouteCoordinates([]);
-            setStats({ distance: 0, duration: 0 });
-
-            // Start Timer
-            timerRef.current = setInterval(() => {
-                setStats(prev => ({ ...prev, duration: prev.duration + 1 }));
-            }, 1000);
-
-            // Start Location Updates
-            const subscription = await Location.watchPositionAsync(
-                {
-                    accuracy: Location.Accuracy.High,
-                    timeInterval: 5000,
-                    distanceInterval: 10,
-                },
-                (newLocation) => {
-                    const { latitude, longitude, altitude } = newLocation.coords;
-                    const newPoint = { latitude, longitude };
-
-                    setRouteCoordinates(prev => {
-                        const newPath = [...prev, newPoint];
-                        return newPath;
-                    });
-
-                    setLocation(newLocation.coords);
-
-                    // Sync to Backend
-                    client.put(`/treks/update/${res.data._id}`, {
-                        coordinates: [{ latitude, longitude, altitude }]
-                    }).catch(console.error);
-                }
-            );
+            // Using a public feed endpoint or similar. Based on routes, /treks/feed/public seems appropriate.
+            // If that endpoint needs auth but we are logged in, it should work.
+            // Or /treks/user/:id for personal. User asked for "all the treks that is uploaded".
+            // So /treks/feed/public is the best match.
+            const res = await client.get('/treks/feed/public');
+            setTreks(res.data);
         } catch (error) {
-            console.error("Error starting trek", error);
-            Alert.alert("Error", "Could not start trek");
+            console.error("Failed to load treks", error);
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    const stopTrek = async () => {
-        if (!trekId) return;
-
-        try {
-            await client.put(`/trek/update/${trekId}`, { status: 'completed' });
-            setIsTracking(false);
-            clearInterval(timerRef.current);
-            Alert.alert("Trek Completed!", "Your hike has been saved.");
-            setTrekId(null);
-        } catch (error) {
-            console.error("Error stopping trek", error);
-        }
-    };
-
-    const formatTime = (seconds) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-    };
-
-    return (
-        <View style={styles.container}>
-            {location ? (
-                <View style={styles.mapContainer}>
-                    <NativeMap
-                        initialRegion={{
-                            latitude: location.latitude,
-                            longitude: location.longitude,
-                            latitudeDelta: 0.01,
-                            longitudeDelta: 0.01,
-                        }}
-                        showsUserLocation={true}
-                        followsUserLocation={true}
-                    >
-                        {routeCoordinates.length > 0 && (
-                            <Polyline coordinates={routeCoordinates} strokeWidth={4} strokeColor="#28a745" />
-                        )}
-                    </NativeMap>
-                    <View style={styles.weatherOverlay}>
-                        <WeatherWidget compact={true} />
+    const renderTrekItem = ({ item }) => (
+        <TouchableOpacity style={styles.card}>
+            {/* Handle image arrays or single strings */}
+            <Image
+                source={{ uri: item.images?.[0] || 'https://images.unsplash.com/photo-1551632811-561732d1e306?q=80&w=2070&auto=format&fit=crop' }}
+                style={styles.cardImage}
+            />
+            <View style={styles.cardContent}>
+                <View>
+                    <Text style={styles.cardTitle}>{item.name}</Text>
+                    <Text style={styles.cardDistance}>{item.stats?.distance ? `${(item.stats.distance / 1000).toFixed(2)} km` : '0 km'}</Text>
+                </View>
+                {/* Only show rating if it exists, since model doesn't strictly have it yet */}
+                {item.rating ? (
+                    <View style={styles.ratingContainer}>
+                        <Ionicons name="star" size={16} color="#ffc107" />
+                        <Text style={styles.ratingText}>{item.rating}</Text>
                     </View>
-                </View>
-            ) : (
-                <View style={styles.centered}>
-                    <Text>Loading Map...</Text>
-                </View>
-            )}
-
-            {/* Controls Overlay */}
-            <View style={styles.controls}>
-                <View style={styles.statsCard}>
-                    <Text style={styles.statLabel}>Duration</Text>
-                    <Text style={styles.statValue}>{formatTime(stats.duration)}</Text>
-                </View>
-
-                {isTracking ? (
-                    <TouchableOpacity style={[styles.button, styles.stopBtn]} onPress={stopTrek}>
-                        <Ionicons name="stop" size={32} color="white" />
-                    </TouchableOpacity>
                 ) : (
-                    <TouchableOpacity style={[styles.button, styles.startBtn]} onPress={startTrek}>
-                        <Text style={styles.startText}>GO</Text>
-                    </TouchableOpacity>
+                    <View style={styles.ratingContainer}>
+                        <Ionicons name="location-outline" size={16} color="#666" />
+                        <Text style={[styles.ratingText, { color: '#666' }]}>{item.location || 'Unknown'}</Text>
+                    </View>
                 )}
             </View>
-        </View>
+        </TouchableOpacity>
+    );
+
+    return (
+        <SafeAreaView style={styles.container}>
+            <View style={styles.header}>
+                <Text style={styles.headerTitle}>Explore Treks</Text>
+                <View style={styles.searchContainer}>
+                    <Ionicons name="search" size={20} color="#666" style={{ marginRight: 8 }} />
+                    <TextInput
+                        placeholder="Search for trails..."
+                        style={styles.searchInput}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                    />
+                </View>
+            </View>
+
+            <View style={styles.content}>
+                <Text style={styles.sectionTitle}>Nearby Treks</Text>
+                {isLoading ? (
+                    <Text>Loading treks...</Text>
+                ) : (
+                    <FlatList
+                        data={treks}
+                        renderItem={renderTrekItem}
+                        keyExtractor={item => item._id}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{ paddingBottom: 100 }}
+                        ListEmptyComponent={<Text style={{ textAlign: 'center', marginTop: 20, color: '#666' }}>No available treks now</Text>}
+                    />
+                )}
+            </View>
+
+            <View style={styles.footer}>
+                <TouchableOpacity
+                    style={styles.startButton}
+                    onPress={() => router.push('/trek/active')}
+                >
+                    <Ionicons name="walk" size={24} color="white" style={{ marginRight: 10 }} />
+                    <Text style={styles.startButtonText}>Start New Trek</Text>
+                </TouchableOpacity>
+            </View>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
+        backgroundColor: '#f8f9fa',
     },
-    mapContainer: {
-        flex: 1,
+    header: {
+        padding: 20,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
     },
-    weatherOverlay: {
-        position: 'absolute',
-        top: 60,
-        right: 20,
-        zIndex: 10,
-    },
-    centered: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    controls: {
-        position: 'absolute',
-        bottom: 30,
-        left: 20,
-        right: 20,
-        alignItems: 'center',
-    },
-    statsCard: {
-        backgroundColor: 'rgba(255,255,255,0.9)',
-        padding: 10,
-        borderRadius: 10,
-        marginBottom: 20,
-        alignItems: 'center',
-        minWidth: 100,
-    },
-    statLabel: {
-        fontSize: 12,
-        color: '#666',
-        textTransform: 'uppercase',
-    },
-    statValue: {
-        fontSize: 24,
+    headerTitle: {
+        fontSize: 28,
         fontWeight: 'bold',
+        marginBottom: 15,
+        color: '#333',
     },
-    button: {
-        width: 70,
-        height: 70,
-        borderRadius: 35,
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f1f3f5',
+        borderRadius: 12,
+        paddingHorizontal: 15,
+        height: 45,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 16,
+        color: '#333',
+    },
+    content: {
+        flex: 1,
+        padding: 20,
+    },
+    sectionTitle: {
+        fontSize: 20,
+        fontWeight: '600',
+        marginBottom: 15,
+        color: '#333',
+    },
+    card: {
+        backgroundColor: 'white',
+        borderRadius: 16,
+        marginBottom: 15,
+        overflow: 'hidden',
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    cardImage: {
+        width: '100%',
+        height: 150,
+    },
+    cardContent: {
+        padding: 15,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    cardTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#333',
+        marginBottom: 4,
+    },
+    cardDistance: {
+        fontSize: 14,
+        color: '#666',
+    },
+    ratingContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#fff9db',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+    },
+    ratingText: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#fcc419',
+        marginLeft: 4,
+    },
+    footer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        padding: 20,
+        backgroundColor: 'white',
+        borderTopWidth: 1,
+        borderTopColor: '#eee',
+    },
+    startButton: {
+        backgroundColor: '#28a745',
+        height: 56,
+        borderRadius: 28,
+        flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: "#000",
+        elevation: 4,
+        shadowColor: '#28a745',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
-        shadowRadius: 4.65,
-        elevation: 8,
+        shadowRadius: 8,
     },
-    startBtn: {
-        backgroundColor: '#28a745',
-    },
-    stopBtn: {
-        backgroundColor: '#dc3545',
-    },
-    startText: {
+    startButtonText: {
         color: 'white',
-        fontWeight: 'bold',
         fontSize: 18,
+        fontWeight: 'bold',
     },
 });
