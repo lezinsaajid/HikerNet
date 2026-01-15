@@ -31,6 +31,31 @@ export const AuthProvider = ({ children }) => {
         loadUser();
     }, []);
 
+    // Setup 401 interceptor
+    useEffect(() => {
+        const interceptor = client.interceptors.response.use(
+            (response) => response,
+            async (error) => {
+                const originalRequest = error.config;
+                // If 401 and we haven't tried to redirect yet (avoid infinite loops ideally, 
+                // but simple lockout is fine for now)
+                if (error.response?.status === 401 && !originalRequest._retry) {
+                    console.log("Session expired (401). Logging out...");
+                    originalRequest._retry = true;
+                    // Force logout
+                    await logout();
+                    // Explicitly redirect to login just in case the auth guard doesn't catch it immediately
+                    router.replace('/login');
+                }
+                return Promise.reject(error);
+            }
+        );
+
+        return () => {
+            client.interceptors.response.eject(interceptor);
+        };
+    }, []);
+
     const login = async (email, password) => {
         try {
             const res = await client.post('/auth/login', { email, password });
