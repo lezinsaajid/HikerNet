@@ -16,13 +16,17 @@ const userSchema = new mongoose.Schema(
         password: {
             type: String,
             required: true,
-            minlength: 6,
+            minlength: 8,
         },
         profileImage: {
             type: String,
             default: "",
         },
         bio: {
+            type: String,
+            default: "",
+        },
+        location: {
             type: String,
             default: "",
         },
@@ -48,6 +52,16 @@ const userSchema = new mongoose.Schema(
         expoPushToken: {
             type: String, // For notifications
         },
+        medicalInfo: {
+            type: String,
+            default: "",
+        },
+        blockedUsers: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "User",
+            },
+        ],
     },
     { timestamps: true }
 );

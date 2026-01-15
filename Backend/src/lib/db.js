@@ -5,7 +5,7 @@ export const connectDB = async () => {
         const conn = await mongoose.connect(process.env.MONGO_URI);
         console.log(`Database connected ${conn.connection.host}`);
     } catch (error) {
-        console.log("Error connecting to database", error);
-        process.exit(1); // exit with failure
+        console.error("Error connecting to database. Retrying is handled by Mongoose auto-reconnect or manual restart is needed.", error);
+        // process.exit(1); // Do not exit, keep server alive to avoid reboot loops
     }
 };

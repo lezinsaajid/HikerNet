@@ -2,16 +2,24 @@ import express from "express";
 import Post from "../models/Post.js";
 import User from "../models/User.js";
 import protectRoute from "../middleware/auth.middleware.js";
+import cloudinary from "../lib/cloudinary.js";
 
 const router = express.Router();
 
 // Create a new post
 router.post("/create", protectRoute, async (req, res) => {
     try {
-        const { caption, image, trekId } = req.body;
+        let { caption, image, trekId } = req.body;
 
         if (!image && !caption && !trekId) {
             return res.status(400).json({ message: "Post must contain at least text, image, or a trek" });
+        }
+
+        if (image && image.startsWith("data:image")) {
+            const uploadRes = await cloudinary.uploader.upload(image, {
+                folder: "hikernet_posts",
+            });
+            image = uploadRes.secure_url;
         }
 
         const newPost = new Post({
