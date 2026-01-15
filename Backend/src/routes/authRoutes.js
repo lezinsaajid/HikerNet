@@ -49,15 +49,12 @@ router.post("/register", async (req, res) => {
 
         const token = generateToken(user._id);
 
+        const userResponse = user.toObject();
+        delete userResponse.password;
+
         res.status(201).json({
             token,
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                profileImage: user.profileImage,
-                createdAt: user.createdAt,
-            },
+            user: userResponse
         });
     } catch (error) {
         console.log("Error in register route", error);
@@ -81,15 +78,12 @@ router.post("/login", async (req, res) => {
 
         const token = generateToken(user._id);
 
+        const userResponse = user.toObject();
+        delete userResponse.password;
+
         res.status(200).json({
             token,
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                profileImage: user.profileImage,
-                createdAt: user.createdAt,
-            },
+            user: userResponse
         });
     } catch (error) {
         console.log("Error in login route", error);
@@ -148,15 +142,12 @@ router.post("/google", async (req, res) => {
 
         const jwtToken = generateToken(user._id);
 
+        const userResponse = user.toObject();
+        delete userResponse.password;
+
         res.status(200).json({
             token: jwtToken,
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                profileImage: user.profileImage,
-                createdAt: user.createdAt,
-            },
+            user: userResponse
         });
 
     } catch (error) {

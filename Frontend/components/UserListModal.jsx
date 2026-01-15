@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, SafeAreaView, TextInput, Modal } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, SafeAreaView, TextInput, Modal, Alert } from 'react-native';
+import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../api/client';
 import { useRouter } from 'expo-router';
@@ -39,28 +40,91 @@ export default function UserListModal({ visible, onClose, userId, type }) {
         user.username.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
+    const { user, updateUserData } = useAuth();
     const router = useRouter();
 
-    const handleUserPress = (user) => {
-        onClose(); // Close modal first
-        router.push(`/user-profile/${user._id}`);
+    const handleUserPress = (targetUser) => {
+        onClose();
+        router.push(`/user-profile/${targetUser._id}`);
     };
 
-    const renderUserItem = ({ item }) => (
-        <TouchableOpacity style={styles.userItem} onPress={() => handleUserPress(item)}>
-            <Image
-                source={{ uri: item.profileImage || 'https://via.placeholder.com/150' }}
-                style={styles.avatar}
-            />
-            <View style={styles.userInfo}>
-                <Text style={styles.username}>{item.username}</Text>
-                {item.bio ? <Text style={styles.bio} numberOfLines={1}>{item.bio}</Text> : null}
-            </View>
-            <TouchableOpacity style={styles.followButton}>
-                <Text style={styles.followButtonText}>Follow</Text>
+    const handleFollow = async (targetUserId) => {
+        try {
+            await client.post(`/users/follow/${targetUserId}`);
+            // Update local user state
+            const updatedFollowing = [...user.following, targetUserId];
+            updateUserData({ ...user, following: updatedFollowing });
+
+            // Optionally update the local users list visually if needed, but checking user.following in render is enough
+        } catch (error) {
+            console.error("Error following:", error);
+            Alert.alert("Error", "Could not follow user");
+        }
+    };
+
+    const handleRemove = async (targetUserId) => {
+        try {
+            await client.post(`/users/follow/${targetUserId}`); // Toggle off
+            const updatedFollowing = user.following.filter(f => (typeof f === 'object' ? f._id : f) !== targetUserId);
+            updateUserData({ ...user, following: updatedFollowing });
+        } catch (error) {
+            console.error("Error removing friend:", error);
+            Alert.alert("Error", "Could not remove friend");
+        }
+    };
+
+    const handleBlock = async (targetUserId) => {
+        try {
+            await client.post(`/users/block/${targetUserId}`);
+            const updatedFollowing = user.following.filter(f => (typeof f === 'object' ? f._id : f) !== targetUserId);
+            updateUserData({ ...user, following: updatedFollowing });
+            Alert.alert("Blocked", "User has been blocked");
+        } catch (error) {
+            console.error("Error blocking:", error);
+            Alert.alert("Error", "Could not block user");
+        }
+    };
+
+    const showFriendOptions = (targetUserId) => {
+        Alert.alert(
+            "Friend Options",
+            "Select an action",
+            [
+                { text: "Remove Friend", onPress: () => handleRemove(targetUserId) },
+                { text: "Block User", style: "destructive", onPress: () => handleBlock(targetUserId) },
+                { text: "Cancel", style: "cancel" }
+            ]
+        );
+    };
+
+    const renderUserItem = ({ item }) => {
+        // Robust check for following status (handles mixed array of strings/objects)
+        const isFollowing = user.following.some(f => (typeof f === 'object' ? f._id : f) === item._id);
+        const isSelf = user._id === item._id;
+
+        return (
+            <TouchableOpacity style={styles.userItem} onPress={() => handleUserPress(item)}>
+                <Image
+                    source={{ uri: item.profileImage || 'https://via.placeholder.com/150' }}
+                    style={styles.avatar}
+                />
+                <View style={styles.userInfo}>
+                    <Text style={styles.username}>{item.username}</Text>
+                    {item.bio ? <Text style={styles.bio} numberOfLines={1}>{item.bio}</Text> : null}
+                </View>
+                {!isSelf && (
+                    <TouchableOpacity
+                        style={isFollowing ? styles.friendsButton : styles.followButton}
+                        onPress={() => isFollowing ? showFriendOptions(item._id) : handleFollow(item._id)}
+                    >
+                        <Text style={isFollowing ? styles.friendsButtonText : styles.followButtonText}>
+                            {isFollowing ? "Friends" : "Follow"}
+                        </Text>
+                    </TouchableOpacity>
+                )}
             </TouchableOpacity>
-        </TouchableOpacity>
-    );
+        );
+    };
 
     return (
         <Modal visible={visible} animationType="slide" transparent={false}>
@@ -105,6 +169,8 @@ export default function UserListModal({ visible, onClose, userId, type }) {
         </Modal>
     );
 }
+
+
 
 const styles = StyleSheet.create({
     container: {
@@ -179,6 +245,19 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         fontSize: 14,
     },
+    friendsButton: {
+        backgroundColor: '#EFEFEF',
+        paddingHorizontal: 20,
+        paddingVertical: 8,
+        borderRadius: 5,
+        borderWidth: 1,
+        borderColor: '#CCC',
+    },
+    friendsButtonText: {
+        color: '#333',
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
     center: {
         flex: 1,
         justifyContent: 'center',
@@ -190,3 +269,4 @@ const styles = StyleSheet.create({
         fontSize: 16,
     },
 });
+

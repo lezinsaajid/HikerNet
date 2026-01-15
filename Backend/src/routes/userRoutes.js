@@ -4,18 +4,24 @@ import Trek from "../models/Trek.js";
 import Post from "../models/Post.js";
 import protectRoute from "../middleware/auth.middleware.js";
 import cloudinary from "../lib/cloudinary.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
 // Get user profile with social stats
 router.get("/profile/:id", async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            console.error(`[Backend] Rejecting invalid profile ID: "${req.params.id}"`);
+            return res.status(400).json({ message: "Invalid user ID format" });
+        }
+
         const user = await User.findById(req.params.id).select("-password");
         if (!user) return res.status(404).json({ message: "User not found" });
 
         // Calculate rank
         const leaderboard = await Trek.aggregate([
-            { $match: { status: "completed" } },
+            { $match: { status: "completed", user: { $exists: true, $ne: null } } },
             {
                 $group: {
                     _id: "$user",
@@ -25,7 +31,7 @@ router.get("/profile/:id", async (req, res) => {
             { $sort: { totalDistance: -1 } },
         ]);
 
-        const rank = leaderboard.findIndex(item => item._id.toString() === req.params.id) + 1;
+        const rank = leaderboard.findIndex(item => item && item._id && item._id.toString() === req.params.id) + 1;
 
         res.json({
             ...user.toObject(),
@@ -49,18 +55,18 @@ router.post("/follow/:id", protectRoute, async (req, res) => {
 
         if (!userToFollow || !currentUser) return res.status(404).json({ message: "User not found" });
 
-        const isFollowing = currentUser.following.includes(req.params.id);
+        const isFollowing = currentUser.following.some(fid => String(fid) === String(req.params.id));
 
         if (isFollowing) {
-            // Unfollow
-            await User.findByIdAndUpdate(req.user._id, { $pull: { following: req.params.id } });
-            await User.findByIdAndUpdate(req.params.id, { $pull: { followers: req.user._id } });
-            res.json({ message: "Unfollowed user" });
+            // Unfriend (Mutual)
+            await User.findByIdAndUpdate(req.user._id, { $pull: { following: req.params.id, followers: req.params.id } });
+            await User.findByIdAndUpdate(req.params.id, { $pull: { followers: req.user._id, following: req.user._id } });
+            res.json({ message: "Unfriended successfully" });
         } else {
-            // Follow
-            await User.findByIdAndUpdate(req.user._id, { $push: { following: req.params.id } });
-            await User.findByIdAndUpdate(req.params.id, { $push: { followers: req.user._id } });
-            res.json({ message: "Followed user" });
+            // Friend (Mutual)
+            await User.findByIdAndUpdate(req.user._id, { $addToSet: { following: req.params.id, followers: req.params.id } });
+            await User.findByIdAndUpdate(req.params.id, { $addToSet: { followers: req.user._id, following: req.user._id } });
+            res.json({ message: "Added friend successfully" });
         }
     } catch (error) {
         console.error("Error in follow/unfollow:", error);
@@ -193,20 +199,12 @@ router.put("/profile", protectRoute, async (req, res) => {
         }
 
         await user.save();
+        const userResponse = user.toObject();
+        delete userResponse.password;
+
         res.json({
             message: "Profile updated successfully",
-            user: {
-                _id: user._id,
-                username: user.username,
-                email: user.email,
-                profileImage: user.profileImage,
-                bio: user.bio,
-                followers: user.followers,
-                following: user.following,
-                emergencyContacts: user.emergencyContacts,
-                medicalInfo: user.medicalInfo,
-                location: user.location,
-            }
+            user: userResponse
         });
     } catch (error) {
         console.error("Error updating profile:", error);
@@ -217,6 +215,10 @@ router.put("/profile", protectRoute, async (req, res) => {
 // Get user posts
 router.get("/posts/:id", async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            console.error(`[Backend] Rejecting invalid posts ID: "${req.params.id}"`);
+            return res.status(400).json({ message: "Invalid user ID format" });
+        }
         const posts = await Post.find({ user: req.params.id }).sort({ createdAt: -1 });
         res.json(posts);
     } catch (error) {
@@ -228,6 +230,10 @@ router.get("/posts/:id", async (req, res) => {
 // Get followers
 router.get("/followers/:id", async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            console.error(`[Backend] Rejecting invalid followers ID: "${req.params.id}"`);
+            return res.status(400).json({ message: "Invalid user ID format" });
+        }
         const user = await User.findById(req.params.id).populate("followers", "username profileImage bio");
         if (!user) return res.status(404).json({ message: "User not found" });
         res.json(user.followers);
@@ -240,6 +246,10 @@ router.get("/followers/:id", async (req, res) => {
 // Get following
 router.get("/following/:id", async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            console.error(`[Backend] Rejecting invalid following ID: "${req.params.id}"`);
+            return res.status(400).json({ message: "Invalid user ID format" });
+        }
         const user = await User.findById(req.params.id).populate("following", "username profileImage bio");
         if (!user) return res.status(404).json({ message: "User not found" });
         res.json(user.following);

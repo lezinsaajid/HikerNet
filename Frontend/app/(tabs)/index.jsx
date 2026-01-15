@@ -2,8 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, Image, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
 import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../context/AuthContext';
-
 import StoryBar from '../../components/StoryBar';
 import WeatherWidget from '../../components/WeatherWidget';
 
@@ -11,7 +9,6 @@ export default function HomeFeed() {
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const { user } = useAuth();
 
     const fetchFeed = async () => {
         try {

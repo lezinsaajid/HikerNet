@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Alert, Dimensions, FlatList, Modal } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, Dimensions, FlatList } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,21 +26,22 @@ export default function UserProfile() {
             fetchProfileData();
             fetchUserPosts();
         }
-    }, [id]);
+    }, [id, fetchProfileData, fetchUserPosts]);
 
-    const fetchProfileData = async () => {
+    const fetchProfileData = useCallback(async () => {
         try {
             const res = await client.get(`/users/profile/${id}`);
             setUserData(res.data);
-            setIsFollowing(user.following.includes(id));
+            const currentFollowing = Array.isArray(user?.following) ? user.following.map(fid => String(fid)) : [];
+            setIsFollowing(currentFollowing.includes(String(id)));
         } catch (error) {
             console.error("Error fetching profile:", error);
             Alert.alert("Error", "User not found");
             router.back();
         }
-    };
+    }, [id, user?.following, router]);
 
-    const fetchUserPosts = async () => {
+    const fetchUserPosts = useCallback(async () => {
         try {
             setLoading(true);
             const res = await client.get(`/users/posts/${id}`);
@@ -50,7 +51,7 @@ export default function UserProfile() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [id]);
 
     const openUserList = (type) => {
         setUserListType(type);
@@ -64,20 +65,29 @@ export default function UserProfile() {
             // Toggle local state
             setIsFollowing(!isFollowing);
 
-            // Update followers count locally
+            const currentUserIdStr = String(user._id);
+            const targetIdStr = String(id);
+
+            // Update profile being viewed (targetId)
             setUserData(prev => ({
                 ...prev,
                 followers: !isFollowing
-                    ? [...(prev.followers || []), user._id]
-                    : (prev.followers || []).filter(fid => fid !== user._id)
+                    ? [...(prev.followers || []), currentUserIdStr]
+                    : (prev.followers || []).filter(fid => String(fid) !== currentUserIdStr),
+                following: !isFollowing
+                    ? [...(prev.following || []), currentUserIdStr]
+                    : (prev.following || []).filter(fid => String(fid) !== currentUserIdStr)
             }));
 
-            // Sync with global user state
+            // Sync with global user state (currentUser)
             const updatedFollowing = !isFollowing
-                ? [...user.following, id]
-                : user.following.filter(fid => fid !== id);
+                ? [...(user.following || []), targetIdStr]
+                : (user.following || []).filter(fid => String(fid) !== targetIdStr);
+            const updatedFollowers = !isFollowing
+                ? [...(user.followers || []), targetIdStr]
+                : (user.followers || []).filter(fid => String(fid) !== targetIdStr);
 
-            updateUserData({ ...user, following: updatedFollowing });
+            updateUserData({ ...user, following: updatedFollowing, followers: updatedFollowers });
 
         } catch (error) {
             console.error("Error connecting:", error);
@@ -125,10 +135,12 @@ export default function UserProfile() {
             // Update local state if needed, or simply route back
             Alert.alert("Blocked", "User has been blocked.");
 
-            // Remove from following if blocked
+            // Remove from friends list if blocked
             if (isFollowing) {
-                const updatedFollowing = user.following.filter(fid => fid !== id);
-                updateUserData({ ...user, following: updatedFollowing });
+                const targetIdStr = String(id);
+                const updatedFollowing = (user.following || []).filter(fid => String(fid) !== targetIdStr);
+                const updatedFollowers = (user.followers || []).filter(fid => String(fid) !== targetIdStr);
+                updateUserData({ ...user, following: updatedFollowing, followers: updatedFollowers });
             }
 
             router.back();
@@ -220,12 +232,16 @@ export default function UserProfile() {
                             </View>
                             <View style={styles.statsDivider} />
                             <TouchableOpacity style={styles.statItem} onPress={() => openUserList('following')}>
-                                <Text style={styles.statValue}>{userData?.following?.length || 0}</Text>
+                                <Text style={styles.statValue}>
+                                    {userData?._id && user?._id && String(userData._id) === String(user._id) ? (user.following?.length || 0) : (userData?.following?.length || 0)}
+                                </Text>
                                 <Text style={styles.statLabel}>Friends</Text>
                             </TouchableOpacity>
                             <View style={styles.statsDivider} />
                             <View style={styles.statItem}>
-                                <Text style={styles.statValue}>#{userData?.rank || '-'}</Text>
+                                <Text style={styles.statValue}>
+                                    {posts.length > 0 && userData?.rank ? `#${userData.rank}` : '#-'}
+                                </Text>
                                 <Text style={styles.statLabel}>Rank</Text>
                             </View>
                         </View>

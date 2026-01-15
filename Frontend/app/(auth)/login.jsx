@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, SafeAreaView, Dimensions, Image, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { Link, useRouter } from 'expo-router';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Dimensions, Image, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Link } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -11,8 +11,7 @@ export default function Login() {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loggingIn, setLoggingIn] = useState(false);
-    const { login } = useAuth();
-    const router = useRouter();
+    const { login, user, cancelAddAccount } = useAuth();
 
     const handleLogin = async () => {
         if (!email || !password) {
@@ -44,9 +43,12 @@ export default function Login() {
                             source={require('../../assets/images/login_hero.png')}
                             style={styles.heroImage}
                         />
-                        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-                            <Ionicons name="chevron-back" size={24} color="#FFF" />
-                        </TouchableOpacity>
+                        {/* Show back/close button if adding an account */}
+                        {user && (
+                            <TouchableOpacity onPress={cancelAddAccount} style={styles.backButton}>
+                                <Ionicons name="close" size={24} color="#FFF" />
+                            </TouchableOpacity>
+                        )}
                     </View>
 
                     {/* Form Section */}
