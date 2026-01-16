@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
 import WeatherWidget from '../../components/WeatherWidget';
@@ -9,86 +9,131 @@ import NativeMap, { Polyline } from '../../components/NativeMap';
 
 export default function ActiveTrekScreen() {
     const router = useRouter();
+    const params = useLocalSearchParams();
+    const { name, description, location: initialLocation, mode, trekId: paramTrekId } = params;
+
     const [location, setLocation] = useState(null);
     const [isTracking, setIsTracking] = useState(false);
-    const [trekId, setTrekId] = useState(null);
-    const [routeCoordinates, setRouteCoordinates] = useState([]);
+    const [isPaused, setIsPaused] = useState(false);
     const [stats, setStats] = useState({ distance: 0, duration: 0 });
+    const [trekId, setTrekId] = useState(paramTrekId || null);
+    const [routeCoordinates, setRouteCoordinates] = useState([]);
 
     // Timer Ref
     const timerRef = useRef(null);
     const pausedRef = useRef(false);
-
-    const [isPaused, setIsPaused] = useState(false);
+    const locationSubscription = useRef(null);
 
     useEffect(() => {
         (async () => {
             let { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
                 Alert.alert('Permission to access location was denied');
-                router.back(); // Go back if no permission
                 return;
             }
 
-            let currentLocation = await Location.getCurrentPositionAsync({});
-            setLocation(currentLocation.coords);
-            startTrek(); // Auto-start when entering this screen? Or wait for user? 
-            // The plan implied "Start Button" on dashboard -> "Active Screen". 
-            // So we should probably auto-start or have a "Ready? Go" UI.
-            // For now, let's auto-start to match the "Start Trek" button intent.
+            let loc = await Location.getCurrentPositionAsync({});
+            setLocation(loc.coords);
+
+            // If we have a trekId (resuming) OR a name (new trek), start tracking
+            if (paramTrekId || name) {
+                startTrek();
+            }
         })();
 
         return () => {
-            // Cleanup on unmount
-            if (timerRef.current) clearInterval(timerRef.current);
+            stopTracking();
         };
     }, []);
 
+    const trekIdRef = useRef(trekId); // Keep ref in sync for callbacks
+
+    useEffect(() => {
+        trekIdRef.current = trekId;
+    }, [trekId]);
+
+    const startLocationTracking = async () => {
+        // Clear existing if any
+        if (locationSubscription.current) {
+            locationSubscription.current.remove();
+        }
+
+        locationSubscription.current = await Location.watchPositionAsync(
+            {
+                accuracy: Location.Accuracy.High,
+                timeInterval: 5000,
+                distanceInterval: 10,
+            },
+            (newLocation) => {
+                if (pausedRef.current) return;
+
+                const { latitude, longitude, altitude } = newLocation.coords;
+                const newPoint = { latitude, longitude };
+
+                setRouteCoordinates(prev => {
+                    const newPath = [...prev, newPoint];
+                    return newPath;
+                });
+
+                setLocation(newLocation.coords);
+
+                // Sync to Backend using ref to avoid stale closure
+                if (trekIdRef.current) {
+                    client.put(`/treks/update/${trekIdRef.current}`, {
+                        coordinates: [{ latitude, longitude, altitude }]
+                    }).catch(console.error);
+                }
+            }
+        );
+    };
+
+    const stopLocationTracking = () => {
+        if (locationSubscription.current) {
+            locationSubscription.current.remove();
+            locationSubscription.current = null;
+        }
+    };
+
+    const stopTracking = () => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        stopLocationTracking();
+    };
+
     const startTrek = async () => {
         try {
-            const res = await client.post('/treks/start', { name: `Hike on ${new Date().toLocaleDateString()}` });
-            setTrekId(res.data._id);
             setIsTracking(true);
-            setRouteCoordinates([]);
-            setStats({ distance: 0, duration: 0 });
+            setIsPaused(false);
+            pausedRef.current = false;
 
-            // Start Timer
+            // Start timer
             timerRef.current = setInterval(() => {
                 if (!pausedRef.current) {
                     setStats(prev => ({ ...prev, duration: prev.duration + 1 }));
                 }
             }, 1000);
 
-            // Start Location Updates
-            await Location.watchPositionAsync(
-                {
-                    accuracy: Location.Accuracy.High,
-                    timeInterval: 5000,
-                    distanceInterval: 10,
-                },
-                (newLocation) => {
-                    if (pausedRef.current) return;
+            // Create trek on backend if starting new
+            if (!trekId) {
+                const res = await client.post('/treks/start', {
+                    name: name || `New Trek ${new Date().toLocaleDateString()}`,
+                    description: description || '',
+                    location: initialLocation || '',
+                    mode: mode || 'solo'
+                });
+                setTrekId(res.data._id);
+            }
 
-                    const { latitude, longitude, altitude } = newLocation.coords;
-                    const newPoint = { latitude, longitude };
+            // Start location tracking AFTER ID is set (or at least ref will be updated by effect soon)
+            // Ideally we wait for setTrekId to trigger effect, but startLocationTracking uses ref.
+            // If we start tracking immediately, the first few points might trigger before ref updates? 
+            // In React state updates are batched. 
+            // Safer to just start tracking. The ref will update on next render.
+            await startLocationTracking();
 
-                    setRouteCoordinates(prev => {
-                        const newPath = [...prev, newPoint];
-                        return newPath;
-                    });
-
-                    setLocation(newLocation.coords);
-
-                    // Sync to Backend
-                    client.put(`/treks/update/${res.data._id}`, {
-                        coordinates: [{ latitude, longitude, altitude }]
-                    }).catch(console.error);
-                }
-            );
         } catch (error) {
-            console.error("Error starting trek", error);
-            Alert.alert("Error", "Could not start trek");
-            router.back();
+            console.error("Failed to start trek", error);
+            Alert.alert("Error", "Failed to start trek session");
+            setIsTracking(false);
         }
     };
 

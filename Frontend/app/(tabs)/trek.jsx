@@ -39,7 +39,14 @@ export default function TrekDashboard() {
     };
 
     const renderTrekItem = ({ item }) => (
-        <TouchableOpacity style={styles.card}>
+        <TouchableOpacity
+            style={styles.card}
+            onPress={() => router.push({
+                pathname: `/trek/${item._id}`,
+                // Optional: pass data to avoid immediate fetch if desired, but id based fetch is cleaner for deep links
+                params: { id: item._id }
+            })}
+        >
             {/* Handle image arrays or single strings */}
             <Image
                 source={{ uri: item.images?.[0] || 'https://images.unsplash.com/photo-1551632811-561732d1e306?q=80&w=2070&auto=format&fit=crop' }}
@@ -66,6 +73,15 @@ export default function TrekDashboard() {
         </TouchableOpacity>
     );
 
+    const filteredTreks = treks.filter(trek => {
+        if (!searchQuery) return true;
+        const query = searchQuery.toLowerCase();
+        return (
+            trek.name?.toLowerCase().includes(query) ||
+            trek.location?.toLowerCase().includes(query)
+        );
+    });
+
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
@@ -82,31 +98,60 @@ export default function TrekDashboard() {
             </View>
 
             <View style={styles.content}>
-                <Text style={styles.sectionTitle}>Nearby Treks</Text>
+                <Text style={styles.sectionTitle}>
+                    {searchQuery ? 'Search Results' : 'Nearby Treks'}
+                </Text>
                 {isLoading ? (
                     <Text>Loading treks...</Text>
                 ) : (
                     <FlatList
-                        data={treks}
+                        data={filteredTreks}
                         renderItem={renderTrekItem}
                         keyExtractor={item => item._id}
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={{ paddingBottom: 100 }}
-                        ListEmptyComponent={<Text style={{ textAlign: 'center', marginTop: 20, color: '#666' }}>No available treks now</Text>}
+                        ListEmptyComponent={
+                            searchQuery ? (
+                                <View style={styles.emptyContainer}>
+                                    <Text style={styles.emptyText}>No treks found matching "{searchQuery}"</Text>
+                                    <TouchableOpacity
+                                        style={styles.addLocationButton}
+                                        onPress={() => router.push({
+                                            pathname: '/trek/create',
+                                            params: { initialName: searchQuery }
+                                        })}
+                                    >
+                                        <Ionicons name="add-circle-outline" size={24} color="#28a745" />
+                                        <Text style={styles.addLocationText}>Add new location: {searchQuery}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ) : (
+                                <Text style={styles.emptyText}>No available treks now</Text>
+                            )
+                        }
+                        ListFooterComponent={
+                            filteredTreks.length > 0 ? (
+                                <TouchableOpacity style={styles.card} onPress={() => router.push('/trek/create')}>
+                                    <View style={[styles.cardImage, { backgroundColor: '#e8f5e9', justifyContent: 'center', alignItems: 'center' }]}>
+                                        <Ionicons name="add" size={50} color="#28a745" />
+                                    </View>
+                                    <View style={styles.cardContent}>
+                                        <View>
+                                            <Text style={styles.cardTitle}>Add New Location</Text>
+                                            <Text style={styles.cardDistance}>Start tracking a new trek</Text>
+                                        </View>
+                                        <View style={[styles.ratingContainer, { backgroundColor: '#e8f5e9' }]}>
+                                            <Ionicons name="walk" size={16} color="#28a745" />
+                                        </View>
+                                    </View>
+                                </TouchableOpacity>
+                            ) : null
+                        }
                     />
                 )}
             </View>
 
-            <View style={styles.footer}>
-                <TouchableOpacity
-                    style={styles.startButton}
-                    onPress={() => router.push('/trek/active')}
-                >
-                    <Ionicons name="walk" size={24} color="white" style={{ marginRight: 10 }} />
-                    <Text style={styles.startButtonText}>Start New Trek</Text>
-                </TouchableOpacity>
-            </View>
-        </SafeAreaView>
+        </SafeAreaView >
     );
 }
 
@@ -195,32 +240,29 @@ const styles = StyleSheet.create({
         color: '#fcc419',
         marginLeft: 4,
     },
-    footer: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        padding: 20,
-        backgroundColor: 'white',
-        borderTopWidth: 1,
-        borderTopColor: '#eee',
-    },
-    startButton: {
-        backgroundColor: '#28a745',
-        height: 56,
-        borderRadius: 28,
-        flexDirection: 'row',
-        justifyContent: 'center',
+    emptyContainer: {
         alignItems: 'center',
-        elevation: 4,
-        shadowColor: '#28a745',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
+        marginTop: 40,
     },
-    startButtonText: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
+    emptyText: {
+        textAlign: 'center',
+        color: '#666',
+        fontSize: 16,
+        marginBottom: 20,
+    },
+    addLocationButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        backgroundColor: '#e8f5e9',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#c3e6cb',
+    },
+    addLocationText: {
+        color: '#28a745',
+        fontSize: 16,
+        fontWeight: '600',
+        marginLeft: 8,
     },
 });
