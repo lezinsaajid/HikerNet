@@ -1,6 +1,7 @@
 import express from "express";
 import Notification from "../models/Notification.js";
 import protectRoute from "../middleware/auth.middleware.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
@@ -21,6 +22,9 @@ router.get("/", protectRoute, async (req, res) => {
 // Mark as Read
 router.put("/:id/read", protectRoute, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid notification ID format" });
+        }
         await Notification.findByIdAndUpdate(req.params.id, { read: true });
         res.json({ message: "Notification marked as read" });
     } catch (error) {

@@ -1,6 +1,7 @@
 import express from "express";
 import Trek from "../models/Trek.js";
 import protectRoute from "../middleware/auth.middleware.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
@@ -32,6 +33,10 @@ router.put("/update/:id", protectRoute, async (req, res) => {
     try {
         const { coordinates, stats, status, images } = req.body;
         const trekId = req.params.id;
+
+        if (!mongoose.Types.ObjectId.isValid(trekId)) {
+            return res.status(400).json({ message: "Invalid trek ID format" });
+        }
 
         const trek = await Trek.findOne({ _id: trekId, user: req.user._id });
 
@@ -73,6 +78,9 @@ router.put("/update/:id", protectRoute, async (req, res) => {
 // Get a specific trek
 router.get("/:id", async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid trek ID format" });
+        }
         const trek = await Trek.findById(req.params.id).populate("user", "username profileImage");
 
         if (!trek) {

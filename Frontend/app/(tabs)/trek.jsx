@@ -113,7 +113,7 @@ export default function TrekDashboard() {
                         ListEmptyComponent={
                             searchQuery ? (
                                 <View style={styles.emptyContainer}>
-                                    <Text style={styles.emptyText}>No treks found matching "{searchQuery}"</Text>
+                                    <Text style={styles.emptyText}>No treks found matching &quot;{searchQuery}&quot;</Text>
                                     <TouchableOpacity
                                         style={styles.addLocationButton}
                                         onPress={() => router.push({

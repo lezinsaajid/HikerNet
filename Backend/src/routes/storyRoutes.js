@@ -2,6 +2,7 @@ import express from "express";
 import Story from "../models/Story.js";
 import User from "../models/User.js";
 import protectRoute from "../middleware/auth.middleware.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
@@ -32,6 +33,9 @@ router.post("/create", protectRoute, async (req, res) => {
 // View story (mark as viewed)
 router.post("/view/:id", protectRoute, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid story ID format" });
+        }
         const story = await Story.findById(req.params.id);
         if (!story) return res.status(404).json({ message: "Story not found" });
 

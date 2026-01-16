@@ -3,6 +3,7 @@ import Post from "../models/Post.js";
 import User from "../models/User.js";
 import protectRoute from "../middleware/auth.middleware.js";
 import cloudinary from "../lib/cloudinary.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
@@ -40,6 +41,9 @@ router.post("/create", protectRoute, async (req, res) => {
 // Delete a post
 router.delete("/:id", protectRoute, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid post ID format" });
+        }
         const post = await Post.findById(req.params.id);
         if (!post) {
             return res.status(404).json({ message: "Post not found" });
@@ -78,6 +82,9 @@ router.get("/feed", protectRoute, async (req, res) => {
 // Like / Unlike a post
 router.put("/like/:id", protectRoute, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid post ID format" });
+        }
         const post = await Post.findById(req.params.id);
         if (!post) {
             return res.status(404).json({ message: "Post not found" });
@@ -101,6 +108,9 @@ router.put("/like/:id", protectRoute, async (req, res) => {
 // Add a comment
 router.post("/comment/:id", protectRoute, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid post ID format" });
+        }
         const { text } = req.body;
         const post = await Post.findById(req.params.id);
 

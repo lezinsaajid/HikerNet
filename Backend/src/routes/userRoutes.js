@@ -46,6 +46,10 @@ router.get("/profile/:id", async (req, res) => {
 // Follow / Unfollow user
 router.post("/follow/:id", protectRoute, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid user ID format" });
+        }
+
         if (req.params.id === req.user._id.toString()) {
             return res.status(400).json({ message: "You cannot follow yourself" });
         }
@@ -77,6 +81,10 @@ router.post("/follow/:id", protectRoute, async (req, res) => {
 // Block user
 router.post("/block/:id", protectRoute, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid user ID format" });
+        }
+
         if (req.params.id === req.user._id.toString()) {
             return res.status(400).json({ message: "You cannot block yourself" });
         }
@@ -103,6 +111,10 @@ router.post("/block/:id", protectRoute, async (req, res) => {
 // Unblock user
 router.post("/unblock/:id", protectRoute, async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid user ID format" });
+        }
+
         await User.findByIdAndUpdate(req.user._id, { $pull: { blockedUsers: req.params.id } });
         res.json({ message: "User unblocked successfully" });
     } catch (error) {

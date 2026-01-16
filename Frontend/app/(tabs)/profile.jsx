@@ -10,7 +10,7 @@ import UserListModal from '../../components/UserListModal';
 const { width } = Dimensions.get('window');
 
 export default function Profile() {
-    const { user, updateUserData, accounts, switchAccount, prepareAddAccount, logout } = useAuth();
+    const { user, updateUserData, accounts, switchAccount, prepareAddAccount, logout, logoutAll } = useAuth();
     const router = useRouter();
 
     // Data State

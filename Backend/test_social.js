@@ -17,7 +17,7 @@ async function register(name) {
         })
     });
     const data = await res.json();
-    return res.ok ? { token: data.token, id: data.user.id, name: data.user.username } : null;
+    return res.ok ? { token: data.token, id: data.user._id, name: data.user.username } : null;
 }
 
 async function follow(followerToken, targetId) {
