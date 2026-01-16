@@ -34,6 +34,7 @@ const trekSchema = new mongoose.Schema(
                 altitude: { type: Number },
                 title: { type: String },
                 description: { type: String },
+                icon: { type: String, default: 'location' }, // marker icon name
                 images: [{ type: String }], // Array of image URLs specific to this point
                 timestamp: { type: Date, default: Date.now },
             }
