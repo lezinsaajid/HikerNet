@@ -2,6 +2,7 @@ import express from "express";
 import Story from "../models/Story.js";
 import User from "../models/User.js";
 import protectRoute from "../middleware/auth.middleware.js";
+import cloudinary from "../lib/cloudinary.js";
 import mongoose from "mongoose";
 
 const router = express.Router();
@@ -9,10 +10,17 @@ const router = express.Router();
 // Create a new story
 router.post("/create", protectRoute, async (req, res) => {
     try {
-        const { media, type, trekId } = req.body;
+        let { media, type, trekId } = req.body;
 
         if (!media) {
-            return res.status(400).json({ message: "Media URL is required" });
+            return res.status(400).json({ message: "Media URL or base64 is required" });
+        }
+
+        if (media && media.startsWith("data:image")) {
+            const uploadRes = await cloudinary.uploader.upload(media, {
+                folder: "hikernet_stories",
+            });
+            media = uploadRes.secure_url;
         }
 
         const newStory = new Story({
@@ -58,9 +66,13 @@ router.get("/feed", protectRoute, async (req, res) => {
         const following = currentUser.following;
         const userIds = [...following, req.user._id];
 
-        const stories = await Story.find({ user: { $in: userIds } })
+        const stories = await Story.find({
+            user: { $in: userIds },
+            expiresAt: { $gt: new Date() } // Only show active stories
+        })
             .populate("user", "username profileImage")
             .populate("trek", "name stats")
+            .populate("viewers", "username profileImage") // Populate viewers for all, we will filter visibility in grouping or frontend
             .sort({ createdAt: 1 });
 
         // Group by user
@@ -80,6 +92,24 @@ router.get("/feed", protectRoute, async (req, res) => {
     } catch (error) {
         console.error("Error fetching story feed:", error);
         res.status(500).json({ message: "Error fetching story feed" });
+    }
+});
+
+// Get archived/all stories for a specific user (for profile page)
+router.get("/user/:userId", protectRoute, async (req, res) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.userId)) {
+            return res.status(400).json({ message: "Invalid user ID format" });
+        }
+
+        const stories = await Story.find({ user: req.params.userId })
+            .populate("trek", "name stats")
+            .sort({ createdAt: -1 });
+
+        res.json(stories);
+    } catch (error) {
+        console.error("Error fetching user stories:", error);
+        res.status(500).json({ message: "Error fetching user stories" });
     }
 });
 

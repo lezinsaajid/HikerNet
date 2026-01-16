@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, ScrollView, Image, TouchableOpacity, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import client from '../api/client';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
@@ -10,18 +10,20 @@ export default function StoryBar() {
     const router = useRouter();
     const { user } = useAuth();
 
-    useEffect(() => {
-        fetchStories();
-    }, []);
-
-    const fetchStories = async () => {
+    const fetchStories = useCallback(async () => {
         try {
             const res = await client.get('/stories/feed');
             setStories(res.data);
         } catch (error) {
             console.error("Error fetching stories", error);
         }
-    };
+    }, []);
+
+    useFocusEffect(
+        React.useCallback(() => {
+            fetchStories();
+        }, [fetchStories])
+    );
 
     const handleCreate = () => {
         router.push('/story/create');
@@ -31,28 +33,36 @@ export default function StoryBar() {
         router.push({ pathname: '/story/view', params: { userId } });
     };
 
+    const myStoryGroup = stories.find(s => String(s.user?._id) === String(user?._id));
+    const friendStories = stories.filter(s => String(s.user?._id) !== String(user?._id));
+
     return (
         <View style={styles.container}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-                {/* Add Story Button */}
-                <TouchableOpacity style={styles.item} onPress={handleCreate}>
-                    <View style={[styles.ring, styles.addRing]}>
-                        <Image source={{ uri: user?.profileImage }} style={styles.avatar} />
-                        <View style={styles.plusBadge}>
-                            <Ionicons name="add" size={12} color="white" />
-                        </View>
+                {/* My Story Button */}
+                <TouchableOpacity
+                    style={styles.item}
+                    onPress={() => myStoryGroup ? handleView(user._id) : handleCreate()}
+                >
+                    <View style={[styles.ring, myStoryGroup ? styles.activeRing : styles.addRing]}>
+                        <Image source={{ uri: user?.profileImage || 'https://via.placeholder.com/150' }} style={styles.avatar} />
+                        {!myStoryGroup && (
+                            <View style={styles.plusBadge}>
+                                <Ionicons name="add" size={12} color="white" />
+                            </View>
+                        )}
                     </View>
                     <Text style={styles.username}>My Story</Text>
                 </TouchableOpacity>
 
                 {/* Friend Stories */}
-                {stories.map((storyGroup) => (
-                    <TouchableOpacity key={storyGroup.user._id} style={styles.item} onPress={() => handleView(storyGroup.user._id)}>
+                {friendStories.map((storyGroup) => (
+                    <TouchableOpacity key={storyGroup.user?._id} style={styles.item} onPress={() => handleView(storyGroup.user?._id)}>
                         <View style={[styles.ring, styles.activeRing]}>
-                            <Image source={{ uri: storyGroup.user.profileImage }} style={styles.avatar} />
+                            <Image source={{ uri: storyGroup.user?.profileImage }} style={styles.avatar} />
                         </View>
                         <Text style={styles.username} numberOfLines={1}>
-                            {storyGroup.user.username}
+                            {storyGroup.user?.username}
                         </Text>
                     </TouchableOpacity>
                 ))}

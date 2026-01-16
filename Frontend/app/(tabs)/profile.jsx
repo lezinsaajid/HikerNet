@@ -15,8 +15,11 @@ export default function Profile() {
 
     // Data State
     const [posts, setPosts] = useState([]);
+    const [userStories, setUserStories] = useState([]);
+    const [userAdventures, setUserAdventures] = useState([]);
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [activeTab, setActiveTab] = useState('snaps'); // 'snaps', 'stories', 'adventures'
     const [uploading, setUploading] = useState(false);
 
     // Account Switching State
@@ -32,6 +35,11 @@ export default function Profile() {
     const [newPostImage, setNewPostImage] = useState(null);
     const [creatingPost, setCreatingPost] = useState(false);
 
+    // Adventure State
+    const [isAdventureModalVisible, setIsAdventureModalVisible] = useState(false);
+    const [newAdventureContent, setNewAdventureContent] = useState('');
+    const [creatingAdventure, setCreatingAdventure] = useState(false);
+
     useFocusEffect(
         useCallback(() => {
             if (user?._id) {
@@ -46,7 +54,9 @@ export default function Profile() {
 
                     Promise.all([
                         fetchProfileData(currentId),
-                        fetchUserPosts(currentId)
+                        fetchUserPosts(currentId),
+                        fetchUserStories(currentId),
+                        fetchUserAdventures(currentId)
                     ]).catch(err => {
                         console.error("[Profile] Fetch error:", err);
                     }).finally(() => {
@@ -105,6 +115,16 @@ export default function Profile() {
             setPosts([]);
         }
     }, []);
+    const fetchUserStories = useCallback(async (targetId) => {
+        try {
+            const res = await client.get(`/stories/user/${targetId}`);
+            setUserStories(res.data || []);
+        } catch (error) {
+            console.error("[Profile] fetchUserStories error:", error);
+            setUserStories([]);
+        }
+    }, []);
+
 
 
     const pickProfileImage = async () => {
@@ -125,6 +145,61 @@ export default function Profile() {
         if (!result.canceled) {
             handleProfileUpload(result.assets[0].base64);
         }
+    };
+
+    const fetchUserAdventures = useCallback(async (targetId) => {
+        try {
+            const res = await client.get(`/adventures/user/${targetId}`);
+            setUserAdventures(res.data || []);
+        } catch (error) {
+            console.error("[Profile] fetchUserAdventures error:", error);
+            setUserAdventures([]);
+        }
+    }, []);
+
+    const handleCreateAdventure = async () => {
+        if (!newAdventureContent.trim()) {
+            Alert.alert("Error", "Please enter some content for your adventure remark.");
+            return;
+        }
+
+        try {
+            setCreatingAdventure(true);
+            await client.post('/adventures/create', { content: newAdventureContent });
+            setNewAdventureContent('');
+            setIsAdventureModalVisible(false);
+            fetchUserAdventures(user._id);
+            Alert.alert("Success", "Adventure remark posted!");
+        } catch (error) {
+            console.error("Adventure creation error:", error.response?.data || error.message);
+            Alert.alert("Failed", "Failed to post adventure remark.");
+        } finally {
+            setCreatingAdventure(false);
+        }
+    };
+
+    const handleDeleteAdventure = async (id) => {
+        Alert.alert(
+            "Delete Remark",
+            "Are you sure you want to delete this adventure remark?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            await client.delete(`/adventures/${id}`);
+                            fetchUserAdventures(user._id);
+                            Alert.alert("Success", "Remark deleted!");
+                        } catch (error) {
+                            console.error("Delete adventure error:", error);
+                            Alert.alert("Error", "Failed to delete remark.");
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     const handleProfileUpload = async (base64) => {
@@ -191,14 +266,41 @@ export default function Profile() {
         setUserListVisible(true);
     };
 
-    const renderPostGrid = ({ item }) => (
-        <TouchableOpacity style={styles.postGridItem}>
-            <Image
-                source={{ uri: item.image || 'https://via.placeholder.com/301' }}
-                style={styles.gridImage}
-            />
-        </TouchableOpacity>
-    );
+    const renderPostGrid = ({ item }) => {
+        if (activeTab === 'adventures') {
+            return (
+                <View style={styles.adventureCard}>
+                    <View style={styles.adventureHeader}>
+                        <View style={styles.adventureUserGroup}>
+                            <Image source={{ uri: item.user.profileImage }} style={styles.adventureAvatar} />
+                            <View>
+                                <Text style={styles.adventureUsername}>{item.user.username}</Text>
+                                <Text style={styles.adventureDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                            </View>
+                        </View>
+                        {isOwner && (
+                            <TouchableOpacity onPress={() => handleDeleteAdventure(item._id)}>
+                                <Ionicons name="trash-outline" size={18} color="#999" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                    <Text style={styles.adventureContent}>{item.content}</Text>
+                </View>
+            );
+        }
+
+        return (
+            <TouchableOpacity style={[
+                styles.postGridItem,
+                activeTab === 'stories' && styles.storyGridItem
+            ]}>
+                <Image
+                    source={{ uri: (activeTab === 'snaps' ? item.image : item.media) || 'https://via.placeholder.com/301' }}
+                    style={styles.gridImage}
+                />
+            </TouchableOpacity>
+        );
+    };
 
     // Render-phase protection: If user ID changed but data hasn't updated yet, show loading.
     // This prevents showing the "Friend View" (Connect buttons) for your own profile during the switch.
@@ -234,11 +336,22 @@ export default function Profile() {
             </View>
 
             <FlatList
-                data={posts}
-                numColumns={3}
+                key={activeTab === 'adventures' ? 'single' : 'grid'}
+                data={activeTab === 'snaps' ? posts : (activeTab === 'stories' ? userStories : userAdventures)}
+                numColumns={activeTab === 'adventures' ? 1 : 3}
                 keyExtractor={(item) => item._id}
                 ListHeaderComponent={
                     <View style={styles.headerContainer}>
+                        {activeTab === 'adventures' && isOwner && (
+                            <TouchableOpacity
+                                style={styles.createAdventurePrompt}
+                                onPress={() => setIsAdventureModalVisible(true)}
+                            >
+                                <Image source={{ uri: user?.profileImage }} style={styles.promptAvatar} />
+                                <Text style={styles.promptText}>Share your adventure remark...</Text>
+                                <Ionicons name="send-outline" size={20} color="#7A4B3A" />
+                            </TouchableOpacity>
+                        )}
                         <View style={styles.profileMainInfo}>
                             <TouchableOpacity onPress={pickProfileImage} style={styles.avatarContainer}>
                                 {uploading ? (
@@ -321,15 +434,26 @@ export default function Profile() {
                         </View>
 
                         <View style={styles.tabsSection}>
-                            <TouchableOpacity style={[styles.tabItem, styles.activeTabItem]}>
-                                <Text style={[styles.tabLabel, styles.activeTabLabel]}>Snaps</Text>
-                                <View style={styles.activeIndicator} />
+                            <TouchableOpacity
+                                style={[styles.tabItem, activeTab === 'snaps' && styles.activeTabItem]}
+                                onPress={() => setActiveTab('snaps')}
+                            >
+                                <Text style={[styles.tabLabel, activeTab === 'snaps' && styles.activeTabLabel]}>Snaps</Text>
+                                {activeTab === 'snaps' && <View style={styles.activeIndicator} />}
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.tabItem}>
-                                <Text style={styles.tabLabel}>Stories</Text>
+                            <TouchableOpacity
+                                style={[styles.tabItem, activeTab === 'stories' && styles.activeTabItem]}
+                                onPress={() => setActiveTab('stories')}
+                            >
+                                <Text style={[styles.tabLabel, activeTab === 'stories' && styles.activeTabLabel]}>Stories</Text>
+                                {activeTab === 'stories' && <View style={styles.activeIndicator} />}
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.tabItem}>
-                                <Text style={styles.tabLabel}>Adventures</Text>
+                            <TouchableOpacity
+                                style={[styles.tabItem, activeTab === 'adventures' && styles.activeTabItem]}
+                                onPress={() => setActiveTab('adventures')}
+                            >
+                                <Text style={[styles.tabLabel, activeTab === 'adventures' && styles.activeTabLabel]}>Adventures</Text>
+                                {activeTab === 'adventures' && <View style={styles.activeIndicator} />}
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -339,8 +463,14 @@ export default function Profile() {
                 ListEmptyComponent={
                     !loading && (
                         <View style={styles.emptyContainer}>
-                            <Ionicons name="images-outline" size={64} color="#EEE" />
-                            <Text style={styles.emptyText}>No posts yet</Text>
+                            <Ionicons
+                                name={activeTab === 'stories' ? "play-circle-outline" : "images-outline"}
+                                size={64}
+                                color="#EEE"
+                            />
+                            <Text style={styles.emptyText}>
+                                {activeTab === 'stories' ? "No stories yet" : "No posts yet"}
+                            </Text>
                         </View>
                     )
                 }
@@ -524,6 +654,62 @@ export default function Profile() {
                 userId={user?._id}
                 type={userListType}
             />
+
+            {/* Create Adventure Modal */}
+            <Modal
+                visible={isAdventureModalVisible}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={() => setIsAdventureModalVisible(false)}
+            >
+                <TouchableOpacity
+                    style={styles.adventureModalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setIsAdventureModalVisible(false)}
+                >
+                    <View style={styles.adventureModalContent}>
+                        <View style={styles.adventureModalHeader}>
+                            <Text style={styles.adventureModalTitle}>New Adventure Remark</Text>
+                            <TouchableOpacity onPress={() => setIsAdventureModalVisible(false)}>
+                                <Ionicons name="close" size={24} color="#000" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <TextInput
+                            style={styles.adventureInput}
+                            placeholder="What's your remark today?"
+                            multiline
+                            maxLength={280}
+                            value={newAdventureContent}
+                            onChangeText={setNewAdventureContent}
+                            autoFocus
+                        />
+
+                        <View style={styles.adventureFooter}>
+                            <Text style={[
+                                styles.charCount,
+                                newAdventureContent.length > 250 && { color: '#FF3B30' }
+                            ]}>
+                                {newAdventureContent.length}/280
+                            </Text>
+                            <TouchableOpacity
+                                style={[
+                                    styles.postAdventureBtn,
+                                    !newAdventureContent.trim() && { opacity: 0.5 }
+                                ]}
+                                onPress={handleCreateAdventure}
+                                disabled={creatingAdventure || !newAdventureContent.trim()}
+                            >
+                                {creatingAdventure ? (
+                                    <ActivityIndicator color="#FFF" size="small" />
+                                ) : (
+                                    <Text style={styles.postAdventureBtnText}>Post</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </SafeAreaView >
     );
 }
@@ -715,6 +901,9 @@ const styles = StyleSheet.create({
         height: width / 3,
         padding: 4,
     },
+    storyGridItem: {
+        height: (width / 3) * (16 / 9),
+    },
     gridImage: {
         width: '100%',
         height: '100%',
@@ -869,5 +1058,130 @@ const styles = StyleSheet.create({
         backgroundColor: '#F0F0F0',
         marginHorizontal: 15,
         marginVertical: 5,
+    },
+    adventureCard: {
+        backgroundColor: '#FFF',
+        padding: 15,
+        marginHorizontal: 20,
+        marginBottom: 10,
+        borderRadius: 15,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
+    },
+    adventureHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+    },
+    adventureUserGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    adventureAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        marginRight: 10,
+        backgroundColor: '#EEE',
+    },
+    adventureUsername: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    adventureDate: {
+        fontSize: 10,
+        color: '#999',
+    },
+    adventureContent: {
+        fontSize: 16,
+        color: '#262626',
+        lineHeight: 22,
+    },
+    createAdventurePrompt: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF',
+        padding: 12,
+        borderRadius: 15,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
+    },
+    promptAvatar: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        marginRight: 12,
+        backgroundColor: '#EEE',
+    },
+    promptText: {
+        flex: 1,
+        color: '#999',
+        fontSize: 14,
+    },
+    adventureModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-start',
+        paddingTop: 100,
+    },
+    adventureModalContent: {
+        backgroundColor: '#FFF',
+        marginHorizontal: 20,
+        borderRadius: 20,
+        padding: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+        elevation: 5,
+    },
+    adventureModalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 15,
+    },
+    adventureModalTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    adventureInput: {
+        fontSize: 18,
+        color: '#000',
+        minHeight: 120,
+        textAlignVertical: 'top',
+        marginBottom: 15,
+    },
+    adventureFooter: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderTopWidth: 1,
+        borderTopColor: '#F0F0F0',
+        paddingTop: 15,
+    },
+    charCount: {
+        fontSize: 12,
+        color: '#999',
+    },
+    postAdventureBtn: {
+        backgroundColor: '#7A4B3A',
+        paddingHorizontal: 24,
+        paddingVertical: 10,
+        borderRadius: 25,
+    },
+    postAdventureBtnText: {
+        color: '#FFF',
+        fontWeight: 'bold',
+        fontSize: 16,
     },
 });

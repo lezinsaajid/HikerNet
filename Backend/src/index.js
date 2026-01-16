@@ -12,6 +12,7 @@ import safetyRoutes from "./routes/safetyRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import weatherRoutes from "./routes/weatherRoutes.js";
 import locationRoutes from "./routes/locationRoutes.js";
+import adventureRoutes from "./routes/adventureRoutes.js";
 
 import { connectDB } from "./lib/db.js";
 
@@ -32,6 +33,7 @@ app.use("/api/safety", safetyRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/weather", weatherRoutes);
 app.use("/api/location", locationRoutes);
+app.use("/api/adventures", adventureRoutes);
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

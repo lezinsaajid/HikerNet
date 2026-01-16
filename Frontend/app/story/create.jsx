@@ -25,10 +25,11 @@ export default function CreateStory() {
             allowsEditing: true,
             aspect: [9, 16],
             quality: 0.8,
+            base64: true,
         });
 
         if (!result.canceled) {
-            setImage(result.assets[0].uri);
+            setImage(result.assets[0]);
         }
     };
 
@@ -41,36 +42,12 @@ export default function CreateStory() {
             // For this quick impl, we'll assume we send to backend, but usually we need Multipart form data.
             // Simplified: We will mock upload or send base64 if small, but let's try multipart.
 
-            let formData = new FormData();
-            formData.append('media', {
-                uri: image,
-                type: 'image/jpeg',
-                name: 'story.jpg',
-            });
-            // formData.append('caption', caption); // Stories usually don't have captions in DB model, but maybe stickers. 
-            // Checking model: Story.js has 'type', 'media', 'trek'. No caption field.
-
-            // Since we didn't implement specialized file upload route waiting for multipart in `storyRoutes.js` (it expects JSON usually unless we used multer middleware),
-            // AND we didn't install multer on backend.
-            // WE MUST FIX THIS: The Backend needs to handle file uploads, OR we upload to Cloudinary directly here.
-
-            // CRITICAL: The backend `storyRoutes` "create" endpoint likely expects a URL string for `media`.
-            // So we need to upload the image first.
-            // Since we don't have a configured upload endpoint ready for today, 
-            // I will use a placeholder logic: "Mock Upload" -> Sends local URI.
-            // Real world: Upload to Cloudinary -> Get URL -> Send URL to API.
-
-            // For demo: Just send the image URI (it won't work on other devices, but works on local simulator).
-            // OR use a reliable public test image if user didn't pick one? No, user picked one.
-
-            // Let's assume the backend *can* accept a base64 string if I modify it? 
-            // No, let's stick to the architecture: Backend expects URL.
-            // I will simulate it by just sending the stats.
-
-            await client.post('/stories/create', {
-                media: "https://images.unsplash.com/photo-1551632811-561732d1e306?q=80&w=1000&auto=format&fit=crop", // Mock URL for demo
+            const payload = {
+                media: `data:image/jpeg;base64,${image.base64}`,
                 type: 'image'
-            });
+            };
+
+            await client.post('/stories/create', payload);
 
             Alert.alert("Success", "Story posted!");
             router.back();
@@ -91,7 +68,7 @@ export default function CreateStory() {
         <View style={styles.container}>
             {image ? (
                 <View style={styles.previewContainer}>
-                    <Image source={{ uri: image }} style={styles.preview} />
+                    <Image source={{ uri: image.uri }} style={styles.preview} />
                     <TouchableOpacity style={styles.closeBtn} onPress={() => setImage(null)}>
                         <Ionicons name="close-circle" size={32} color="white" />
                     </TouchableOpacity>
