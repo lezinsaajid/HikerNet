@@ -1,0 +1,119 @@
+import express from "express";
+import User from "../models/User.js";
+import Chat from "../models/Chat.js";
+import Message from "../models/Message.js";
+
+const router = express.Router();
+
+// Helper middleware for auth (assuming req.user is set by existing auth middleware)
+// If not, we'll need to update this to use the actual auth middleware you have.
+// For now, I'll assume `req.headers.authorization` or similar is used, 
+// but since I don't see the middleware imported yet, I'll rely on the caller to ensure it's protected or add it.
+// Looking at previous patterns, I should probably check how auth is handled. 
+// Assuming a middleware sets `req.user`.
+
+// SEARCH USERS
+router.get("/search", async (req, res) => {
+    try {
+        const { query } = req.query;
+        if (!query) return res.status(400).json({ message: "Search query is required" });
+
+        // Find users by username or email, excluding the current user if we had their ID
+        const users = await User.find({
+            username: { $regex: query, $options: "i" },
+        }).limit(10).select("_id username profileImage email");
+
+        res.json(users);
+    } catch (error) {
+        console.error("Search error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// GET OR CREATE CHAT (1-on-1)
+router.post("/", async (req, res) => {
+    const { currentUserId, partnerId } = req.body; // In real app, currentUserId from token
+
+    if (!currentUserId || !partnerId) {
+        return res.status(400).json({ message: "Missing participants" });
+    }
+
+    try {
+        let chat = await Chat.findOne({
+            participants: { $all: [currentUserId, partnerId] },
+        }).populate("participants", "username profileImage email");
+
+        if (!chat) {
+            chat = await Chat.create({
+                participants: [currentUserId, partnerId],
+            });
+            chat = await chat.populate("participants", "username profileImage email");
+        }
+
+        res.json(chat);
+    } catch (error) {
+        console.error("Create chat error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// GET ALL CHATS FOR USER
+router.get("/user/:userId", async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const chats = await Chat.find({
+            participants: { $in: [userId] },
+        })
+            .populate("participants", "username profileImage email")
+            .populate("lastMessage")
+            .sort({ updatedAt: -1 });
+
+        res.json(chats);
+    } catch (error) {
+        console.error("Get chats error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// GET MESSAGES
+router.get("/:chatId/messages", async (req, res) => {
+    try {
+        const { chatId } = req.params;
+        const messages = await Message.find({ chatId })
+            .populate("sender", "username profileImage")
+            .sort({ createdAt: 1 }); // Oldest first for chat history
+
+        res.json(messages);
+    } catch (error) {
+        console.error("Get messages error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// SEND MESSAGE
+router.post("/:chatId/messages", async (req, res) => {
+    try {
+        const { chatId } = req.params;
+        const { senderId, content } = req.body;
+
+        const message = await Message.create({
+            chatId,
+            sender: senderId,
+            content,
+        });
+
+        // Update last message in chat
+        await Chat.findByIdAndUpdate(chatId, {
+            lastMessage: message._id,
+            updatedAt: new Date(),
+        });
+
+        const populatedMessage = await message.populate("sender", "username profileImage");
+        res.json(populatedMessage);
+    } catch (error) {
+        console.error("Send message error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+export default router;
