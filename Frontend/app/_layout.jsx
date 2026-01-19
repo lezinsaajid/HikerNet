@@ -4,6 +4,7 @@ import { AuthProvider } from "../context/AuthContext";
 import * as SplashScreen from 'expo-splash-screen';
 import { View, Animated, StyleSheet, Image } from 'react-native';
 import LottieView from 'lottie-react-native';
+import NotificationManager from '../components/NotificationManager';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -58,6 +59,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
+      <NotificationManager />
       <View style={{ flex: 1 }}>
         <Stack screenOptions={{ headerShown: false }} />
 

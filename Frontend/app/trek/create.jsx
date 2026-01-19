@@ -50,7 +50,7 @@ export default function CreateTrekScreen() {
     };
 
     const handleStart = (mode) => {
-        if (!name.trim()) {
+        if (mode === 'solo' && !name.trim()) {
             Alert.alert("Missing Information", "Please enter a trek name.");
             return;
         }
@@ -128,7 +128,14 @@ export default function CreateTrekScreen() {
 
                 <TouchableOpacity
                     style={[styles.actionButton, styles.groupButton]}
-                    onPress={() => handleStart('group')}
+                    onPress={() => router.push({
+                        pathname: '/trek/group-menu',
+                        params: {
+                            name,
+                            description,
+                            location: locationName
+                        }
+                    })}
                 >
                     <Ionicons name="people" size={24} color="white" />
                     <View style={styles.buttonContent}>

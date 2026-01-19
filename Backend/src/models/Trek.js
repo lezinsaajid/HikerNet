@@ -39,11 +39,20 @@ const trekSchema = new mongoose.Schema(
                 timestamp: { type: Date, default: Date.now },
             }
         ],
+        mode: {
+            type: String,
+            enum: ['solo', 'group'],
+            default: 'solo'
+        },
+        participants: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        }],
         stats: {
             distance: { type: Number, default: 0 }, // in meters
             duration: { type: Number, default: 0 }, // in seconds
             elevationGain: { type: Number, default: 0 }, // in meters
-            averageSpeed: { type: Number, default: 0 }, // in km/h or m/s
+            avgSpeed: { type: Number, default: 0 }, // km/h
         },
         images: [{
             type: String, // URLs

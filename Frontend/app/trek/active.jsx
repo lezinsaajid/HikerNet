@@ -18,7 +18,7 @@ const MARKER_ICONS = [
 export default function ActiveTrekScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
-    const { name, description, location: initialLocation, mode, trekId: paramTrekId } = params;
+    const { name, description, location: initialLocation, mode, trekId: paramTrekId, role = 'leader' } = params;
 
     const [location, setLocation] = useState(null);
     const [isTracking, setIsTracking] = useState(false);
@@ -54,14 +54,58 @@ export default function ActiveTrekScreen() {
 
             // If we have a trekId (resuming) OR a name (new trek), start tracking
             if (paramTrekId || name) {
-                startTrek();
+                if (role === 'leader') {
+                    startTrek();
+                } else {
+                    // Member Mode: Start polling
+                    startMemberMode();
+                }
             }
         })();
 
         return () => {
             stopTracking();
+            if (memberPollRef.current) clearInterval(memberPollRef.current);
         };
     }, []);
+
+    const memberPollRef = useRef(null);
+
+    const startMemberMode = () => {
+        // Poll for updates
+        memberPollRef.current = setInterval(async () => {
+            if (!trekId && paramTrekId) setTrekId(paramTrekId);
+            const currentTrekId = trekId || paramTrekId;
+
+            if (currentTrekId) {
+                try {
+                    const res = await client.get(`/treks/${currentTrekId}`);
+                    const data = res.data;
+
+                    // Sync state from leader
+                    if (data.status === 'completed') {
+                        setTrekFinished(true);
+                        clearInterval(memberPollRef.current);
+                    }
+
+                    // Route sync (assuming backend returns full route or we use a diff endpoint)
+                    // For now, simpler sync: Markers
+                    // Note: Coordinates usually heavy to poll. Ideally sockets.
+                    // For simplicity, we just sync Markers and Status here.
+                    // If we want route sync, we need an endpoint returning coordinates.
+
+                    // Sync Waypoints/Markers
+                    if (data.waypoints) {
+                        // Transform if needed match local state
+                        setMarkers(data.waypoints);
+                    }
+
+                } catch (e) {
+                    console.error("Polling error", e);
+                }
+            }
+        }, 3000);
+    };
 
     useEffect(() => {
         trekIdRef.current = trekId;
@@ -344,7 +388,7 @@ export default function ActiveTrekScreen() {
             )}
 
             {/* Top Left Add Icon Button */}
-            {!trekFinished && (
+            {!trekFinished && role === 'leader' && (
                 <TouchableOpacity style={styles.addMarkerButton} onPress={() => setShowMarkerModal(true)}>
                     <Ionicons name="add-circle" size={40} color="#28a745" />
                     {/* <Text style={styles.addMarkerText}>Add Icon</Text> */}
@@ -362,12 +406,16 @@ export default function ActiveTrekScreen() {
                         </View>
 
                         <View style={styles.row}>
-                            <TouchableOpacity style={[styles.button, styles.pauseBtn]} onPress={togglePause}>
-                                <Ionicons name={isPaused ? "play" : "pause"} size={32} color="white" />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.button, styles.stopBtn]} onPress={handleStopTrek}>
-                                <Ionicons name="stop" size={32} color="white" />
-                            </TouchableOpacity>
+                            {role === 'leader' && (
+                                <>
+                                    <TouchableOpacity style={[styles.button, styles.pauseBtn]} onPress={togglePause}>
+                                        <Ionicons name={isPaused ? "play" : "pause"} size={32} color="white" />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.button, styles.stopBtn]} onPress={handleStopTrek}>
+                                        <Ionicons name="stop" size={32} color="white" />
+                                    </TouchableOpacity>
+                                </>
+                            )}
                         </View>
                     </>
                 ) : (

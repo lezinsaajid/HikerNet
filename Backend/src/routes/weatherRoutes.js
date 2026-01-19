@@ -14,10 +14,9 @@ router.get("/current", async (req, res) => {
         if (!apiKey) {
             // Mock response if no API key
             return res.json({
-                coord: { lon: Number(lon), lat: Number(lat) },
-                weather: [{ main: "Clear", description: "clear sky (mock)" }],
-                main: { temp: 285.5, humidity: 70 },
-                name: "Mock Location"
+                temp: 12.5,
+                condition: "Clear",
+                city: "Mock Location"
             });
         }
 
@@ -25,7 +24,14 @@ router.get("/current", async (req, res) => {
         const response = await fetch(url);
         const data = await response.json();
 
-        res.json(data);
+        // Transform data to flat structure expected by frontend
+        const weatherData = {
+            temp: data.main.temp,
+            condition: data.weather[0].main,
+            city: data.name
+        };
+
+        res.json(weatherData);
     } catch (error) {
         console.error("Error fetching weather:", error);
         res.status(500).json({ message: "Error fetching weather" });
