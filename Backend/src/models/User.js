@@ -62,6 +62,18 @@ const userSchema = new mongoose.Schema(
                 ref: "User",
             },
         ],
+        trekInvitations: [
+            {
+                roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
+                roomCode: String,
+                trekName: String,
+                inviter: {
+                    id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+                    username: String
+                },
+                sentAt: { type: Date, default: Date.now }
+            }
+        ]
     },
     { timestamps: true }
 );

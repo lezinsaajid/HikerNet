@@ -1,14 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, SafeAreaView, TextInput, Modal, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, TextInput, Modal, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../api/client';
 import { useRouter } from 'expo-router';
 
-export default function UserListModal({ visible, onClose, userId, type }) {
+export default function UserListModal({ visible, onClose, userId, type, mode = 'view', onInvite }) {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [cooldowns, setCooldowns] = useState({}); // { userId: expiryTimestamp }
+    const [now, setNow] = useState(Date.now()); // Tick for UI updates
+
+    useEffect(() => {
+        // Timer to update countdowns
+        const interval = setInterval(() => {
+            setNow(Date.now());
+        }, 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     useEffect(() => {
         if (visible) {
@@ -114,11 +125,33 @@ export default function UserListModal({ visible, onClose, userId, type }) {
                 </View>
                 {!isSelf && (
                     <TouchableOpacity
-                        style={isFollowing ? styles.friendsButton : styles.followButton}
-                        onPress={() => isFollowing ? showFriendOptions(item._id) : handleFollow(item._id)}
+                        style={[
+                            (isFollowing || mode === 'invite') ? styles.friendsButton : styles.followButton,
+                            (mode === 'invite' && cooldowns[item._id] > now) && styles.disabledButton
+                        ]}
+                        disabled={mode === 'invite' && cooldowns[item._id] > now}
+                        onPress={async () => {
+                            if (mode === 'invite') {
+                                // Await success
+                                const success = await onInvite(item);
+                                if (success) {
+                                    setCooldowns(prev => ({
+                                        ...prev,
+                                        [item._id]: Date.now() + 30000 // 30s from now
+                                    }));
+                                }
+                            } else {
+                                isFollowing ? showFriendOptions(item._id) : handleFollow(item._id);
+                            }
+                        }}
                     >
-                        <Text style={isFollowing ? styles.friendsButtonText : styles.followButtonText}>
-                            {isFollowing ? "Friends" : "Follow"}
+                        <Text style={isFollowing || mode === 'invite' ? styles.friendsButtonText : styles.followButtonText}>
+                            {mode === 'invite'
+                                ? (cooldowns[item._id] > now
+                                    ? `${Math.ceil((cooldowns[item._id] - now) / 1000)}s`
+                                    : "Invite")
+                                : (isFollowing ? "Friends" : "Follow")
+                            }
                         </Text>
                     </TouchableOpacity>
                 )}
@@ -233,6 +266,10 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#666',
         marginTop: 2,
+    },
+    disabledButton: {
+        backgroundColor: '#e9ecef',
+        borderColor: '#dee2e6',
     },
     followButton: {
         backgroundColor: '#0095f6',

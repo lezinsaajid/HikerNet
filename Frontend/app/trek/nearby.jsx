@@ -43,6 +43,7 @@ export default function NearbyTreks() {
                 <View>
                     <Text style={styles.cardTitle}>{item.name}</Text>
                     <Text style={styles.cardDistance}>{item.stats?.distance ? `${(item.stats.distance / 1000).toFixed(2)} km` : '0 km'}</Text>
+                    <Text style={styles.cardDate}>Uploaded: {new Date(item.createdAt).toLocaleDateString()}</Text>
                 </View>
                 {item.rating ? (
                     <View style={styles.ratingContainer}>
@@ -184,6 +185,11 @@ const styles = StyleSheet.create({
     cardDistance: {
         fontSize: 14,
         color: '#666',
+    },
+    cardDate: {
+        fontSize: 12,
+        color: '#999',
+        marginTop: 4,
     },
     ratingContainer: {
         flexDirection: 'row',

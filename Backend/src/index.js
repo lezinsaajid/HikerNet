@@ -13,6 +13,7 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 import weatherRoutes from "./routes/weatherRoutes.js";
 import locationRoutes from "./routes/locationRoutes.js";
 import adventureRoutes from "./routes/adventureRoutes.js";
+import roomRoutes from "./routes/roomRoutes.js";
 import chatRoutes from "./routes/chat.js";
 
 import { connectDB } from "./lib/db.js";
@@ -35,6 +36,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/weather", weatherRoutes);
 app.use("/api/location", locationRoutes);
 app.use("/api/adventures", adventureRoutes);
+app.use("/api/rooms", roomRoutes);
 app.use("/api/chat", chatRoutes);
 
 app.listen(PORT, () => {

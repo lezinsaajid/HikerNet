@@ -140,6 +140,34 @@ router.get("/suggested", protectRoute, async (req, res) => {
     }
 });
 
+// Get Pending Invitations
+router.get("/invitations", protectRoute, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        // Filter out old invites (> 1 hour?) - Optional, for now just return all
+        res.json(user.trekInvitations || []);
+    } catch (error) {
+        console.error("Error fetching invitations:", error);
+        res.status(500).json({ message: "Error fetching invitations" });
+    }
+});
+
+// Clear Invitation (Accept/Decline)
+router.post("/invitations/clear", protectRoute, async (req, res) => {
+    try {
+        const { roomId } = req.body;
+        await User.findByIdAndUpdate(req.user._id, {
+            $pull: { trekInvitations: { roomId: roomId } }
+        });
+        res.json({ message: "Invitation cleared" });
+    } catch (error) {
+        console.error("Error clearing invitation:", error);
+        res.status(500).json({ message: "Error clearing invitation" });
+    }
+});
+
 // Leaderboard: Top hikers based on distance
 router.get("/leaderboard", async (req, res) => {
     try {
