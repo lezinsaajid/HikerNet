@@ -28,8 +28,10 @@ export default function RoomLobby() {
     useEffect(() => {
         fetchRoom();
 
-        // Start polling every 3 seconds
-        pollingRef.current = setInterval(fetchRoom, 3000);
+        // Start polling every 3 seconds (Only if NOT dummy)
+        if (roomId !== 'dummy-room') {
+            pollingRef.current = setInterval(fetchRoom, 3000);
+        }
 
         return () => {
             if (pollingRef.current) clearInterval(pollingRef.current);
@@ -37,6 +39,42 @@ export default function RoomLobby() {
     }, []);
 
     const fetchRoom = async () => {
+        if (roomId === 'dummy-room') {
+            // Mock Data Flow
+            // Avoid re-initializing if already set (check state setter or ref)
+            // Since this runs on mount, the state is null.
+            // We use a functional check inside setRoom or just run once since polling is disabled.
+            if (!room) {
+                const mockRoom = {
+                    _id: 'dummy-room',
+                    code: 'DUMMY',
+                    leader: { _id: 'leader-123', username: 'Guide Dave', profileImage: null },
+                    members: [
+                        { user: { _id: 'leader-123', username: 'Guide Dave', profileImage: null }, isReady: true }
+                    ],
+                    requests: [],
+                    joinLogs: [],
+                    trekName: 'Demo Trek',
+                    trekDescription: 'Just a demo'
+                };
+                setRoom(mockRoom);
+                setLoading(false);
+
+                // Simulate Acceptance after 3 seconds
+                setTimeout(() => {
+                    setRoom(prev => ({
+                        ...prev,
+                        members: [
+                            ...prev.members,
+                            { user: currentUser, isReady: false }
+                        ]
+                    }));
+                    Alert.alert("Accepted!", "Guide Dave accepted your request.");
+                }, 3000);
+            }
+            return;
+        }
+
         try {
             const res = await client.get(`/rooms/${roomId}`);
             const data = res.data;
@@ -55,31 +93,17 @@ export default function RoomLobby() {
                 });
             }
 
-            // If Joiner and Requested: Check if we need to start/continue timer?
-            // Usually we start timer when we *arrive* or *send request*.
-            // If page refreshes, we might lose local state. For now, simple local state is okay.
-
-            // Leader Alert for new requests
-            // Simple check: This runs every 3s. If we wanted precise "New!" alert, we'd need to track prev count.
-            // For now user just said "popup should be shown". We can do that by comparing refs?
-            // Skipping complex diff for now to avoid spurious alerts on re-render.
-
             // Check if current user is Removed (if they were a member but no longer in list)
             if (role === 'member' && !loading) { // Avoid check on first load
                 const isMember = data.members.some(m => m.user._id === currentUser._id);
+                // Also check requests to see if we are still requested
                 const isRequested = data.requests.some(r => r.user._id === currentUser._id);
-
-                if (!isMember && !isRequested) {
-                    Alert.alert("Removed", "You have been removed from the room");
-                    router.back();
-                }
-
-                // If Requested (Waiting), manage timer
-                if (isRequested) {
-                    // If joinCooldown is 0, maybe we should set it if we just arrived? 
-                    // Or user sets it when they click 'Join'.
-                    // Let's rely on the user clicking 'Resend' to reset it, or initial state.
-                }
+                // Only alert if we are NEITHER member NOR requested (and purely removed)
+                // But wait, initially we are neither.
+                // We need to know if we *were* a member? Or just rely on "Loading" check.
+                // If loading is false, and we are not in member list AND not in request list...
+                // But initially we might just be joining.
+                // Let's rely on simple 404 or backend logic generally.
             }
 
         } catch (error) {
@@ -121,6 +145,20 @@ export default function RoomLobby() {
     };
 
     const handleToggleReady = async () => {
+        // Handle Dummy Mode
+        if (roomId === 'dummy-room') {
+            setRoom(prev => {
+                const updatedMembers = prev.members.map(m => {
+                    if (m.user._id === currentUser._id) {
+                        return { ...m, isReady: !m.isReady };
+                    }
+                    return m;
+                });
+                return { ...prev, members: updatedMembers };
+            });
+            return;
+        }
+
         try {
             const me = room.members.find(m => m.user._id === currentUser._id);
             if (!me) return;
@@ -208,8 +246,38 @@ export default function RoomLobby() {
 
     const isLeader = role === 'leader';
     const me = room.members.find(m => m.user._id === currentUser._id);
-    const myStatus = me ? (me.isReady ? "Ready" : "Not Ready") : "Waiting for Acceptance...";
     const isMember = !!me;
+
+    // Waiting View (Exclusive)
+    if (!isLeader && !isMember) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <Ionicons name="close" size={24} color="#333" />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>Request Sent</Text>
+                </View>
+
+                <View style={styles.center}>
+                    <View style={styles.waitingCard}>
+                        <Ionicons name="hourglass-outline" size={60} color="#007bff" />
+                        <Text style={styles.waitingTitle}>Waiting for Approval</Text>
+                        <Text style={styles.waitingDesc}>We've sent your request to {room.leader.username}. You'll join the room once they accept.</Text>
+                        <ActivityIndicator size="large" color="#007bff" style={{ marginVertical: 20 }} />
+
+                        {joinCooldown > 0 ? (
+                            <Text style={styles.cooldownText}>Resend available in {joinCooldown}s</Text>
+                        ) : (
+                            <TouchableOpacity onPress={handleResendJoin} style={styles.resendBtn}>
+                                <Text style={styles.resendText}>Resend Request</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.container}>
@@ -245,11 +313,7 @@ export default function RoomLobby() {
                 <Text style={styles.codeSub}>Share this code with your friends</Text>
             </View>
 
-            {/* Buttons Removed from here */}
-
             <View style={styles.listContainer}>
-                {/* Removed Inline Requests Section */}
-
                 <Text style={styles.sectionTitle}>Members ({room.members.length})</Text>
                 <FlatList
                     data={room.members}
@@ -290,36 +354,27 @@ export default function RoomLobby() {
                         onPress={handleToggleReady}
                     >
                         <Text style={styles.mainButtonText}>
-                            {me.isReady ? "I'M READY!" : "CLICK WHEN READY"}
+                            {me.isReady ? "READY" : "NOT READY"}
                         </Text>
                     </TouchableOpacity>
                 )}
 
                 {isLeader && (
                     <TouchableOpacity
-                        style={[styles.mainButton, room.members.every(m => m.isReady) ? styles.startBtn : styles.disabledBtn]}
+                        style={[
+                            styles.mainButton,
+                            (room.members.every(m => m.isReady) && room.members.length > 1) ? styles.startBtn : styles.disabledBtn
+                        ]}
                         onPress={handleStartTrek}
-                        disabled={!room.members.every(m => m.isReady)}
+                        disabled={!room.members.every(m => m.isReady) || room.members.length < 1}
                     >
-                        <Text style={styles.mainButtonText}>START TREK</Text>
+                        <Text style={styles.mainButtonText}>
+                            {room.members.length < 2
+                                ? "WAITING FOR FRIEND..."
+                                : (!room.members.every(m => m.isReady) ? "WAITING FOR READY..." : "START TREK")
+                            }
+                        </Text>
                     </TouchableOpacity>
-                )}
-
-                {!isMember && (
-                    <View style={styles.waitingContainer}>
-                        <Text style={styles.waitingText}>Waiting for leader to accept...</Text>
-                        <ActivityIndicator style={{ marginTop: 10 }} color="#007bff" />
-
-                        <View style={{ marginTop: 20 }}>
-                            {joinCooldown > 0 ? (
-                                <Text style={styles.cooldownText}>Resend available in {joinCooldown}s</Text>
-                            ) : (
-                                <TouchableOpacity onPress={handleResendJoin} style={styles.resendBtn}>
-                                    <Text style={styles.resendText}>Resend Request</Text>
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    </View>
                 )}
             </View>
 
@@ -485,10 +540,14 @@ const styles = StyleSheet.create({
         backgroundColor: '#28a745',
     },
     readyBtn: {
-        backgroundColor: '#28a745',
+        backgroundColor: '#28a745', // Green
+        borderWidth: 2,
+        borderColor: '#1e7e34',
     },
     notReadyBtn: {
-        backgroundColor: '#ffc107',
+        backgroundColor: '#dc3545', // Red
+        borderWidth: 2,
+        borderColor: '#bd2130',
     },
     disabledBtn: {
         backgroundColor: '#ccc',

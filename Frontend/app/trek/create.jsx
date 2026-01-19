@@ -28,19 +28,29 @@ export default function CreateTrekScreen() {
                 return;
             }
 
-            let location = await Location.getCurrentPositionAsync({});
+            let location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Highest
+            });
             let reverseGeocode = await Location.reverseGeocodeAsync({
                 latitude: location.coords.latitude,
                 longitude: location.coords.longitude
             });
 
-            if (reverseGeocode && reverseGeocode.length > 0) {
-                const place = reverseGeocode[0];
-                const locString = `${place.city || place.region || ''}, ${place.country || ''}`.trim().replace(/^, /, '');
-                setLocationName(locString || "Unknown Location");
-            } else {
-                setLocationName("Unknown Location");
-            }
+            const place = reverseGeocode[0];
+            // Google Maps style: [Name/Number] [Street], [City], [Region] [PostalCode], [Country]
+            const streetInfo = [place.streetNumber, place.street].filter(Boolean).join(' ');
+            const cityInfo = place.city || place.subregion || place.district;
+            const regionInfo = place.region;
+            const parts = [
+                place.name !== streetInfo ? place.name : null, // Avoid duplicating if name == street
+                streetInfo,
+                cityInfo,
+                regionInfo,
+                place.country
+            ].filter(Boolean);
+
+            const locString = parts.join(', ');
+            setLocationName(locString || "Unknown Location");
         } catch (error) {
             console.error("Location error:", error);
             setLocationName("Location unavailable");
