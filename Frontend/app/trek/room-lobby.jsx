@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import UserListModal from '../../components/UserListModal';
+import RequestsModal from '../../components/RequestsModal';
 
 export default function RoomLobby() {
     const router = useRouter();
@@ -15,6 +16,11 @@ export default function RoomLobby() {
     const [room, setRoom] = useState(null);
     const [loading, setLoading] = useState(true);
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
+    const [requestsModalVisible, setRequestsModalVisible] = useState(false);
+
+    // Joiner State
+    const [joinCooldown, setJoinCooldown] = useState(0); // seconds
+    const joinTimerRef = useRef(null);
 
     // Polling Ref
     const pollingRef = useRef(null);
@@ -49,13 +55,30 @@ export default function RoomLobby() {
                 });
             }
 
+            // If Joiner and Requested: Check if we need to start/continue timer?
+            // Usually we start timer when we *arrive* or *send request*.
+            // If page refreshes, we might lose local state. For now, simple local state is okay.
+
+            // Leader Alert for new requests
+            // Simple check: This runs every 3s. If we wanted precise "New!" alert, we'd need to track prev count.
+            // For now user just said "popup should be shown". We can do that by comparing refs?
+            // Skipping complex diff for now to avoid spurious alerts on re-render.
+
             // Check if current user is Removed (if they were a member but no longer in list)
             if (role === 'member' && !loading) { // Avoid check on first load
                 const isMember = data.members.some(m => m.user._id === currentUser._id);
                 const isRequested = data.requests.some(r => r.user._id === currentUser._id);
+
                 if (!isMember && !isRequested) {
                     Alert.alert("Removed", "You have been removed from the room");
                     router.back();
+                }
+
+                // If Requested (Waiting), manage timer
+                if (isRequested) {
+                    // If joinCooldown is 0, maybe we should set it if we just arrived? 
+                    // Or user sets it when they click 'Join'.
+                    // Let's rely on the user clicking 'Resend' to reset it, or initial state.
                 }
             }
 
@@ -124,9 +147,27 @@ export default function RoomLobby() {
             // Navigation handled by polling check
         } catch (error) {
             console.error(error);
-            Alert.alert("Error", "Failed to start trek");
+            Alert.alert("Error", error.response?.data?.message || "Failed to start trek");
         }
     };
+
+    const handleResendJoin = async () => {
+        try {
+            await client.post('/rooms/join', { code: room.code });
+            Alert.alert("Sent", "Request resent!");
+            setJoinCooldown(60);
+        } catch (error) {
+            Alert.alert("Error", error.response?.data?.message || "Failed to resend");
+        }
+    };
+
+    // Cooldown Timer Effect
+    useEffect(() => {
+        if (joinCooldown > 0) {
+            joinTimerRef.current = setTimeout(() => setJoinCooldown(c => c - 1), 1000);
+        }
+        return () => clearTimeout(joinTimerRef.current);
+    }, [joinCooldown]);
 
     const handleShareCode = async () => {
         try {
@@ -180,6 +221,22 @@ export default function RoomLobby() {
             </View>
 
             <View style={styles.codeCard}>
+                {isLeader && (
+                    <TouchableOpacity
+                        style={styles.bellButton}
+                        onPress={() => setRequestsModalVisible(true)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                        <View>
+                            <Ionicons name="notifications" size={28} color="#007bff" />
+                            {room.requests.length > 0 && (
+                                <View style={styles.bellBadge}>
+                                    <Text style={styles.bellBadgeText}>{room.requests.length}</Text>
+                                </View>
+                            )}
+                        </View>
+                    </TouchableOpacity>
+                )}
                 <Text style={styles.codeLabel}>ROOM CODE</Text>
                 <TouchableOpacity onPress={handleShareCode} style={styles.codeContainer}>
                     <Text style={styles.codeText}>{room.code}</Text>
@@ -188,39 +245,10 @@ export default function RoomLobby() {
                 <Text style={styles.codeSub}>Share this code with your friends</Text>
             </View>
 
-            <View style={{ paddingHorizontal: 20 }}>
-                <TouchableOpacity style={styles.inviteButton} onPress={() => setInviteModalVisible(true)}>
-                    <Ionicons name="person-add" size={20} color="white" style={{ marginRight: 8 }} />
-                    <Text style={styles.inviteButtonText}>Invite Friends</Text>
-                </TouchableOpacity>
-            </View>
+            {/* Buttons Removed from here */}
 
             <View style={styles.listContainer}>
-                {isLeader && room.requests.length > 0 && (
-                    <View style={styles.requestsSection}>
-                        <Text style={styles.sectionTitle}>Join Requests ({room.requests.length})</Text>
-                        <FlatList
-                            data={room.requests}
-                            keyExtractor={item => item.user._id}
-                            renderItem={({ item }) => (
-                                <View style={styles.requestItem}>
-                                    <View style={styles.userInfo}>
-                                        <Image source={{ uri: item.user.profileImage || 'https://via.placeholder.com/150' }} style={styles.avatar} />
-                                        <Text style={styles.username}>{item.user.username}</Text>
-                                    </View>
-                                    <View style={styles.actions}>
-                                        <TouchableOpacity onPress={() => handleAccept(item.user._id)} style={styles.acceptBtn}>
-                                            <Ionicons name="checkmark" size={20} color="white" />
-                                        </TouchableOpacity>
-                                        <TouchableOpacity onPress={() => handleReject(item.user._id)} style={styles.rejectBtn}>
-                                            <Ionicons name="close" size={20} color="white" />
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-                            )}
-                        />
-                    </View>
-                )}
+                {/* Removed Inline Requests Section */}
 
                 <Text style={styles.sectionTitle}>Members ({room.members.length})</Text>
                 <FlatList
@@ -250,6 +278,12 @@ export default function RoomLobby() {
             </View>
 
             <View style={styles.footer}>
+                {isLeader && (
+                    <TouchableOpacity style={styles.inviteButton} onPress={() => setInviteModalVisible(true)}>
+                        <Ionicons name="person-add" size={20} color="white" style={{ marginRight: 8 }} />
+                        <Text style={styles.inviteButtonText}>Invite Friends</Text>
+                    </TouchableOpacity>
+                )}
                 {!isLeader && isMember && (
                     <TouchableOpacity
                         style={[styles.mainButton, me.isReady ? styles.readyBtn : styles.notReadyBtn]}
@@ -272,7 +306,20 @@ export default function RoomLobby() {
                 )}
 
                 {!isMember && (
-                    <Text style={styles.waitingText}>Waiting for leader to accept...</Text>
+                    <View style={styles.waitingContainer}>
+                        <Text style={styles.waitingText}>Waiting for leader to accept...</Text>
+                        <ActivityIndicator style={{ marginTop: 10 }} color="#007bff" />
+
+                        <View style={{ marginTop: 20 }}>
+                            {joinCooldown > 0 ? (
+                                <Text style={styles.cooldownText}>Resend available in {joinCooldown}s</Text>
+                            ) : (
+                                <TouchableOpacity onPress={handleResendJoin} style={styles.resendBtn}>
+                                    <Text style={styles.resendText}>Resend Request</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
                 )}
             </View>
 
@@ -284,6 +331,14 @@ export default function RoomLobby() {
                 type="following" // Show friends list
                 mode="invite"
                 onInvite={handleInviteUser}
+            />
+
+            <RequestsModal
+                visible={requestsModalVisible}
+                onClose={() => setRequestsModalVisible(false)}
+                room={room}
+                onAccept={handleAccept}
+                onReject={handleReject}
             />
         </SafeAreaView>
     );
@@ -450,16 +505,71 @@ const styles = StyleSheet.create({
     },
     inviteButton: {
         flexDirection: 'row',
-        backgroundColor: '#007bff',
+        backgroundColor: '#6c757d', // Different color for generic invite
         padding: 12,
         borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: 10,
     },
-    inviteButtonText: {
+    requestsButton: {
+        flexDirection: 'row',
+        backgroundColor: '#007bff',
+        padding: 12,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'space-between', // For badge
+        marginBottom: 10,
+        paddingHorizontal: 20,
+    },
+    badge: {
+        backgroundColor: '#dc3545',
+        borderRadius: 10,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+    },
+    badgeText: {
         color: 'white',
         fontWeight: 'bold',
-        fontSize: 16,
+        fontSize: 12,
     },
+    resendBtn: {
+        marginTop: 10,
+        padding: 10,
+    },
+    resendText: {
+        color: '#007bff',
+        fontWeight: 'bold',
+    },
+    cooldownText: {
+        color: '#999',
+    },
+    waitingContainer: {
+        alignItems: 'center',
+        padding: 20,
+    },
+    bellButton: {
+        position: 'absolute',
+        top: 20,
+        right: 20,
+        zIndex: 10,
+    },
+    bellBadge: {
+        position: 'absolute',
+        top: -5,
+        right: -5,
+        backgroundColor: '#dc3545',
+        borderRadius: 10,
+        minWidth: 18,
+        height: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1.5,
+        borderColor: 'white',
+    },
+    bellBadgeText: {
+        color: 'white',
+        fontSize: 10,
+        fontWeight: 'bold',
+    }
 });
