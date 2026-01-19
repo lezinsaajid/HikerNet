@@ -18,6 +18,11 @@ router.post("/invite", protectRoute, async (req, res) => {
         const targetUser = await User.findById(targetUserId);
         if (!targetUser) return res.status(404).json({ message: "User not found" });
 
+        // Check if user is leader
+        if (room.leader.toString() !== req.user._id.toString()) {
+            return res.status(403).json({ message: "Only the leader can invite users." });
+        }
+
         // Check if already in room
         const isMember = room.members.some(m => m.user.toString() === targetUserId) || room.leader.toString() === targetUserId;
         if (isMember) {
@@ -127,7 +132,35 @@ router.post("/join", protectRoute, async (req, res) => {
             return res.status(400).json({ message: "Join request already sent", roomId: room._id });
         }
 
+        // Check 60s Cooldown logic using joinLogs
+        if (room.joinLogs) {
+            const lastLog = room.joinLogs
+                .filter(log => log.user.toString() === req.user._id.toString())
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+
+            if (lastLog) {
+                const timeDiff = Date.now() - new Date(lastLog.timestamp).getTime();
+                // If pending and < 60s, block
+                if (lastLog.status === 'pending' && timeDiff < 60000) {
+                    return res.status(429).json({ message: "Please wait 60s before retrying." });
+                }
+                // If rejected, also enforce cooldown? User said "resending if leader doesn't accept".
+                // Let's enforce 60s gap between any requests to avoid spam.
+                if (timeDiff < 60000) {
+                    return res.status(429).json({ message: "Please wait 60s before sending another request." });
+                }
+            }
+        }
+
         room.requests.push({ user: req.user._id });
+
+        // Add to Join Logs
+        room.joinLogs.push({
+            user: req.user._id,
+            status: 'pending',
+            timestamp: Date.now()
+        });
+
         await room.save();
 
         res.json({ message: "Join request sent", roomId: room._id });
@@ -143,7 +176,8 @@ router.get("/:id", protectRoute, async (req, res) => {
         const room = await Room.findById(req.params.id)
             .populate("leader", "username profileImage")
             .populate("members.user", "username profileImage")
-            .populate("requests.user", "username profileImage");
+            .populate("requests.user", "username profileImage")
+            .populate("joinLogs.user", "username profileImage");
 
         if (!room) {
             return res.status(404).json({ message: "Room not found" });
@@ -176,13 +210,26 @@ router.post("/accept", protectRoute, async (req, res) => {
         room.requests.splice(requestIndex, 1);
         room.members.push({ user: userId, isReady: false }); // New members not ready by default
 
+        // Update Log
+        const logIndex = room.joinLogs.findIndex(l => l.user.toString() === userId && l.status === 'pending');
+        if (logIndex !== -1) {
+            room.joinLogs[logIndex].status = 'accepted';
+            room.joinLogs[logIndex].timestamp = Date.now(); // Update timestamp to accept time? Or keep request time? User said "history... according the time the request comes". Keep original timestamp is better for "When did they ask?".
+            // Actually, if we want to show "Accepted at...", we might need a new timestamp. 
+            // Better to simple mark status.
+        } else {
+            // Fallback if not found (old data support)
+            room.joinLogs.push({ user: userId, status: 'accepted', timestamp: Date.now() });
+        }
+
         await room.save();
 
         // Return updated room
         const updatedRoom = await Room.findById(roomId)
             .populate("leader", "username profileImage")
             .populate("members.user", "username profileImage")
-            .populate("requests.user", "username profileImage");
+            .populate("requests.user", "username profileImage")
+            .populate("joinLogs.user", "username profileImage");
 
         res.json(updatedRoom);
     } catch (error) {
@@ -203,6 +250,15 @@ router.post("/reject", protectRoute, async (req, res) => {
         }
 
         room.requests = room.requests.filter(r => r.user.toString() !== userId);
+
+        // Update Log
+        const logIndex = room.joinLogs.findIndex(l => l.user.toString() === userId && l.status === 'pending');
+        if (logIndex !== -1) {
+            room.joinLogs[logIndex].status = 'rejected';
+        } else {
+            room.joinLogs.push({ user: userId, status: 'rejected', timestamp: Date.now() });
+        }
+
         await room.save();
 
         res.json({ message: "Request rejected" });
@@ -293,7 +349,7 @@ router.post("/start", protectRoute, async (req, res) => {
             location: room.startLocation || "Unknown",
             mode: "group",
             participants: room.members.map(m => m.user), // Assuming Trek model has participants field (need to check/add)
-            status: "active"
+            status: "ongoing"
         });
 
         await newTrek.save();

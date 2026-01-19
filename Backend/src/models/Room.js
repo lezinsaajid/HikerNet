@@ -41,6 +41,23 @@ const roomSchema = new mongoose.Schema(
                 },
             },
         ],
+        joinLogs: [
+            {
+                user: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: "User"
+                },
+                status: {
+                    type: String,
+                    enum: ['pending', 'accepted', 'rejected'],
+                    default: 'pending'
+                },
+                timestamp: {
+                    type: Date,
+                    default: Date.now
+                }
+            }
+        ],
         startLocation: {
             type: String,
             default: "",
