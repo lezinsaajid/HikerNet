@@ -332,6 +332,11 @@ router.post("/start", protectRoute, async (req, res) => {
             return res.status(403).json({ message: "Only leader can start the trek" });
         }
 
+        // Validate minimum group size (Leader + at least 1 member)
+        if (room.members.length < 2) {
+            return res.status(400).json({ message: "Need at least 2 people to start a group trek!" });
+        }
+
         // Validate all members are ready
         const allReady = room.members.every(m => m.isReady);
         if (!allReady) {

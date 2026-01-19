@@ -38,6 +38,45 @@ router.post("/create", protectRoute, async (req, res) => {
     }
 });
 
+// Get feed (posts from followed users + own posts)
+router.get("/feed", protectRoute, async (req, res) => {
+    try {
+        const currentUser = await User.findById(req.user._id);
+        const following = currentUser.following;
+
+        const posts = await Post.find({ user: { $in: [...following, req.user._id] } })
+            .sort({ createdAt: -1 })
+            .populate("user", "username profileImage")
+            .populate("trek", "name stats");
+
+        res.json(posts);
+    } catch (error) {
+        console.error("Error fetching feed:", error);
+        res.status(500).json({ message: "Error fetching feed" });
+    }
+});
+
+// Get single post
+router.get("/:id", protectRoute, async (req, res) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ message: "Invalid post ID format" });
+        }
+        const post = await Post.findById(req.params.id)
+            .populate("user", "username profileImage")
+            .populate("trek", "name stats");
+
+        if (!post) {
+            return res.status(404).json({ message: "Post not found" });
+        }
+
+        res.json(post);
+    } catch (error) {
+        console.error("Error fetching post:", error);
+        res.status(500).json({ message: "Error fetching post" });
+    }
+});
+
 // Delete a post
 router.delete("/:id", protectRoute, async (req, res) => {
     try {
@@ -61,23 +100,7 @@ router.delete("/:id", protectRoute, async (req, res) => {
     }
 });
 
-// Get feed (posts from followed users + own posts)
-router.get("/feed", protectRoute, async (req, res) => {
-    try {
-        const currentUser = await User.findById(req.user._id);
-        const following = currentUser.following;
 
-        const posts = await Post.find({ user: { $in: [...following, req.user._id] } })
-            .sort({ createdAt: -1 })
-            .populate("user", "username profileImage")
-            .populate("trek", "name stats");
-
-        res.json(posts);
-    } catch (error) {
-        console.error("Error fetching feed:", error);
-        res.status(500).json({ message: "Error fetching feed" });
-    }
-});
 
 // Like / Unlike a post
 router.put("/like/:id", protectRoute, async (req, res) => {

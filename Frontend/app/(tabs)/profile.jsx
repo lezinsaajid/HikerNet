@@ -291,10 +291,17 @@ export default function Profile() {
         }
 
         return (
-            <TouchableOpacity style={[
-                styles.postGridItem,
-                activeTab === 'stories' && styles.storyGridItem
-            ]}>
+            <TouchableOpacity
+                style={[
+                    styles.postGridItem,
+                    activeTab === 'stories' && styles.storyGridItem
+                ]}
+                onPress={() => {
+                    if (activeTab === 'snaps') {
+                        router.push(`/post/${item._id}`);
+                    }
+                }}
+            >
                 <Image
                     source={{ uri: (activeTab === 'snaps' ? item.image : item.media) || 'https://via.placeholder.com/301' }}
                     style={styles.gridImage}

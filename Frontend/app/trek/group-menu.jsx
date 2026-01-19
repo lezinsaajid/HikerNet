@@ -57,6 +57,19 @@ export default function GroupMenu() {
             return;
         }
 
+        if (joinCode.toUpperCase() === 'DUMMY') {
+            router.push({
+                pathname: '/trek/room-lobby',
+                params: { roomId: 'dummy-room', role: 'member' }
+            });
+            return;
+        }
+
+        if (joinCode.length !== 7) {
+            Alert.alert("Invalid Code", "Room code must be exactly 7 characters.");
+            return;
+        }
+
         try {
             setIsJoining(true);
             const res = await client.post('/rooms/join', { code: joinCode });
@@ -146,6 +159,13 @@ export default function GroupMenu() {
                             value={roomName}
                             onChangeText={setRoomName}
                         />
+
+                        {params.location && (
+                            <View style={styles.locationInfo}>
+                                <Ionicons name="location" size={16} color="#28a745" />
+                                <Text style={styles.locationInfoText}>{params.location}</Text>
+                            </View>
+                        )}
 
                         <Text style={styles.label}>Description (Optional)</Text>
                         <TextInput
@@ -351,5 +371,19 @@ const styles = StyleSheet.create({
     confirmButtonText: {
         color: 'white',
         fontWeight: 'bold',
+    },
+    locationInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 15,
+        backgroundColor: '#e8f5e9',
+        padding: 10,
+        borderRadius: 8,
+    },
+    locationInfoText: {
+        color: '#28a745',
+        marginLeft: 5,
+        fontSize: 14,
+        flex: 1,
     },
 });
