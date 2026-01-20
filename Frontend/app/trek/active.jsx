@@ -439,7 +439,7 @@ export default function ActiveTrekScreen() {
                         ) : (
                             <View style={styles.trekBackMode}>
                                 <Text style={styles.trekBackTitle}>Trekking Back...</Text>
-                                <Text style={styles.trekBackSub}>Follow your path back. We'll alert you if you stray.</Text>
+                                <Text style={styles.trekBackSub}>Follow your path back. We&apos;ll alert you if you stray.</Text>
                                 <TouchableOpacity style={[styles.actionButton, styles.exitBtn, { marginTop: 15 }]} onPress={handleExit}>
                                     <Text style={styles.actionButtonText}>End Session</Text>
                                 </TouchableOpacity>

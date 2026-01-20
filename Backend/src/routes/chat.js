@@ -2,6 +2,7 @@ import express from "express";
 import User from "../models/User.js";
 import Chat from "../models/Chat.js";
 import Message from "../models/Message.js";
+import protectRoute from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
@@ -13,14 +14,15 @@ const router = express.Router();
 // Assuming a middleware sets `req.user`.
 
 // SEARCH USERS
-router.get("/search", async (req, res) => {
+router.get("/search", protectRoute, async (req, res) => {
     try {
         const { query } = req.query;
         if (!query) return res.status(400).json({ message: "Search query is required" });
 
-        // Find users by username or email, excluding the current user if we had their ID
+        // Find users by username or email, excluding the current user
         const users = await User.find({
             username: { $regex: query, $options: "i" },
+            _id: { $ne: req.user._id }
         }).limit(10).select("_id username profileImage email");
 
         res.json(users);
@@ -31,8 +33,9 @@ router.get("/search", async (req, res) => {
 });
 
 // GET OR CREATE CHAT (1-on-1)
-router.post("/", async (req, res) => {
-    const { currentUserId, partnerId } = req.body; // In real app, currentUserId from token
+router.post("/", protectRoute, async (req, res) => {
+    const { partnerId } = req.body;
+    const currentUserId = req.user._id;
 
     if (!currentUserId || !partnerId) {
         return res.status(400).json({ message: "Missing participants" });
@@ -58,9 +61,9 @@ router.post("/", async (req, res) => {
 });
 
 // GET ALL CHATS FOR USER
-router.get("/user/:userId", async (req, res) => {
+router.get("/user/:userId", protectRoute, async (req, res) => {
     try {
-        const { userId } = req.params;
+        const userId = req.user._id;
         const chats = await Chat.find({
             participants: { $in: [userId] },
         })
@@ -76,7 +79,7 @@ router.get("/user/:userId", async (req, res) => {
 });
 
 // GET MESSAGES
-router.get("/:chatId/messages", async (req, res) => {
+router.get("/:chatId/messages", protectRoute, async (req, res) => {
     try {
         const { chatId } = req.params;
         const messages = await Message.find({ chatId })
@@ -91,10 +94,11 @@ router.get("/:chatId/messages", async (req, res) => {
 });
 
 // SEND MESSAGE
-router.post("/:chatId/messages", async (req, res) => {
+router.post("/:chatId/messages", protectRoute, async (req, res) => {
     try {
         const { chatId } = req.params;
-        const { senderId, content } = req.body;
+        const { content } = req.body;
+        const senderId = req.user._id;
 
         const message = await Message.create({
             chatId,

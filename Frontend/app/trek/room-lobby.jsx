@@ -263,7 +263,7 @@ export default function RoomLobby() {
                     <View style={styles.waitingCard}>
                         <Ionicons name="hourglass-outline" size={60} color="#007bff" />
                         <Text style={styles.waitingTitle}>Waiting for Approval</Text>
-                        <Text style={styles.waitingDesc}>We've sent your request to {room.leader.username}. You'll join the room once they accept.</Text>
+                        <Text style={styles.waitingDesc}>We&apos;ve sent your request to {room.leader.username}. You&apos;ll join the room once they accept.</Text>
                         <ActivityIndicator size="large" color="#007bff" style={{ marginVertical: 20 }} />
 
                         {joinCooldown > 0 ? (
