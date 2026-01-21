@@ -8,47 +8,58 @@ import WeatherWidget from '../../components/WeatherWidget';
 import NativeMap, { Polyline, Marker } from '../../components/NativeMap';
 // icon map
 const MARKER_ICONS = [
-    { name: 'water', icon: 'water', color: '#007bff', label: 'Water' },
-    { name: 'camera', icon: 'camera', color: '#6610f2', label: 'Viewpoint' },
-    { name: 'danger', icon: 'warning', color: '#dc3545', label: 'Danger' },
-    { name: 'camp', icon: 'bonfire', color: '#fd7e14', label: 'Camp' },
-    { name: 'rest', icon: 'cafe', color: '#6f42c1', label: 'Rest' },
-    { name: 'mountain', icon: 'mountain', color: '#6d4c41', label: 'Peak' },
-    { name: 'tree', icon: 'leaf', color: '#2e7d32', label: 'Forest' },
-    { name: 'animal', icon: 'paw', color: '#ef6c00', label: 'Wildlife' },
-    { name: 'flag', icon: 'flag', color: '#c62828', label: 'Goal' },
-    { name: 'info', icon: 'information-circle', color: '#00838f', label: 'Info' },
+    { name: 'water', icon: 'water', color: '#007bff', label: 'Water', tags: ['river', 'lake', 'drink', 'stream', 'wet'] },
+    { name: 'camera', icon: 'camera', color: '#6610f2', label: 'Viewpoint', tags: ['photo', 'view', 'picture', 'scenery', 'lookout'] },
+    { name: 'danger', icon: 'warning', color: '#dc3545', label: 'Danger', tags: ['warning', 'careful', 'hazard', 'risk', 'steep'] },
+    { name: 'camp', icon: 'bonfire', color: '#fd7e14', label: 'Camp', tags: ['fire', 'night', 'tent', 'sleep', 'stay'] },
+    { name: 'rest', icon: 'cafe', color: '#6f42c1', label: 'Rest', tags: ['coffee', 'food', 'break', 'sit', 'eat'] },
+    { name: 'mountain', icon: 'mountain', color: '#6d4c41', label: 'Peak', tags: ['summit', 'climb', 'top', 'hill', 'high'] },
+    { name: 'tree', icon: 'leaf', color: '#2e7d32', label: 'Forest', tags: ['trees', 'woods', 'jungle', 'nature', 'green'] },
+    { name: 'animal', icon: 'paw', color: '#ef6c00', label: 'Wildlife', tags: ['tiger', 'bear', 'deer', 'animal', 'track', 'cat', 'dog'] },
+    { name: 'flag', icon: 'flag', color: '#c62828', label: 'Goal', tags: ['finish', 'end', 'destination', 'target', 'win'] },
+    { name: 'info', icon: 'information-circle', color: '#00838f', label: 'Info', tags: ['help', 'details', 'note', 'guide', 'sign'] },
+    { name: 'trail', icon: 'trail-sign', color: '#455a64', label: 'Trail', tags: ['path', 'road', 'way', 'direction', 'route'] },
+    { name: 'rain', icon: 'rainy', color: '#0288d1', label: 'Rain', tags: ['storm', 'wet', 'weather', 'clouds', 'umbrella'] },
+    { name: 'bicycle', icon: 'bicycle', color: '#311b92', label: 'Cycle', tags: ['bike', 'ride', 'wheels', 'fast', 'cyclist'] },
+    { name: 'fish', icon: 'fish', color: '#03a9f4', label: 'Fishing', tags: ['water', 'sea', 'river', 'catch', 'food'] },
+    { name: 'home', icon: 'home', color: '#546e7a', label: 'Shelter', tags: ['house', 'hut', 'cabin', 'stay', 'indoor'] },
+    { name: 'star', icon: 'star', color: '#fbc02d', label: 'Special', tags: ['favorite', 'good', 'gold', 'best', 'star'] },
 ];
 
-export default function ActiveTrekScreen() {
+export default function ActiveTrailScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
-    const { name, description, location: initialLocation, mode, trekId: paramTrekId, role = 'leader' } = params;
+    const { name, description, location: initialLocation, mode, trailId: paramTrailId, role = 'leader' } = params;
 
     const [location, setLocation] = useState(null);
     const [isTracking, setIsTracking] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
-    const [trekFinished, setTrekFinished] = useState(false); // New state for "Stop" -> "Trek Back"
-    const [isTrekkingBack, setIsTrekkingBack] = useState(false);
+    const [trailFinished, setTrailFinished] = useState(false); // New state for "Stop" -> "Trail Back"
+    const [isTrailingBack, setIsTrailingBack] = useState(false);
     const [hasStarted, setHasStarted] = useState(false);
 
     const [stats, setStats] = useState({ distance: 0, duration: 0 });
-    const [trekId, setTrekId] = useState(paramTrekId || null);
+    const [trailId, setTrailId] = useState(paramTrailId || null);
     const [routeCoordinates, setRouteCoordinates] = useState([]);
+    const [backtrackCoordinates, setBacktrackCoordinates] = useState([]);
     const [markers, setMarkers] = useState([]); // [{latitude, longitude, icon, type}]
+    const [distanceToTrail, setDistanceToTrail] = useState(0);
     const [mapType, setMapType] = useState('standard'); // 'standard', 'satellite', 'hybrid'
 
     // Modal State
     const [showMarkerModal, setShowMarkerModal] = useState(false);
     const [selectedIcon, setSelectedIcon] = useState(null);
     const [waypointDescription, setWaypointDescription] = useState('');
+    const [iconSearchQuery, setIconSearchQuery] = useState('');
 
     // Timer Ref
     const timerRef = useRef(null);
     const pausedRef = useRef(false);
     const locationSubscription = useRef(null);
-    const trekIdRef = useRef(trekId);
-    const routeRef = useRef([]); // Ref for route to access in callbacks without dependency issues
+    const trailIdRef = useRef(trailId);
+    const routeRef = useRef([]);
+    const lastLocationRef = useRef(null); // For EMA smoothing filter
+    const hasAlertedOffTrack = useRef(false); // To prevent alert spam
 
     useEffect(() => {
         (async () => {
@@ -61,13 +72,13 @@ export default function ActiveTrekScreen() {
             let loc = await Location.getCurrentPositionAsync({});
             setLocation(loc.coords);
 
-            // If we have a trekId (resuming) OR a name (new trek), start tracking
-            if (paramTrekId || name) {
+            // If we have a trailId (resuming) OR a name (new trail), start tracking
+            if (paramTrailId || name) {
                 if (role === 'leader') {
-                    // Manual start required unless resuming with a specific trekId from direct navigation?
+                    // Manual start required unless resuming with a specific trailId from direct navigation?
                     // Actually, even resuming should probably wait for a "Continue" or "Start" if user requested manual.
                     // Let's keep it simple: manual start for everyone on first load of this screen.
-                    // startTrek(); 
+                    // startTrail(); 
                 } else {
                     // Member Mode: Start polling
                     setHasStarted(true); // Members don't "start", they just join
@@ -87,17 +98,17 @@ export default function ActiveTrekScreen() {
     const startMemberMode = () => {
         // Poll for updates
         memberPollRef.current = setInterval(async () => {
-            if (!trekId && paramTrekId) setTrekId(paramTrekId);
-            const currentTrekId = trekId || paramTrekId;
+            if (!trailId && paramTrailId) setTrailId(paramTrailId);
+            const currentTrailId = trailId || paramTrailId;
 
-            if (currentTrekId) {
+            if (currentTrailId) {
                 try {
-                    const res = await client.get(`/treks/${currentTrekId}`);
+                    const res = await client.get(`/treks/${currentTrailId}`);
                     const data = res.data;
 
                     // Sync state from leader
                     if (data.status === 'completed') {
-                        setTrekFinished(true);
+                        setTrailFinished(true);
                         clearInterval(memberPollRef.current);
                     }
 
@@ -121,8 +132,8 @@ export default function ActiveTrekScreen() {
     };
 
     useEffect(() => {
-        trekIdRef.current = trekId;
-    }, [trekId]);
+        trailIdRef.current = trailId;
+    }, [trailId]);
 
     useEffect(() => {
         routeRef.current = routeCoordinates;
@@ -152,43 +163,67 @@ export default function ActiveTrekScreen() {
 
         locationSubscription.current = await Location.watchPositionAsync(
             {
-                accuracy: Location.Accuracy.High,
-                timeInterval: 3000,
-                distanceInterval: 10,
+                accuracy: Location.Accuracy.BestForNavigation,
+                timeInterval: 500,
+                distanceInterval: 1,
             },
             (newLocation) => {
-                if (pausedRef.current && !isTrekkingBack) return; // Don't record if paused, unless trekking back (we track user but don't save path?)
+                if (pausedRef.current && !isTrailingBack) return;
 
                 const { latitude, longitude, altitude } = newLocation.coords;
-                setLocation(newLocation.coords);
 
-                if (isTrekkingBack) {
-                    // Check off-track logic
-                    checkOffTrack(latitude, longitude);
-                } else if (!trekFinished) {
-                    // Recording logic
-                    const newPoint = { latitude, longitude };
-                    setRouteCoordinates(prev => {
-                        const newPath = [...prev, newPoint];
-                        return newPath;
-                    });
+                // --- EMA Smoothing Filter ---
+                let smoothedLat = latitude;
+                let smoothedLon = longitude;
 
-                    // Update distance stats
-                    setStats(prev => {
-                        // Calc distance from last point
-                        let addedDist = 0;
-                        if (routeCoordinates.length > 0) {
-                            const last = routeCoordinates[routeCoordinates.length - 1];
-                            addedDist = calculateDistance(last.latitude, last.longitude, latitude, longitude);
+                const alpha = 0.6; // Smoothing factor
+
+                if (lastLocationRef.current) {
+                    smoothedLat = alpha * latitude + (1 - alpha) * lastLocationRef.current.latitude;
+                    smoothedLon = alpha * longitude + (1 - alpha) * lastLocationRef.current.longitude;
+                }
+
+                const smoothedPoint = { latitude: smoothedLat, longitude: smoothedLon };
+                lastLocationRef.current = smoothedPoint;
+                setLocation(smoothedPoint);
+
+                if (isTrailingBack) {
+                    setBacktrackCoordinates(prev => [...prev, smoothedPoint]);
+                    checkOffTrack(smoothedLat, smoothedLon);
+                } else if (!trailFinished) {
+                    // Manual 1m Distance Threshold Check
+                    const path = routeRef.current;
+                    let shouldRecord = false;
+                    let dist = 0;
+
+                    if (path.length === 0) {
+                        shouldRecord = true;
+                    } else {
+                        const last = path[path.length - 1];
+                        dist = calculateDistance(last.latitude, last.longitude, smoothedLat, smoothedLon);
+                        if (dist >= 1) {
+                            shouldRecord = true;
                         }
-                        return { ...prev, distance: prev.distance + addedDist };
-                    });
+                    }
 
-                    // Sync to Backend
-                    if (trekIdRef.current) {
-                        client.put(`/treks/update/${trekIdRef.current}`, {
-                            coordinates: [{ latitude, longitude, altitude }]
-                        }).catch(console.error);
+                    if (shouldRecord) {
+                        const newPoint = { latitude: smoothedLat, longitude: smoothedLon };
+
+                        // Update UI Path
+                        setRouteCoordinates(prev => [...prev, newPoint]);
+
+                        // Update Stats
+                        setStats(prev => ({
+                            ...prev,
+                            distance: prev.distance + dist
+                        }));
+
+                        // Sync to Backend
+                        if (trailIdRef.current) {
+                            client.put(`/treks/update/${trailIdRef.current}`, {
+                                coordinates: [{ latitude: smoothedLat, longitude: smoothedLon, altitude }]
+                            }).catch(console.error);
+                        }
                     }
                 }
             }
@@ -206,19 +241,24 @@ export default function ActiveTrekScreen() {
             if (d < minDistance) minDistance = d;
         }
 
-        // Threshold: 50 meters
-        if (minDistance > 50) {
-            // Alert user (Debounce this in real app)
-            // For now, simple Alert works but might spam. 
-            // Better: console log or toast. React Native Alert blocks UI.
-            // Let's use a non-blocking toast or just state for a warning banner.
-            // Using alert for explicit user request "alert that you are off the track"
-            // But let's prevent spamming every 3 seconds.
-            // We can check if we already alerted recently? keeping simple for now.
-            // Or maybe just show a RED WARNING on screen.
+        setDistanceToTrail(Math.round(minDistance));
+
+        // Threshold: 20 meters for strict navigation
+        if (minDistance > 20) {
             setOffTrackWarning(true);
+
+            // Show Alert if not already alerted
+            if (!hasAlertedOffTrack.current) {
+                hasAlertedOffTrack.current = true;
+                Alert.alert(
+                    "Wrong Path!",
+                    "You have strayed from the trail. Please return to the blue path.",
+                    [{ text: "OK" }]
+                );
+            }
         } else {
             setOffTrackWarning(false);
+            hasAlertedOffTrack.current = false; // Reset when back on track
         }
     };
 
@@ -236,67 +276,75 @@ export default function ActiveTrekScreen() {
         stopLocationTracking();
     };
 
-    const startTrek = async () => {
+    const startTrail = async () => {
         try {
             setIsTracking(true);
             setIsPaused(false);
-            setTrekFinished(false);
+            setTrailFinished(false);
             setHasStarted(true);
             pausedRef.current = false;
 
             // Start timer
             timerRef.current = setInterval(() => {
-                if (!pausedRef.current && !trekFinished) {
+                if (!pausedRef.current && !trailFinished) {
                     setStats(prev => ({ ...prev, duration: prev.duration + 1 }));
                 }
             }, 1000);
 
-            // Create trek on backend if starting new
-            if (!trekId) {
+            // Create trail on backend if starting new
+            if (!trailId) {
                 const res = await client.post('/treks/start', {
-                    name: name || `New Trek ${new Date().toLocaleDateString()}`,
+                    name: name || `New Trail ${new Date().toLocaleDateString()}`,
                     description: description || '',
                     location: initialLocation || '',
                     mode: mode || 'solo'
                 });
-                setTrekId(res.data._id);
+                setTrailId(res.data._id);
+                trailIdRef.current = res.data._id;
             }
 
             await startLocationTracking();
 
         } catch (error) {
-            console.error("Failed to start trek", error);
-            Alert.alert("Error", "Failed to start trek session");
+            console.error("Failed to start trail", error);
+            Alert.alert("Error", "Failed to start trail session");
             setIsTracking(false);
         }
     };
 
-    const handleStopTrek = async () => {
+    const handleStopTrail = async () => {
         // Just pause/stop recording, verify completion
-        Alert.alert("Finish Trek?", "Have you reached your destination?", [
+        Alert.alert("Finish Trail?", "Have you reached your destination?", [
             { text: "Cancel", style: "cancel" },
             {
                 text: "Yes, Finish",
                 onPress: async () => {
-                    setTrekFinished(true); // Switch UI
+                    setTrailFinished(true); // Switch UI
                     setIsTracking(false);
                     if (timerRef.current) clearInterval(timerRef.current);
 
                     // Optional: Update status on backend now or wait for final exit
-                    if (trekId) {
-                        await client.put(`/treks/update/${trekId}`, { status: 'completed' });
+                    if (trailId) {
+                        await client.put(`/treks/update/${trailId}`, { status: 'completed' });
                     }
                 }
             }
         ]);
     };
 
-    const handleTrekBack = () => {
-        setIsTrekkingBack(true);
+    const handleTrailBack = () => {
+        setIsTrailingBack(true);
+        hasAlertedOffTrack.current = false;
+
+        // Initialize backtrack with current location if available
+        if (location) {
+            setBacktrackCoordinates([location]);
+        }
+
         // Ensure tracking is active but in "back" mode
-        pausedRef.current = true; // Stop recording new points
+        pausedRef.current = true; // Stop recording original path points
         // But we need to listen to location updates for off-track logic
-        // re-enable listener if it was stopped (it wasn't strictly stopped in handleStopTrek, just state changed)
+        // re-enable listener if it was stopped (it wasn't strictly stopped in handleStopTrail, just state changed)
         // Check if subscription exists
         if (!locationSubscription.current) {
             startLocationTracking();
@@ -321,6 +369,7 @@ export default function ActiveTrekScreen() {
 
     const handleSelectIcon = (iconData) => {
         setSelectedIcon(iconData);
+        setIconSearchQuery(''); // Reset search when icon selected
     };
 
     const addMarker = async () => {
@@ -339,11 +388,12 @@ export default function ActiveTrekScreen() {
         setShowMarkerModal(false);
         setSelectedIcon(null);
         setWaypointDescription('');
+        setIconSearchQuery('');
 
         // Save to backend
-        if (trekId) {
+        if (trailId) {
             try {
-                await client.put(`/treks/update/${trekId}`, {
+                await client.put(`/treks/update/${trailId}`, {
                     waypoints: [newMarker]
                 });
             } catch (e) {
@@ -374,7 +424,24 @@ export default function ActiveTrekScreen() {
                         followsUserLocation={true}
                     >
                         {routeCoordinates.length > 0 && (
-                            <Polyline coordinates={routeCoordinates} strokeWidth={4} strokeColor="#28a745" />
+                            <Polyline
+                                coordinates={routeCoordinates}
+                                strokeWidth={5}
+                                strokeColor={trailFinished ? "#007bff" : "#28a745"} // Blue when finished, Green when recording
+                                lineCap="round"
+                                lineJoin="round"
+                                geodesic={true}
+                            />
+                        )}
+                        {backtrackCoordinates.length > 0 && (
+                            <Polyline
+                                coordinates={backtrackCoordinates}
+                                strokeWidth={5}
+                                strokeColor="#28a745" // Always green for backtrack progress
+                                lineCap="round"
+                                lineJoin="round"
+                                geodesic={true}
+                            />
                         )}
                         {markers.map((m, i) => (
                             <Marker
@@ -387,10 +454,22 @@ export default function ActiveTrekScreen() {
                         ))}
                     </NativeMap>
 
+                    {isTrailingBack && (
+                        <View style={[styles.statusOverlay, { top: offTrackWarning ? 120 : 80 }]}>
+                            <View style={styles.statusBadge}>
+                                <Ionicons name="navigate" size={16} color="#007bff" />
+                                <Text style={styles.statusText}>{distanceToTrail}m to Trail</Text>
+                            </View>
+                        </View>
+                    )}
+
                     {offTrackWarning && (
                         <View style={styles.warningBanner}>
                             <Ionicons name="warning" size={24} color="white" />
-                            <Text style={styles.warningText}>OFF TRACK! Return to the path.</Text>
+                            <View style={{ marginLeft: 10 }}>
+                                <Text style={styles.warningTitle}>OFF TRACK!</Text>
+                                <Text style={styles.warningSubtitle}>Return to the blue path ({distanceToTrail}m away)</Text>
+                            </View>
                         </View>
                     )}
 
@@ -405,7 +484,7 @@ export default function ActiveTrekScreen() {
             )}
 
             {/* Top Left Add Icon Button */}
-            {!trekFinished && role === 'leader' && (
+            {!trailFinished && role === 'leader' && (
                 <View style={styles.topButtonsContainer}>
                     <TouchableOpacity style={styles.mapIconButton} onPress={() => setShowMarkerModal(true)}>
                         <Ionicons name="add-circle" size={32} color="#28a745" />
@@ -423,7 +502,7 @@ export default function ActiveTrekScreen() {
 
             {/* Controls Overlay */}
             <View style={styles.controls}>
-                {!trekFinished ? (
+                {!trailFinished ? (
                     <>
                         <View style={styles.statsCard}>
                             <Text style={styles.statLabel}>Duration</Text>
@@ -437,7 +516,7 @@ export default function ActiveTrekScreen() {
                                     <TouchableOpacity style={[styles.button, styles.pauseBtn]} onPress={togglePause}>
                                         <Ionicons name={isPaused ? "play" : "pause"} size={32} color="white" />
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={[styles.button, styles.stopBtn]} onPress={handleStopTrek}>
+                                    <TouchableOpacity style={[styles.button, styles.stopBtn]} onPress={handleStopTrail}>
                                         <Ionicons name="stop" size={32} color="white" />
                                     </TouchableOpacity>
                                 </>
@@ -445,13 +524,13 @@ export default function ActiveTrekScreen() {
                         </View>
                     </>
                 ) : (
-                    // Trek Finished / Trek Back Mode
+                    // Trail Finished / Trail Back Mode
                     <View style={styles.finishedContainer}>
-                        {!isTrekkingBack ? (
+                        {!isTrailingBack ? (
                             <>
                                 <Text style={styles.finishedTitle}>Destination Reached</Text>
                                 <View style={styles.row}>
-                                    <TouchableOpacity style={[styles.actionButton, styles.trekBackBtn]} onPress={handleTrekBack}>
+                                    <TouchableOpacity style={[styles.actionButton, styles.trailBackBtn]} onPress={handleTrailBack}>
                                         <Ionicons name="arrow-undo" size={24} color="white" style={{ marginRight: 8 }} />
                                         <Text style={styles.actionButtonText}>Trail Back</Text>
                                     </TouchableOpacity>
@@ -463,9 +542,9 @@ export default function ActiveTrekScreen() {
                                 </View>
                             </>
                         ) : (
-                            <View style={styles.trekBackMode}>
-                                <Text style={styles.trekBackTitle}>Trailing Back...</Text>
-                                <Text style={styles.trekBackSub}>Follow your path back. We&apos;ll alert you if you stray.</Text>
+                            <View style={styles.trailBackMode}>
+                                <Text style={styles.trailBackTitle}>Trailing Back...</Text>
+                                <Text style={styles.trailBackSub}>Follow your path back. We'll alert you if you stray.</Text>
                                 <TouchableOpacity style={[styles.actionButton, styles.exitBtn, { marginTop: 15 }]} onPress={handleExit}>
                                     <Text style={styles.actionButtonText}>End Session</Text>
                                 </TouchableOpacity>
@@ -484,6 +563,7 @@ export default function ActiveTrekScreen() {
                     setShowMarkerModal(false);
                     setSelectedIcon(null);
                     setWaypointDescription('');
+                    setIconSearchQuery('');
                 }}
             >
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -498,25 +578,52 @@ export default function ActiveTrekScreen() {
                                 </Text>
 
                                 {!selectedIcon ? (
-                                    <FlatList
-                                        data={MARKER_ICONS}
-                                        numColumns={3}
-                                        keyExtractor={item => item.name}
-                                        renderItem={({ item }) => (
-                                            <TouchableOpacity
-                                                style={styles.iconOption}
-                                                onPress={() => {
-                                                    handleSelectIcon(item);
-                                                    Keyboard.dismiss();
-                                                }}
-                                            >
-                                                <View style={[styles.iconCircle, { backgroundColor: item.color }]}>
-                                                    <Ionicons name={item.icon} size={24} color="white" />
+                                    <>
+                                        <View style={styles.searchContainer}>
+                                            <Ionicons name="search" size={20} color="#666" style={{ marginLeft: 10 }} />
+                                            <TextInput
+                                                style={styles.searchInput}
+                                                placeholder="Search for icon (e.g. tiger, peak...)"
+                                                value={iconSearchQuery}
+                                                onChangeText={setIconSearchQuery}
+                                                maxLength={30}
+                                            />
+                                            {iconSearchQuery.length > 0 && (
+                                                <TouchableOpacity onPress={() => setIconSearchQuery('')}>
+                                                    <Ionicons name="close-circle" size={20} color="#666" style={{ marginRight: 10 }} />
+                                                </TouchableOpacity>
+                                            )}
+                                        </View>
+
+                                        <FlatList
+                                            data={MARKER_ICONS.filter(item =>
+                                                item.label.toLowerCase().includes(iconSearchQuery.toLowerCase()) ||
+                                                item.tags.some(tag => tag.toLowerCase().includes(iconSearchQuery.toLowerCase()))
+                                            )}
+                                            numColumns={3}
+                                            keyExtractor={item => item.name}
+                                            ListEmptyComponent={(
+                                                <View style={styles.noResults}>
+                                                    <Ionicons name="search-outline" size={40} color="#ccc" />
+                                                    <Text style={styles.noResultsText}>No icons found for "{iconSearchQuery}"</Text>
                                                 </View>
-                                                <Text style={styles.iconLabel}>{item.label}</Text>
-                                            </TouchableOpacity>
-                                        )}
-                                    />
+                                            )}
+                                            renderItem={({ item }) => (
+                                                <TouchableOpacity
+                                                    style={styles.iconOption}
+                                                    onPress={() => {
+                                                        handleSelectIcon(item);
+                                                        Keyboard.dismiss();
+                                                    }}
+                                                >
+                                                    <View style={[styles.iconCircle, { backgroundColor: item.color }]}>
+                                                        <Ionicons name={item.icon} size={24} color="white" />
+                                                    </View>
+                                                    <Text style={styles.iconLabel}>{item.label}</Text>
+                                                </TouchableOpacity>
+                                            )}
+                                        />
+                                    </>
                                 ) : (
                                     <View style={styles.descriptionSection}>
                                         <View style={[styles.iconCircle, { backgroundColor: selectedIcon.color, alignSelf: 'center', marginBottom: 20 }]}>
@@ -553,6 +660,7 @@ export default function ActiveTrekScreen() {
                                         setShowMarkerModal(false);
                                         setSelectedIcon(null);
                                         setWaypointDescription('');
+                                        setIconSearchQuery('');
                                     }}
                                 >
                                     <Text style={styles.closeText}>Cancel</Text>
@@ -570,7 +678,7 @@ export default function ActiveTrekScreen() {
                         <Ionicons name="location" size={60} color="#28a745" />
                         <Text style={styles.startTitle}>Ready to Trail?</Text>
                         <Text style={styles.startSub}>Position yourself and click below to begin recording.</Text>
-                        <TouchableOpacity style={styles.startBigBtn} onPress={startTrek}>
+                        <TouchableOpacity style={styles.startBigBtn} onPress={startTrail}>
                             <Text style={styles.startBigBtnText}>Start Trail Now</Text>
                         </TouchableOpacity>
                     </View>
@@ -590,29 +698,62 @@ const styles = StyleSheet.create({
     },
     weatherOverlay: {
         position: 'absolute',
-        top: 60,
+        top: 40,
         right: 20,
         zIndex: 10,
     },
+    statusOverlay: {
+        position: 'absolute',
+        top: 80,
+        flexDirection: 'row',
+        justifyContent: 'center',
+        width: '100%',
+        zIndex: 20,
+    },
+    statusBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
+        elevation: 4,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+    },
+    statusText: {
+        marginLeft: 6,
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#007bff',
+    },
     warningBanner: {
         position: 'absolute',
-        top: 100,
+        top: 20,
         left: 20,
         right: 20,
         backgroundColor: '#dc3545',
-        padding: 15,
-        borderRadius: 8,
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 99,
-        elevation: 10,
+        padding: 15,
+        borderRadius: 12,
+        zIndex: 100, // Top priority
+        elevation: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
     },
-    warningText: {
+    warningTitle: {
         color: 'white',
         fontWeight: 'bold',
-        marginLeft: 10,
         fontSize: 16,
+    },
+    warningSubtitle: {
+        color: 'rgba(255, 255, 255, 0.9)',
+        fontSize: 12,
     },
     topButtonsContainer: {
         position: 'absolute',
@@ -708,7 +849,7 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         alignItems: 'center',
     },
-    trekBackBtn: {
+    trailBackBtn: {
         backgroundColor: '#17a2b8',
     },
     exitBtn: {
@@ -719,16 +860,16 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         fontSize: 16,
     },
-    trekBackMode: {
+    trailBackMode: {
         alignItems: 'center',
     },
-    trekBackTitle: {
+    trailBackTitle: {
         fontSize: 22,
         fontWeight: 'bold',
         color: '#17a2b8',
         marginBottom: 8,
     },
-    trekBackSub: {
+    trailBackSub: {
         textAlign: 'center',
         color: '#666',
     },
@@ -797,6 +938,30 @@ const styles = StyleSheet.create({
         color: '#333',
         minHeight: 80,
         textAlignVertical: 'top',
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f1f3f5',
+        borderRadius: 12,
+        marginBottom: 20,
+        marginHorizontal: 10,
+    },
+    searchInput: {
+        flex: 1,
+        height: 45,
+        fontSize: 16,
+        color: '#333',
+        paddingHorizontal: 10,
+    },
+    noResults: {
+        alignItems: 'center',
+        paddingVertical: 40,
+    },
+    noResultsText: {
+        color: '#666',
+        marginTop: 10,
+        fontSize: 14,
     },
     keyboardAvoidingView: {
         width: '100%',

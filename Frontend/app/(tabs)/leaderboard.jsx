@@ -36,7 +36,7 @@ export default function Leaderboard() {
             />
             <View style={styles.info}>
                 <Text style={styles.username}>{item.userDetails?.username || "Hiker"}</Text>
-                <Text style={styles.stats}>{Math.round(item.totalDistance / 1000)} km • {item.treksCount} treks</Text>
+                <Text style={styles.stats}>{Math.round(item.totalDistance / 1000)} km • {item.treksCount} trails</Text>
             </View>
         </View>
     );

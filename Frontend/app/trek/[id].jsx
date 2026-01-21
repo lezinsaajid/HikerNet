@@ -4,24 +4,24 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
 
-export default function TrekDetailsScreen() {
+export default function TrailDetailsScreen() {
     const router = useRouter();
     const { id } = useLocalSearchParams();
-    const [trek, setTrek] = useState(null);
+    const [trail, setTrail] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         if (id) {
-            loadTrekDetails();
+            loadTrailDetails();
         }
     }, [id]);
 
-    const loadTrekDetails = async () => {
+    const loadTrailDetails = async () => {
         try {
             const res = await client.get(`/treks/${id}`);
-            setTrek(res.data);
+            setTrail(res.data);
         } catch (error) {
-            console.error("Failed to load trek details", error);
+            console.error("Failed to load trail details", error);
         } finally {
             setIsLoading(false);
         }
@@ -31,7 +31,7 @@ export default function TrekDetailsScreen() {
         router.push({
             pathname: '/trek/active',
             params: {
-                trekId: id, // Pass existing ID to resume/follow
+                trailId: id, // Pass existing ID to resume/follow
                 mode
             }
         });
@@ -45,10 +45,10 @@ export default function TrekDetailsScreen() {
         );
     }
 
-    if (!trek) {
+    if (!trail) {
         return (
             <View style={[styles.container, styles.center]}>
-                <Text>Trek not found.</Text>
+                <Text>Trail not found.</Text>
                 <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
                     <Text style={{ color: 'blue' }}>Go Back</Text>
                 </TouchableOpacity>
@@ -59,7 +59,7 @@ export default function TrekDetailsScreen() {
     return (
         <ScrollView style={styles.container}>
             <Image
-                source={{ uri: trek.images?.[0] || 'https://images.unsplash.com/photo-1551632811-561732d1e306?q=80&w=2070&auto=format&fit=crop' }}
+                source={{ uri: trail.images?.[0] || 'https://images.unsplash.com/photo-1551632811-561732d1e306?q=80&w=2070&auto=format&fit=crop' }}
                 style={styles.heroImage}
             />
 
@@ -69,38 +69,38 @@ export default function TrekDetailsScreen() {
 
             <View style={styles.content}>
                 <View style={styles.headerRow}>
-                    <Text style={styles.title}>{trek.name}</Text>
-                    {trek.rating && (
+                    <Text style={styles.title}>{trail.name}</Text>
+                    {trail.rating && (
                         <View style={styles.ratingBadge}>
                             <Ionicons name="star" size={16} color="#ffc107" />
-                            <Text style={styles.ratingText}>{trek.rating}</Text>
+                            <Text style={styles.ratingText}>{trail.rating}</Text>
                         </View>
                     )}
                 </View>
 
                 <View style={styles.locationRow}>
                     <Ionicons name="location-outline" size={16} color="#666" />
-                    <Text style={styles.locationText}>{trek.location || 'Unknown Location'}</Text>
+                    <Text style={styles.locationText}>{trail.location || 'Unknown Location'}</Text>
                 </View>
 
                 <View style={styles.statsRow}>
                     <View style={styles.statItem}>
                         <Text style={styles.statValue}>
-                            {trek.stats?.distance ? (trek.stats.distance / 1000).toFixed(2) : '0'}
+                            {trail.stats?.distance ? (trail.stats.distance / 1000).toFixed(2) : '0'}
                         </Text>
                         <Text style={styles.statLabel}>km</Text>
                     </View>
                     <View style={styles.statDivider} />
                     <View style={styles.statItem}>
                         <Text style={styles.statValue}>
-                            {trek.stats?.duration ? Math.round(trek.stats.duration / 60) : '0'}
+                            {trail.stats?.duration ? Math.round(trail.stats.duration / 60) : '0'}
                         </Text>
                         <Text style={styles.statLabel}>min</Text>
                     </View>
                     <View style={styles.statDivider} />
                     <View style={styles.statItem}>
                         <Text style={styles.statValue}>
-                            {trek.stats?.elevationGain || '0'}
+                            {trail.stats?.elevationGain || '0'}
                         </Text>
                         <Text style={styles.statLabel}>m elev</Text>
                     </View>
@@ -108,7 +108,7 @@ export default function TrekDetailsScreen() {
 
                 <Text style={styles.sectionTitle}>About this trail</Text>
                 <Text style={styles.description}>
-                    {trek.description || "No description provided for this trek."}
+                    {trail.description || "No description provided for this trail."}
                 </Text>
 
                 <View style={styles.footer}>
@@ -118,7 +118,7 @@ export default function TrekDetailsScreen() {
                     >
                         <Ionicons name="person" size={24} color="white" />
                         <View style={styles.buttonContent}>
-                            <Text style={styles.buttonTitle}>Solo Trek</Text>
+                            <Text style={styles.buttonTitle}>Solo Trail</Text>
                         </View>
                     </TouchableOpacity>
 
@@ -128,7 +128,7 @@ export default function TrekDetailsScreen() {
                     >
                         <Ionicons name="people" size={24} color="white" />
                         <View style={styles.buttonContent}>
-                            <Text style={styles.buttonTitle}>Group Trek</Text>
+                            <Text style={styles.buttonTitle}>Group Trail</Text>
                         </View>
                     </TouchableOpacity>
                 </View>

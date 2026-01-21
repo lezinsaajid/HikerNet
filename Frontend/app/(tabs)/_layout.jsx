@@ -18,7 +18,7 @@ export default function TabLayout() {
             <Tabs.Screen
                 name="trek"
                 options={{
-                    title: "Trek",
+                    title: "Trail",
                     tabBarIcon: ({ color }) => <Ionicons name="footsteps" size={24} color={color} />,
                 }}
             />

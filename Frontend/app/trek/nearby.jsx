@@ -5,29 +5,29 @@ import { useRouter } from 'expo-router';
 import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function NearbyTreks() {
+export default function NearbyTrails() {
     const router = useRouter();
     const [searchQuery, setSearchQuery] = useState('');
-    const [treks, setTreks] = useState([]);
+    const [trails, setTrails] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        loadTreks();
+        loadTrails();
     }, []);
 
-    const loadTreks = async () => {
+    const loadTrails = async () => {
         setIsLoading(true);
         try {
             const res = await client.get('/treks/feed/public');
-            setTreks(res.data);
+            setTrails(res.data);
         } catch (error) {
-            console.error("Failed to load treks", error);
+            console.error("Failed to load trails", error);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const renderTrekItem = ({ item }) => (
+    const renderTrailItem = ({ item }) => (
         <TouchableOpacity
             style={styles.card}
             onPress={() => router.push({
@@ -60,12 +60,12 @@ export default function NearbyTreks() {
         </TouchableOpacity>
     );
 
-    const filteredTreks = treks.filter(trek => {
+    const filteredTrails = trails.filter(trail => {
         if (!searchQuery) return true;
         const query = searchQuery.toLowerCase();
         return (
-            trek.name?.toLowerCase().includes(query) ||
-            trek.location?.toLowerCase().includes(query)
+            trail.name?.toLowerCase().includes(query) ||
+            trail.location?.toLowerCase().includes(query)
         );
     });
 
@@ -75,7 +75,7 @@ export default function NearbyTreks() {
                 <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 15 }}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Nearby Treks</Text>
+                <Text style={styles.headerTitle}>Nearby Trails</Text>
             </View>
 
             <View style={styles.searchWrapper}>
@@ -92,18 +92,18 @@ export default function NearbyTreks() {
 
             <View style={styles.content}>
                 {isLoading ? (
-                    <Text>Loading treks...</Text>
+                    <Text>Loading trails...</Text>
                 ) : (
                     <FlatList
-                        data={filteredTreks}
-                        renderItem={renderTrekItem}
+                        data={filteredTrails}
+                        renderItem={renderTrailItem}
                         keyExtractor={item => item._id}
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={{ paddingBottom: 100 }}
                         ListEmptyComponent={
                             <View style={styles.emptyContainer}>
                                 <Text style={styles.emptyText}>
-                                    {searchQuery ? `No treks found matching "${searchQuery}"` : "No available treks now"}
+                                    {searchQuery ? `No trails found matching "${searchQuery}"` : "No available trails now"}
                                 </Text>
                             </View>
                         }

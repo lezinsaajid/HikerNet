@@ -4,13 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function TrekDashboard() {
+export default function TrailDashboard() {
     const router = useRouter();
 
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Explore Treks</Text>
+                <Text style={styles.headerTitle}>Explore Trails</Text>
             </View>
 
             <View style={styles.content}>
@@ -21,7 +21,7 @@ export default function TrekDashboard() {
                     <View style={styles.cardContent}>
                         <View>
                             <Text style={styles.cardTitle}>Create New Trail</Text>
-                            <Text style={styles.cardDistance}>Start tracking a new trek</Text>
+                            <Text style={styles.cardDistance}>Start tracking a new trail</Text>
                         </View>
                         <View style={[styles.ratingContainer, { backgroundColor: '#e8f5e9' }]}>
                             <Ionicons name="walk" size={16} color="#28a745" />
@@ -35,8 +35,8 @@ export default function TrekDashboard() {
                     </View>
                     <View style={styles.cardContent}>
                         <View>
-                            <Text style={styles.cardTitle}>Nearby Locations</Text>
-                            <Text style={styles.cardDistance}>Find treks near you</Text>
+                            <Text style={styles.cardTitle}>Nearby Trails</Text>
+                            <Text style={styles.cardDistance}>Find trails near you</Text>
                         </View>
                         <View style={[styles.ratingContainer, { backgroundColor: '#e3f2fd' }]}>
                             <Ionicons name="location" size={16} color="#007bff" />
