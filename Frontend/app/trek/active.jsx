@@ -30,6 +30,7 @@ export default function ActiveTrekScreen() {
     const [trekId, setTrekId] = useState(paramTrekId || null);
     const [routeCoordinates, setRouteCoordinates] = useState([]);
     const [markers, setMarkers] = useState([]); // [{latitude, longitude, icon, type}]
+    const [mapType, setMapType] = useState('standard'); // 'standard', 'satellite', 'hybrid'
 
     // Modal State
     const [showMarkerModal, setShowMarkerModal] = useState(false);
@@ -299,6 +300,12 @@ export default function ActiveTrekScreen() {
         pausedRef.current = newPausedState;
     };
 
+    const toggleMapType = () => {
+        const types = ['standard', 'satellite', 'hybrid'];
+        const nextIndex = (types.indexOf(mapType) + 1) % types.length;
+        setMapType(types[nextIndex]);
+    };
+
     const addMarker = async (iconData) => {
         if (!location) return;
 
@@ -351,9 +358,10 @@ export default function ActiveTrekScreen() {
                         initialRegion={{
                             latitude: location.latitude,
                             longitude: location.longitude,
-                            latitudeDelta: 0.01,
-                            longitudeDelta: 0.01,
+                            latitudeDelta: 0.0002,
+                            longitudeDelta: 0.0002,
                         }}
+                        mapType={mapType}
                         showsUserLocation={true}
                         followsUserLocation={true}
                     >
@@ -383,16 +391,25 @@ export default function ActiveTrekScreen() {
                 </View>
             ) : (
                 <View style={styles.centered}>
-                    <Text>Initializing Trek...</Text>
+                    <Text>Initializing Trail...</Text>
                 </View>
             )}
 
             {/* Top Left Add Icon Button */}
             {!trekFinished && role === 'leader' && (
-                <TouchableOpacity style={styles.addMarkerButton} onPress={() => setShowMarkerModal(true)}>
-                    <Ionicons name="add-circle" size={40} color="#28a745" />
-                    {/* <Text style={styles.addMarkerText}>Add Icon</Text> */}
-                </TouchableOpacity>
+                <View style={styles.topButtonsContainer}>
+                    <TouchableOpacity style={styles.mapIconButton} onPress={() => setShowMarkerModal(true)}>
+                        <Ionicons name="add-circle" size={32} color="#28a745" />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.mapIconButton} onPress={toggleMapType}>
+                        <Ionicons
+                            name={mapType === 'standard' ? 'map' : mapType === 'satellite' ? 'image' : 'layers'}
+                            size={28}
+                            color="#28a745"
+                        />
+                    </TouchableOpacity>
+                </View>
             )}
 
             {/* Controls Overlay */}
@@ -427,7 +444,7 @@ export default function ActiveTrekScreen() {
                                 <View style={styles.row}>
                                     <TouchableOpacity style={[styles.actionButton, styles.trekBackBtn]} onPress={handleTrekBack}>
                                         <Ionicons name="arrow-undo" size={24} color="white" style={{ marginRight: 8 }} />
-                                        <Text style={styles.actionButtonText}>Trek Back</Text>
+                                        <Text style={styles.actionButtonText}>Trail Back</Text>
                                     </TouchableOpacity>
 
                                     <TouchableOpacity style={[styles.actionButton, styles.exitBtn]} onPress={handleExit}>
@@ -438,7 +455,7 @@ export default function ActiveTrekScreen() {
                             </>
                         ) : (
                             <View style={styles.trekBackMode}>
-                                <Text style={styles.trekBackTitle}>Trekking Back...</Text>
+                                <Text style={styles.trekBackTitle}>Trailing Back...</Text>
                                 <Text style={styles.trekBackSub}>Follow your path back. We&apos;ll alert you if you stray.</Text>
                                 <TouchableOpacity style={[styles.actionButton, styles.exitBtn, { marginTop: 15 }]} onPress={handleExit}>
                                     <Text style={styles.actionButtonText}>End Session</Text>
@@ -519,15 +536,25 @@ const styles = StyleSheet.create({
         marginLeft: 10,
         fontSize: 16,
     },
-    addMarkerButton: {
+    topButtonsContainer: {
         position: 'absolute',
         top: 110,
         left: 20,
         zIndex: 10,
+        gap: 10,
+    },
+    mapIconButton: {
         backgroundColor: 'white',
-        borderRadius: 30,
-        padding: 5,
+        borderRadius: 25,
+        width: 50,
+        height: 50,
+        justifyContent: 'center',
+        alignItems: 'center',
         elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
     },
     centered: {
         flex: 1,

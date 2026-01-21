@@ -20,7 +20,7 @@ export default function TrekDashboard() {
                     </View>
                     <View style={styles.cardContent}>
                         <View>
-                            <Text style={styles.cardTitle}>Create New Trails</Text>
+                            <Text style={styles.cardTitle}>Create New Trail</Text>
                             <Text style={styles.cardDistance}>Start tracking a new trek</Text>
                         </View>
                         <View style={[styles.ratingContainer, { backgroundColor: '#e8f5e9' }]}>

@@ -82,7 +82,7 @@ export default function CreateTrekScreen() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>New Trek</Text>
+                <Text style={styles.headerTitle}>New Trail</Text>
             </View>
 
             <View style={styles.form}>
@@ -131,7 +131,7 @@ export default function CreateTrekScreen() {
                 >
                     <Ionicons name="person" size={24} color="white" />
                     <View style={styles.buttonContent}>
-                        <Text style={styles.buttonTitle}>Solo Trek</Text>
+                        <Text style={styles.buttonTitle}>Solo Trail</Text>
                         <Text style={styles.buttonSubtitle}>Just you and the trail</Text>
                     </View>
                 </TouchableOpacity>
@@ -149,7 +149,7 @@ export default function CreateTrekScreen() {
                 >
                     <Ionicons name="people" size={24} color="white" />
                     <View style={styles.buttonContent}>
-                        <Text style={styles.buttonTitle}>Group Trek</Text>
+                        <Text style={styles.buttonTitle}>Group Trail</Text>
                         <Text style={styles.buttonSubtitle}>Invite friends to join</Text>
                     </View>
                 </TouchableOpacity>
