@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, KeyboardAvoidingView, Platform, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,6 +49,29 @@ export default function ChatScreen() {
         }
     };
 
+    const handleDeleteMessage = async (messageId) => {
+        Alert.alert(
+            "Delete Message",
+            "Are you sure you want to delete this message?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            await client.delete(`/chat/${id}/messages/${messageId}`);
+                            fetchMessages();
+                        } catch (error) {
+                            console.error("Failed to delete message", error);
+                            Alert.alert("Error", "Could not delete message");
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     const renderMessage = ({ item }) => {
         const isMe = item.sender._id === currentUser._id;
         return (
@@ -59,14 +82,18 @@ export default function ChatScreen() {
                         style={styles.avatar}
                     />
                 )}
-                <View style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}>
+                <TouchableOpacity
+                    activeOpacity={0.8}
+                    onLongPress={() => isMe && handleDeleteMessage(item._id)}
+                    style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}
+                >
                     <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
                         {item.content}
                     </Text>
                     <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
                         {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </Text>
-                </View>
+                </TouchableOpacity>
             </View>
         );
     };
@@ -92,7 +119,7 @@ export default function ChatScreen() {
 
             <KeyboardAvoidingView
                 behavior={Platform.OS === "ios" ? "padding" : "height"}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0} // Adjusted for better screen fit
                 style={styles.inputContainer}
             >
                 <TextInput

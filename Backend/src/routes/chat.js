@@ -120,4 +120,27 @@ router.post("/:chatId/messages", protectRoute, async (req, res) => {
     }
 });
 
+// DELETE MESSAGE
+router.delete("/:chatId/messages/:messageId", protectRoute, async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const senderId = req.user._id;
+
+        const message = await Message.findById(messageId);
+        if (!message) {
+            return res.status(404).json({ message: "Message not found" });
+        }
+
+        if (message.sender.toString() !== senderId.toString()) {
+            return res.status(401).json({ message: "You can only delete your own messages" });
+        }
+
+        await Message.findByIdAndDelete(messageId);
+        res.json({ message: "Message deleted" });
+    } catch (error) {
+        console.error("Delete message error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
 export default router;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image, ActivityIndicator, TouchableOpacity, ScrollView, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Image, ActivityIndicator, TouchableOpacity, ScrollView, Alert, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -79,6 +79,29 @@ export default function PostDetail() {
         }
     };
 
+    const handleDeleteComment = async (commentId) => {
+        Alert.alert(
+            "Delete Comment",
+            "Are you sure you want to delete this comment?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            await client.delete(`/posts/${id}/comment/${commentId}`);
+                            fetchPost();
+                        } catch (error) {
+                            console.error("Delete comment error:", error);
+                            Alert.alert("Error", "Failed to delete comment");
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     if (loading) {
         return (
             <SafeAreaView style={styles.center}>
@@ -94,74 +117,92 @@ export default function PostDetail() {
 
     return (
         <SafeAreaView style={styles.container}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color="#000" />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Post</Text>
-                {isOwner ? (
-                    <TouchableOpacity onPress={handleDelete} style={styles.deleteButton}>
-                        <Ionicons name="trash-outline" size={24} color="#dc3545" />
+            <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={{ flex: 1 }}
+            >
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <Ionicons name="arrow-back" size={24} color="#000" />
                     </TouchableOpacity>
-                ) : (
-                    <View style={{ width: 24 }} /> /* Spacer */
-                )}
-            </View>
-
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                <View style={styles.userInfo}>
-                    <Image source={{ uri: post.user.profileImage }} style={styles.avatar} />
-                    <View>
-                        <Text style={styles.username}>{post.user.username}</Text>
-                        <Text style={styles.date}>{new Date(post.createdAt).toLocaleDateString()}</Text>
-                    </View>
+                    <Text style={styles.headerTitle}>Post</Text>
+                    {isOwner ? (
+                        <TouchableOpacity onPress={handleDelete} style={styles.deleteButton}>
+                            <Ionicons name="trash-outline" size={24} color="#dc3545" />
+                        </TouchableOpacity>
+                    ) : (
+                        <View style={{ width: 24 }} /> /* Spacer */
+                    )}
                 </View>
 
-                {post.image && (
-                    <Image source={{ uri: post.image }} style={styles.postImage} resizeMode="cover" />
-                )}
-
-                <View style={styles.content}>
-                    <Text style={styles.caption}>
-                        <Text style={styles.bold}>{post.user.username}</Text> {post.caption}
-                    </Text>
-
-                    <View style={styles.actionRow}>
-                        <TouchableOpacity onPress={handleLike} style={styles.actionButton}>
-                            <Ionicons name={isLiked ? "heart" : "heart-outline"} size={28} color={isLiked ? "#e91e63" : "#333"} />
-                            <Text style={styles.actionText}>{post.likes.length} likes</Text>
-                        </TouchableOpacity>
-                        <View style={styles.actionButton}>
-                            <Ionicons name="chatbubble-outline" size={26} color="#333" />
-                            <Text style={styles.actionText}>{post.comments.length} comments</Text>
+                <ScrollView contentContainerStyle={styles.scrollContent}>
+                    <View style={styles.userInfo}>
+                        <Image source={{ uri: post.user.profileImage }} style={styles.avatar} />
+                        <View>
+                            <Text style={styles.username}>{post.user.username}</Text>
+                            <Text style={styles.date}>{new Date(post.createdAt).toLocaleDateString()}</Text>
                         </View>
                     </View>
 
-                    {/* Comments Section */}
-                    <View style={styles.commentsSection}>
-                        {post.comments.map((comment, index) => (
-                            <View key={index} style={styles.commentItem}>
-                                <Text style={styles.commentText}>
-                                    <Text style={styles.bold}>User </Text>
-                                    {comment.text}
-                                </Text>
-                            </View>
-                        ))}
-                    </View>
-                </View>
-            </ScrollView>
+                    {post.image && (
+                        <Image source={{ uri: post.image }} style={styles.postImage} resizeMode="cover" />
+                    )}
 
-            <View style={styles.footer}>
-                <TextInput
-                    style={styles.input}
-                    placeholder="Add a comment..."
-                    value={commentText}
-                    onChangeText={setCommentText}
-                />
-                <TouchableOpacity onPress={handleComment} disabled={!commentText.trim() || sendingComment}>
-                    <Text style={[styles.sendText, !commentText.trim() && { color: '#ccc' }]}>Post</Text>
-                </TouchableOpacity>
-            </View>
+                    <View style={styles.content}>
+                        <Text style={styles.caption}>
+                            <Text style={styles.bold}>{post.user.username}</Text> {post.caption}
+                        </Text>
+
+                        <View style={styles.actionRow}>
+                            <TouchableOpacity onPress={handleLike} style={styles.actionButton}>
+                                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={28} color={isLiked ? "#e91e63" : "#333"} />
+                                <Text style={styles.actionText}>{post.likes.length} likes</Text>
+                            </TouchableOpacity>
+                            <View style={styles.actionButton}>
+                                <Ionicons name="chatbubble-outline" size={26} color="#333" />
+                                <Text style={styles.actionText}>{post.comments.length} comments</Text>
+                            </View>
+                        </View>
+
+                        {/* Comments Section */}
+                        <View style={styles.commentsSection}>
+                            {post.comments.map((comment, index) => {
+                                const isCommentAuthor = comment.user?._id === currentUser._id || comment.user === currentUser._id;
+                                const isPostOwner = post.user?._id === currentUser._id || post.user === currentUser._id;
+                                const canDelete = isCommentAuthor || isPostOwner;
+
+                                return (
+                                    <View key={index} style={styles.commentItem}>
+                                        <View style={styles.commentContent}>
+                                            <Text style={styles.commentText}>
+                                                <Text style={styles.bold}>User </Text>
+                                                {comment.text}
+                                            </Text>
+                                            {canDelete && (
+                                                <TouchableOpacity onPress={() => handleDeleteComment(comment._id)}>
+                                                    <Ionicons name="trash-outline" size={16} color="#999" />
+                                                </TouchableOpacity>
+                                            )}
+                                        </View>
+                                    </View>
+                                );
+                            })}
+                        </View>
+                    </View>
+                </ScrollView>
+
+                <View style={styles.footer}>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Add a comment..."
+                        value={commentText}
+                        onChangeText={setCommentText}
+                    />
+                    <TouchableOpacity onPress={handleComment} disabled={!commentText.trim() || sendingComment}>
+                        <Text style={[styles.sendText, !commentText.trim() && { color: '#ccc' }]}>Post</Text>
+                    </TouchableOpacity>
+                </View>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
@@ -249,16 +290,19 @@ const styles = StyleSheet.create({
         marginTop: 10,
     },
     commentItem: {
-        marginBottom: 8,
+        marginBottom: 12,
+    },
+    commentContent: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
     },
     commentText: {
         fontSize: 14,
+        flex: 1,
+        marginRight: 10,
     },
     footer: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
         flexDirection: 'row',
         alignItems: 'center',
         padding: 15,

@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, ScrollView, Modal, TextInput, Alert, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, ScrollView, Modal, TextInput, Alert, ActivityIndicator, Dimensions, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import React, { useState, useCallback } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -262,6 +262,31 @@ export default function Profile() {
         }
     };
 
+    const handleDeletePost = async (postId) => {
+        Alert.alert(
+            "Delete Post",
+            "Are you sure you want to delete this post?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            await client.delete(`/posts/${postId}`);
+                            fetchUserPosts(user._id);
+                            fetchProfileData(user._id);
+                            Alert.alert("Success", "Post deleted");
+                        } catch (error) {
+                            console.error("Delete post error:", error);
+                            Alert.alert("Error", "Failed to delete post");
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     const openUserList = (type) => {
         setUserListType(type);
         setUserListVisible(true);
@@ -299,6 +324,11 @@ export default function Profile() {
                 onPress={() => {
                     if (activeTab === 'snaps') {
                         router.push(`/post/${item._id}`);
+                    }
+                }}
+                onLongPress={() => {
+                    if (activeTab === 'snaps' && isOwner) {
+                        handleDeletePost(item._id);
                     }
                 }}
             >
@@ -615,43 +645,48 @@ export default function Profile() {
                 transparent={false}
             >
                 <SafeAreaView style={styles.modalContainer}>
-                    <View style={styles.modalHeader}>
-                        <TouchableOpacity onPress={() => setIsPostModalVisible(false)}>
-                            <Ionicons name="close" size={30} color="#000" />
-                        </TouchableOpacity>
-                        <Text style={styles.modalTitle}>New Post</Text>
-                        <TouchableOpacity
-                            onPress={handleCreatePost}
-                            disabled={creatingPost}
-                        >
-                            {creatingPost ? (
-                                <ActivityIndicator color="#4A7C44" />
-                            ) : (
-                                <Text style={styles.shareText}>Share</Text>
-                            )}
-                        </TouchableOpacity>
-                    </View>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                        style={{ flex: 1 }}
+                    >
+                        <View style={styles.modalHeader}>
+                            <TouchableOpacity onPress={() => setIsPostModalVisible(false)}>
+                                <Ionicons name="close" size={30} color="#000" />
+                            </TouchableOpacity>
+                            <Text style={styles.modalTitle}>New Post</Text>
+                            <TouchableOpacity
+                                onPress={handleCreatePost}
+                                disabled={creatingPost}
+                            >
+                                {creatingPost ? (
+                                    <ActivityIndicator color="#4A7C44" />
+                                ) : (
+                                    <Text style={styles.shareText}>Share</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
 
-                    <ScrollView style={styles.modalBody}>
-                        <TouchableOpacity onPress={pickPostImage} style={styles.imagePlaceholder}>
-                            {newPostImage ? (
-                                <Image source={{ uri: newPostImage.uri }} style={styles.selectedImage} />
-                            ) : (
-                                <View style={styles.placeholderContent}>
-                                    <Ionicons name="image-outline" size={60} color="#CCC" />
-                                    <Text style={styles.placeholderLabel}>Add Photos</Text>
-                                </View>
-                            )}
-                        </TouchableOpacity>
+                        <ScrollView style={styles.modalBody}>
+                            <TouchableOpacity onPress={pickPostImage} style={styles.imagePlaceholder}>
+                                {newPostImage ? (
+                                    <Image source={{ uri: newPostImage.uri }} style={styles.selectedImage} />
+                                ) : (
+                                    <View style={styles.placeholderContent}>
+                                        <Ionicons name="image-outline" size={60} color="#CCC" />
+                                        <Text style={styles.placeholderLabel}>Add Photos</Text>
+                                    </View>
+                                )}
+                            </TouchableOpacity>
 
-                        <TextInput
-                            style={styles.captionInput}
-                            placeholder="Write a caption..."
-                            multiline
-                            value={newPostCaption}
-                            onChangeText={setNewPostCaption}
-                        />
-                    </ScrollView>
+                            <TextInput
+                                style={styles.captionInput}
+                                placeholder="Write a caption..."
+                                multiline
+                                value={newPostCaption}
+                                onChangeText={setNewPostCaption}
+                            />
+                        </ScrollView>
+                    </KeyboardAvoidingView>
                 </SafeAreaView>
             </Modal>
 
@@ -675,7 +710,10 @@ export default function Profile() {
                     activeOpacity={1}
                     onPress={() => setIsAdventureModalVisible(false)}
                 >
-                    <View style={styles.adventureModalContent}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                        style={styles.adventureModalContent}
+                    >
                         <View style={styles.adventureModalHeader}>
                             <Text style={styles.adventureModalTitle}>New Adventure Remark</Text>
                             <TouchableOpacity onPress={() => setIsAdventureModalVisible(false)}>
@@ -715,7 +753,7 @@ export default function Profile() {
                                 )}
                             </TouchableOpacity>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </TouchableOpacity>
             </Modal>
         </SafeAreaView >

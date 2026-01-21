@@ -103,6 +103,7 @@ router.get("/user/:userId", protectRoute, async (req, res) => {
         }
 
         const stories = await Story.find({ user: req.params.userId })
+            .populate("user", "username profileImage")
             .populate("trek", "name stats")
             .sort({ createdAt: -1 });
 

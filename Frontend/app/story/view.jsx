@@ -26,23 +26,29 @@ export default function ViewStory() {
 
     const fetchUserStories = async () => {
         try {
-            // In a real app, we would fetch specific stories for this user.
-            // Our current backend /feed returns groups. We might need a specific endpoint or just re-fetch feed and find.
-            // For simplicity/demo with current API: We will re-fetch feed and filter.
-            const res = await client.get('/stories/feed');
-            const group = res.data.find(g => {
-                const gId = g.user?._id ? String(g.user._id) : String(g.user);
-                return gId === String(userId);
-            });
+            // Fetch stories specifically for this user (could include archived ones if called from profile)
+            const res = await client.get(`/stories/user/${userId}`);
+            const userStories = res.data;
 
-            if (group && group.stories?.length > 0) {
-                setStories(group.stories);
-                setGroupUser(group.user);
+            if (userStories && userStories.length > 0) {
+                setStories(userStories);
+                // The /stories/user/:userId endpoint might not populate user in every story in a grouped way, 
+                // but we can get it from the first one or we might need to fetch profile if missing.
+                // Our backend route returns populated trek but not user (it's implicit).
+                // Let's check the backend route again.
+                if (userStories[0].user && typeof userStories[0].user === 'object') {
+                    setGroupUser(userStories[0].user);
+                } else {
+                    // Fetch user info if not populated
+                    const userRes = await client.get(`/users/profile/${userId}`);
+                    setGroupUser(userRes.data);
+                }
             } else {
                 router.back(); // No stories found
             }
         } catch (error) {
-            console.error("Error", error);
+            console.error("Error fetching stories:", error);
+            router.back();
         } finally {
             setLoading(false);
         }

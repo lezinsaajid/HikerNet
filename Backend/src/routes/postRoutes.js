@@ -160,4 +160,39 @@ router.post("/comment/:id", protectRoute, async (req, res) => {
     }
 });
 
+// Delete a comment
+router.delete("/:postId/comment/:commentId", protectRoute, async (req, res) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.postId) || !mongoose.Types.ObjectId.isValid(req.params.commentId)) {
+            return res.status(400).json({ message: "Invalid ID format" });
+        }
+
+        const post = await Post.findById(req.params.postId);
+        if (!post) {
+            return res.status(404).json({ message: "Post not found" });
+        }
+
+        const comment = post.comments.id(req.params.commentId);
+        if (!comment) {
+            return res.status(404).json({ message: "Comment not found" });
+        }
+
+        // Allow deletion if requester is comment author OR post owner
+        const isCommentAuthor = comment.user.toString() === req.user._id.toString();
+        const isPostOwner = post.user.toString() === req.user._id.toString();
+
+        if (!isCommentAuthor && !isPostOwner) {
+            return res.status(401).json({ message: "Unauthorized to delete this comment" });
+        }
+
+        post.comments.pull(req.params.commentId);
+        await post.save();
+
+        res.json({ message: "Comment deleted successfully", post });
+    } catch (error) {
+        console.error("Error deleting comment:", error);
+        res.status(500).json({ message: "Error deleting comment" });
+    }
+});
+
 export default router;

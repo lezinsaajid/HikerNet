@@ -21,13 +21,18 @@ export default function UserProfile() {
     // User List Modal State
     const [userListVisible, setUserListVisible] = useState(false);
     const [userListType, setUserListType] = useState('followers');
+    const [activeTab, setActiveTab] = useState('snaps'); // 'snaps', 'stories', 'adventures'
+    const [userStories, setUserStories] = useState([]);
+    const [userAdventures, setUserAdventures] = useState([]);
 
     useEffect(() => {
         if (id) {
             fetchProfileData();
             fetchUserPosts();
+            fetchUserStories();
+            fetchUserAdventures();
         }
-    }, [id, fetchProfileData, fetchUserPosts]);
+    }, [id, fetchProfileData, fetchUserPosts, fetchUserStories, fetchUserAdventures]);
 
     const fetchProfileData = useCallback(async () => {
         try {
@@ -51,6 +56,24 @@ export default function UserProfile() {
             console.error("Error fetching posts:", error);
         } finally {
             setLoading(false);
+        }
+    }, [id]);
+
+    const fetchUserStories = useCallback(async () => {
+        try {
+            const res = await client.get(`/stories/user/${id}`);
+            setUserStories(res.data || []);
+        } catch (error) {
+            console.error("Error fetching stories:", error);
+        }
+    }, [id]);
+
+    const fetchUserAdventures = useCallback(async () => {
+        try {
+            const res = await client.get(`/adventures/user/${id}`);
+            setUserAdventures(res.data || []);
+        } catch (error) {
+            console.error("Error fetching adventures:", error);
         }
     }, [id]);
 
@@ -151,14 +174,75 @@ export default function UserProfile() {
         }
     };
 
-    const renderPostGrid = ({ item }) => (
-        <TouchableOpacity style={styles.postGridItem}>
-            <Image
-                source={{ uri: item.image || 'https://via.placeholder.com/301' }}
-                style={styles.gridImage}
-            />
-        </TouchableOpacity>
-    );
+    const handleDeletePost = async (postId) => {
+        Alert.alert(
+            "Delete Post",
+            "Are you sure you want to delete this post?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            await client.delete(`/posts/${postId}`);
+                            fetchUserPosts(); // Refresh posts
+                            Alert.alert("Success", "Post deleted");
+                        } catch (error) {
+                            console.error("Delete post error:", error);
+                            Alert.alert("Error", "Failed to delete post");
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const renderGridItem = ({ item }) => {
+        if (activeTab === 'adventures') {
+            return (
+                <View style={styles.adventureCard}>
+                    <View style={styles.adventureHeader}>
+                        <View style={styles.adventureUserGroup}>
+                            <Image source={{ uri: item.user?.profileImage }} style={styles.adventureAvatar} />
+                            <View>
+                                <Text style={styles.adventureUsername}>{item.user?.username}</Text>
+                                <Text style={styles.adventureDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                            </View>
+                        </View>
+                    </View>
+                    <Text style={styles.adventureContent}>{item.content}</Text>
+                </View>
+            );
+        }
+
+        const isStory = activeTab === 'stories';
+        const imageUri = isStory ? item.media : item.image;
+        const isOwner = String(id) === String(user?._id);
+
+        return (
+            <TouchableOpacity
+                style={styles.postGridItem}
+                onPress={() => {
+                    if (isStory) {
+                        router.push({ pathname: '/story/view', params: { userId: id } });
+                    } else {
+                        router.push(`/post/${item._id}`);
+                    }
+                }}
+                onLongPress={() => {
+                    if (!isStory && isOwner) {
+                        handleDeletePost(item._id);
+                    }
+                }}
+            >
+                <Image
+                    source={{ uri: imageUri || 'https://via.placeholder.com/301' }}
+                    style={styles.gridImage}
+                />
+            </TouchableOpacity>
+        );
+    };
 
     if (loading && !userData) {
         return (
@@ -181,8 +265,9 @@ export default function UserProfile() {
             </View>
 
             <FlatList
-                data={posts}
-                numColumns={3}
+                key={activeTab === 'adventures' ? 'single' : 'grid'}
+                data={activeTab === 'snaps' ? posts : (activeTab === 'stories' ? userStories : userAdventures)}
+                numColumns={activeTab === 'adventures' ? 1 : 3}
                 keyExtractor={(item) => item._id}
                 ListHeaderComponent={
                     <View style={styles.headerContainer}>
@@ -248,26 +333,43 @@ export default function UserProfile() {
                         </View>
 
                         <View style={styles.tabsSection}>
-                            <TouchableOpacity style={[styles.tabItem, styles.activeTabItem]}>
-                                <Text style={[styles.tabLabel, styles.activeTabLabel]}>Snaps</Text>
-                                <View style={styles.activeIndicator} />
+                            <TouchableOpacity
+                                style={[styles.tabItem, activeTab === 'snaps' && styles.activeTabItem]}
+                                onPress={() => setActiveTab('snaps')}
+                            >
+                                <Text style={[styles.tabLabel, activeTab === 'snaps' && styles.activeTabLabel]}>Snaps</Text>
+                                {activeTab === 'snaps' && <View style={styles.activeIndicator} />}
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.tabItem}>
-                                <Text style={styles.tabLabel}>Stories</Text>
+                            <TouchableOpacity
+                                style={[styles.tabItem, activeTab === 'stories' && styles.activeTabItem]}
+                                onPress={() => setActiveTab('stories')}
+                            >
+                                <Text style={[styles.tabLabel, activeTab === 'stories' && styles.activeTabLabel]}>Stories</Text>
+                                {activeTab === 'stories' && <View style={styles.activeIndicator} />}
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.tabItem}>
-                                <Text style={styles.tabLabel}>Adventures</Text>
+                            <TouchableOpacity
+                                style={[styles.tabItem, activeTab === 'adventures' && styles.activeTabItem]}
+                                onPress={() => setActiveTab('adventures')}
+                            >
+                                <Text style={[styles.tabLabel, activeTab === 'adventures' && styles.activeTabLabel]}>Adventures</Text>
+                                {activeTab === 'adventures' && <View style={styles.activeIndicator} />}
                             </TouchableOpacity>
                         </View>
                     </View>
                 }
-                renderItem={renderPostGrid}
+                renderItem={renderGridItem}
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
                     !loading && (
                         <View style={styles.emptyContainer}>
-                            <Ionicons name="images-outline" size={64} color="#EEE" />
-                            <Text style={styles.emptyText}>No posts yet</Text>
+                            <Ionicons
+                                name={activeTab === 'stories' ? "play-circle-outline" : "images-outline"}
+                                size={64}
+                                color="#EEE"
+                            />
+                            <Text style={styles.emptyText}>
+                                {activeTab === 'stories' ? "No stories yet" : activeTab === 'adventures' ? "No adventures yet" : "No posts yet"}
+                            </Text>
                         </View>
                     )
                 }
@@ -464,5 +566,50 @@ const styles = StyleSheet.create({
         color: '#AAA',
         marginTop: 10,
         fontSize: 16,
+    },
+    adventureCard: {
+        backgroundColor: '#FFF',
+        marginHorizontal: 20,
+        marginBottom: 15,
+        borderRadius: 15,
+        padding: 15,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    adventureHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    adventureUserGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    adventureAvatar: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        marginRight: 10,
+        backgroundColor: '#F0F0F0',
+    },
+    adventureUsername: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#2D2D2D',
+    },
+    adventureDate: {
+        fontSize: 12,
+        color: '#999',
+    },
+    adventureContent: {
+        fontSize: 15,
+        color: '#444',
+        lineHeight: 22,
     },
 });
