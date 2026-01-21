@@ -4,7 +4,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 
-export default function CreateTrekScreen() {
+export default function CreateTrailScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
 
@@ -61,7 +61,7 @@ export default function CreateTrekScreen() {
 
     const handleStart = (mode) => {
         if (mode === 'solo' && !name.trim()) {
-            Alert.alert("Missing Information", "Please enter a trek name.");
+            Alert.alert("Missing Information", "Please enter a trail name.");
             return;
         }
 
@@ -82,25 +82,25 @@ export default function CreateTrekScreen() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>New Trek</Text>
+                <Text style={styles.headerTitle}>New Trail</Text>
             </View>
 
             <View style={styles.form}>
                 <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Trek Name</Text>
+                    <Text style={styles.label}>Trail Name</Text>
                     <TextInput
                         style={styles.input}
-                        placeholder="e.g. Morning Hike"
+                        placeholder="E.g. Morning Hike"
                         value={name}
                         onChangeText={setName}
                     />
                 </View>
 
                 <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Description</Text>
+                    <Text style={styles.label}>Trail Description</Text>
                     <TextInput
                         style={[styles.input, styles.textArea]}
-                        placeholder="Describe the trail..."
+                        placeholder="Tell others about this trail..."
                         value={description}
                         onChangeText={setDescription}
                         multiline
@@ -123,7 +123,7 @@ export default function CreateTrekScreen() {
                     </View>
                 </View>
 
-                <Text style={styles.sectionHeader}>Start Trekking</Text>
+                <Text style={styles.sectionHeader}>Start Trailing</Text>
 
                 <TouchableOpacity
                     style={[styles.actionButton, styles.soloButton]}
@@ -131,7 +131,7 @@ export default function CreateTrekScreen() {
                 >
                     <Ionicons name="person" size={24} color="white" />
                     <View style={styles.buttonContent}>
-                        <Text style={styles.buttonTitle}>Solo Trek</Text>
+                        <Text style={styles.buttonTitle}>Solo Trail</Text>
                         <Text style={styles.buttonSubtitle}>Just you and the trail</Text>
                     </View>
                 </TouchableOpacity>
@@ -149,7 +149,7 @@ export default function CreateTrekScreen() {
                 >
                     <Ionicons name="people" size={24} color="white" />
                     <View style={styles.buttonContent}>
-                        <Text style={styles.buttonTitle}>Group Trek</Text>
+                        <Text style={styles.buttonTitle}>Group Trail</Text>
                         <Text style={styles.buttonSubtitle}>Invite friends to join</Text>
                     </View>
                 </TouchableOpacity>

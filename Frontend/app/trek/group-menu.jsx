@@ -26,7 +26,7 @@ export default function GroupMenu() {
 
     const confirmCreateRoom = async () => {
         if (!roomName.trim()) {
-            Alert.alert("Missing Details", "Please provide a name for the group trek.");
+            Alert.alert("Missing Details", "Please provide a name for the group trail.");
             return;
         }
 
@@ -92,7 +92,7 @@ export default function GroupMenu() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Group Trek</Text>
+                <Text style={styles.headerTitle}>Group Trail</Text>
             </View>
 
             <View style={styles.content}>
@@ -120,7 +120,7 @@ export default function GroupMenu() {
                         <Ionicons name="enter" size={50} color="#007bff" />
                     </View>
                     <Text style={styles.sectionTitle}>Join Existing Group</Text>
-                    <Text style={styles.sectionDesc}>Enter the code shared by your trek leader.</Text>
+                    <Text style={styles.sectionDesc}>Enter the code shared by your trail leader.</Text>
 
                     <TextInput
                         style={styles.input}
@@ -152,7 +152,7 @@ export default function GroupMenu() {
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>Set Up Group</Text>
 
-                        <Text style={styles.label}>Trek Name</Text>
+                        <Text style={styles.label}>Trail Name</Text>
                         <TextInput
                             style={styles.modalInput}
                             placeholder="e.g. Weekend Hike"

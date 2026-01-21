@@ -186,7 +186,7 @@ export default function EditProfile() {
                 <View style={styles.safetyInfo}>
                     <Ionicons name="shield-checkmark-outline" size={20} color="#666" />
                     <Text style={styles.safetyText}>
-                        Your emergency contacts will be notified automatically if an emergency alert is triggered during a trek.
+                        Your emergency contacts will be notified automatically if an emergency alert is triggered during a trail.
                     </Text>
                 </View>
 

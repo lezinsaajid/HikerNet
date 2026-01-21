@@ -7,6 +7,7 @@ const NativeMap = ({
     onPress,
     showsUserLocation = true,
     followsUserLocation = false,
+    mapType = 'standard',
     children,
     style
 }) => {
@@ -15,6 +16,7 @@ const NativeMap = ({
             style={[styles.map, style]}
             provider={PROVIDER_DEFAULT}
             initialRegion={initialRegion}
+            mapType={mapType}
             onPress={onPress}
             showsUserLocation={showsUserLocation}
             followsUserLocation={followsUserLocation}

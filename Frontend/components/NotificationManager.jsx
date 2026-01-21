@@ -41,8 +41,8 @@ export default function NotificationManager() {
             // If we are in 'room-lobby' with same ID, ignore.
 
             Alert.alert(
-                "Trek Invitation",
-                `@${invite.inviter.username} invited you to join "${invite.trekName}"`,
+                "Trail Invitation",
+                `@${invite.inviter.username} invited you to join "${invite.trailName || invite.trekName}"`,
                 [
                     {
                         text: "Decline",

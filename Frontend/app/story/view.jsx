@@ -34,7 +34,7 @@ export default function ViewStory() {
                 setStories(userStories);
                 // The /stories/user/:userId endpoint might not populate user in every story in a grouped way, 
                 // but we can get it from the first one or we might need to fetch profile if missing.
-                // Our backend route returns populated trek but not user (it's implicit).
+                // Our backend route returns populated trail but not user (it's implicit).
                 // Let's check the backend route again.
                 if (userStories[0].user && typeof userStories[0].user === 'object') {
                     setGroupUser(userStories[0].user);

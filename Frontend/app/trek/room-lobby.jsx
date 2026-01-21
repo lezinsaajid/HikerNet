@@ -54,8 +54,8 @@ export default function RoomLobby() {
                     ],
                     requests: [],
                     joinLogs: [],
-                    trekName: 'Demo Trek',
-                    trekDescription: 'Just a demo'
+                    trailName: 'Demo Trail',
+                    trailDescription: 'Just a demo'
                 };
                 setRoom(mockRoom);
                 setLoading(false);
@@ -81,13 +81,13 @@ export default function RoomLobby() {
             setRoom(data);
             setLoading(false);
 
-            // If trek has started (trekId exists), navigate everyone there
+            // If trail has started (trailId exists), navigate everyone there
             if (data.trekId) {
                 if (pollingRef.current) clearInterval(pollingRef.current);
                 router.replace({
                     pathname: '/trek/active',
                     params: {
-                        trekId: data.trekId,
+                        trailId: data.trekId,
                         role: role
                     }
                 });
@@ -173,7 +173,7 @@ export default function RoomLobby() {
         }
     };
 
-    const handleStartTrek = async () => {
+    const handleStartTrail = async () => {
         try {
             const allReady = room.members.every(m => m.isReady);
             if (!allReady) {
@@ -185,7 +185,7 @@ export default function RoomLobby() {
             // Navigation handled by polling check
         } catch (error) {
             console.error(error);
-            Alert.alert("Error", error.response?.data?.message || "Failed to start trek");
+            Alert.alert("Error", error.response?.data?.message || "Failed to start trail");
         }
     };
 
@@ -210,7 +210,7 @@ export default function RoomLobby() {
     const handleShareCode = async () => {
         try {
             await Share.share({
-                message: `Join my Trek on HikerNet! Room Code: ${room.code}`,
+                message: `Join my Trail on HikerNet! Room Code: ${room.code}`,
             });
         } catch (error) {
             console.log(error);
@@ -365,13 +365,13 @@ export default function RoomLobby() {
                             styles.mainButton,
                             (room.members.every(m => m.isReady) && room.members.length > 1) ? styles.startBtn : styles.disabledBtn
                         ]}
-                        onPress={handleStartTrek}
+                        onPress={handleStartTrail}
                         disabled={!room.members.every(m => m.isReady) || room.members.length < 1}
                     >
                         <Text style={styles.mainButtonText}>
                             {room.members.length < 2
                                 ? "WAITING FOR FRIEND..."
-                                : (!room.members.every(m => m.isReady) ? "WAITING FOR READY..." : "START TREK")
+                                : (!room.members.every(m => m.isReady) ? "WAITING FOR READY..." : "START TRAIL")
                             }
                         </Text>
                     </TouchableOpacity>
