@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, FlatList, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, FlatList, Image, TextInput, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import client from '../../api/client';
@@ -13,6 +13,11 @@ const MARKER_ICONS = [
     { name: 'danger', icon: 'warning', color: '#dc3545', label: 'Danger' },
     { name: 'camp', icon: 'bonfire', color: '#fd7e14', label: 'Camp' },
     { name: 'rest', icon: 'cafe', color: '#6f42c1', label: 'Rest' },
+    { name: 'mountain', icon: 'mountain', color: '#6d4c41', label: 'Peak' },
+    { name: 'tree', icon: 'leaf', color: '#2e7d32', label: 'Forest' },
+    { name: 'animal', icon: 'paw', color: '#ef6c00', label: 'Wildlife' },
+    { name: 'flag', icon: 'flag', color: '#c62828', label: 'Goal' },
+    { name: 'info', icon: 'information-circle', color: '#00838f', label: 'Info' },
 ];
 
 export default function ActiveTrekScreen() {
@@ -25,6 +30,7 @@ export default function ActiveTrekScreen() {
     const [isPaused, setIsPaused] = useState(false);
     const [trekFinished, setTrekFinished] = useState(false); // New state for "Stop" -> "Trek Back"
     const [isTrekkingBack, setIsTrekkingBack] = useState(false);
+    const [hasStarted, setHasStarted] = useState(false);
 
     const [stats, setStats] = useState({ distance: 0, duration: 0 });
     const [trekId, setTrekId] = useState(paramTrekId || null);
@@ -34,6 +40,8 @@ export default function ActiveTrekScreen() {
 
     // Modal State
     const [showMarkerModal, setShowMarkerModal] = useState(false);
+    const [selectedIcon, setSelectedIcon] = useState(null);
+    const [waypointDescription, setWaypointDescription] = useState('');
 
     // Timer Ref
     const timerRef = useRef(null);
@@ -56,9 +64,13 @@ export default function ActiveTrekScreen() {
             // If we have a trekId (resuming) OR a name (new trek), start tracking
             if (paramTrekId || name) {
                 if (role === 'leader') {
-                    startTrek();
+                    // Manual start required unless resuming with a specific trekId from direct navigation?
+                    // Actually, even resuming should probably wait for a "Continue" or "Start" if user requested manual.
+                    // Let's keep it simple: manual start for everyone on first load of this screen.
+                    // startTrek(); 
                 } else {
                     // Member Mode: Start polling
+                    setHasStarted(true); // Members don't "start", they just join
                     startMemberMode();
                 }
             }
@@ -229,6 +241,7 @@ export default function ActiveTrekScreen() {
             setIsTracking(true);
             setIsPaused(false);
             setTrekFinished(false);
+            setHasStarted(true);
             pausedRef.current = false;
 
             // Start timer
@@ -306,38 +319,33 @@ export default function ActiveTrekScreen() {
         setMapType(types[nextIndex]);
     };
 
-    const addMarker = async (iconData) => {
-        if (!location) return;
+    const handleSelectIcon = (iconData) => {
+        setSelectedIcon(iconData);
+    };
+
+    const addMarker = async () => {
+        if (!location || !selectedIcon) return;
 
         const newMarker = {
             latitude: location.latitude,
             longitude: location.longitude,
-            icon: iconData.name,
-            type: iconData.label,
+            icon: selectedIcon.name,
+            type: selectedIcon.label,
+            description: waypointDescription.trim(),
             timestamp: new Date()
         };
 
         setMarkers(prev => [...prev, newMarker]);
         setShowMarkerModal(false);
+        setSelectedIcon(null);
+        setWaypointDescription('');
 
         // Save to backend
         if (trekId) {
             try {
                 await client.put(`/treks/update/${trekId}`, {
-                    waypoints: [newMarker] // Assuming backend appends or handles this. My backend schema has waypoints array.
-                    // Actually standard update usually replaces. I should verify backend logic.
-                    // Previous update endpoint usually uses $push. 
-                    // I will assume I need to pass the *new* waypoint to an endpoint that pushes, OR pass the full list.
-                    // For safety in this "multi_replace" world without seeing backend update logic code:
-                    // I'll assume standard $set if I pass `waypoints`.
-                    // To be safe let's assume I need to handle this carefully.
-                    // Better: create a specific endpoint for adding waypoint or ensure generic update does $push if requested.
-                    // For now, I'll allow frontend state to be source of truth and ideally backend supports $push.
+                    waypoints: [newMarker]
                 });
-                // In a real app we'd need a specific `addWaypoint` route or proper PATCH support.
-                // Assuming the generic update might overwrite if not careful.
-                // Re-reading my Plan: I didn't verify backend update logic.
-                // But for now, let's just update the frontend state and try to send. 
             } catch (e) {
                 console.error(e);
             }
@@ -373,6 +381,7 @@ export default function ActiveTrekScreen() {
                                 key={i}
                                 coordinate={{ latitude: m.latitude, longitude: m.longitude }}
                                 title={m.type}
+                                description={m.description}
                                 pinColor={MARKER_ICONS.find(ic => ic.name === m.icon)?.color || 'red'}
                             />
                         ))}
@@ -471,33 +480,102 @@ export default function ActiveTrekScreen() {
                 visible={showMarkerModal}
                 transparent={true}
                 animationType="slide"
-                onRequestClose={() => setShowMarkerModal(false)}
+                onRequestClose={() => {
+                    setShowMarkerModal(false);
+                    setSelectedIcon(null);
+                    setWaypointDescription('');
+                }}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Add Waypoint Marker</Text>
-                        <FlatList
-                            data={MARKER_ICONS}
-                            numColumns={3}
-                            keyExtractor={item => item.name}
-                            renderItem={({ item }) => (
-                                <TouchableOpacity
-                                    style={styles.iconOption}
-                                    onPress={() => addMarker(item)}
-                                >
-                                    <View style={[styles.iconCircle, { backgroundColor: item.color }]}>
-                                        <Ionicons name={item.icon} size={24} color="white" />
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                    <View style={styles.modalOverlay}>
+                        <KeyboardAvoidingView
+                            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                            style={styles.keyboardAvoidingView}
+                        >
+                            <View style={styles.modalContent}>
+                                <Text style={styles.modalTitle}>
+                                    {selectedIcon ? `Pin ${selectedIcon.label}` : 'Select Waypoint Icon'}
+                                </Text>
+
+                                {!selectedIcon ? (
+                                    <FlatList
+                                        data={MARKER_ICONS}
+                                        numColumns={3}
+                                        keyExtractor={item => item.name}
+                                        renderItem={({ item }) => (
+                                            <TouchableOpacity
+                                                style={styles.iconOption}
+                                                onPress={() => {
+                                                    handleSelectIcon(item);
+                                                    Keyboard.dismiss();
+                                                }}
+                                            >
+                                                <View style={[styles.iconCircle, { backgroundColor: item.color }]}>
+                                                    <Ionicons name={item.icon} size={24} color="white" />
+                                                </View>
+                                                <Text style={styles.iconLabel}>{item.label}</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    />
+                                ) : (
+                                    <View style={styles.descriptionSection}>
+                                        <View style={[styles.iconCircle, { backgroundColor: selectedIcon.color, alignSelf: 'center', marginBottom: 20 }]}>
+                                            <Ionicons name={selectedIcon.icon} size={32} color="white" />
+                                        </View>
+                                        <Text style={styles.label}>Add more details (optional)</Text>
+                                        <TextInput
+                                            style={styles.descriptionInput}
+                                            placeholder="e.g. Spotted a rare bird here!"
+                                            value={waypointDescription}
+                                            onChangeText={setWaypointDescription}
+                                            multiline
+                                            autoFocus
+                                            onSubmitEditing={Keyboard.dismiss}
+                                        />
+                                        <TouchableOpacity
+                                            style={[styles.actionButton, styles.exitBtn, { marginTop: 20 }]}
+                                            onPress={addMarker}
+                                        >
+                                            <Text style={styles.actionButtonText}>Pin Waypoint</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.closeModal, { borderTopWidth: 0 }]}
+                                            onPress={() => setSelectedIcon(null)}
+                                        >
+                                            <Text style={styles.closeText}>Change Icon</Text>
+                                        </TouchableOpacity>
                                     </View>
-                                    <Text style={styles.iconLabel}>{item.label}</Text>
+                                )}
+
+                                <TouchableOpacity
+                                    style={styles.closeModal}
+                                    onPress={() => {
+                                        setShowMarkerModal(false);
+                                        setSelectedIcon(null);
+                                        setWaypointDescription('');
+                                    }}
+                                >
+                                    <Text style={styles.closeText}>Cancel</Text>
                                 </TouchableOpacity>
-                            )}
-                        />
-                        <TouchableOpacity style={styles.closeModal} onPress={() => setShowMarkerModal(false)}>
-                            <Text style={styles.closeText}>Cancel</Text>
+                            </View>
+                        </KeyboardAvoidingView>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
+
+            {/* Start Trail Overlay */}
+            {!hasStarted && role === 'leader' && (
+                <View style={styles.startOverlay}>
+                    <View style={styles.startCard}>
+                        <Ionicons name="location" size={60} color="#28a745" />
+                        <Text style={styles.startTitle}>Ready to Trail?</Text>
+                        <Text style={styles.startSub}>Position yourself and click below to begin recording.</Text>
+                        <TouchableOpacity style={styles.startBigBtn} onPress={startTrek}>
+                            <Text style={styles.startBigBtnText}>Start Trail Now</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
-            </Modal>
+            )}
 
         </View>
     );
@@ -700,5 +778,68 @@ const styles = StyleSheet.create({
     closeText: {
         color: '#666',
         fontSize: 16,
+    },
+    descriptionSection: {
+        padding: 5,
+    },
+    label: {
+        fontSize: 14,
+        color: '#666',
+        marginBottom: 8,
+    },
+    descriptionInput: {
+        backgroundColor: '#f8f9fa',
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 12,
+        padding: 15,
+        fontSize: 16,
+        color: '#333',
+        minHeight: 80,
+        textAlignVertical: 'top',
+    },
+    keyboardAvoidingView: {
+        width: '100%',
+        justifyContent: 'flex-end',
+    },
+    startOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1000,
+    },
+    startCard: {
+        backgroundColor: 'white',
+        padding: 40,
+        borderRadius: 30,
+        alignItems: 'center',
+        width: '85%',
+        elevation: 20,
+    },
+    startTitle: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        marginTop: 20,
+        color: '#333',
+    },
+    startSub: {
+        fontSize: 16,
+        color: '#666',
+        textAlign: 'center',
+        marginTop: 10,
+        marginBottom: 30,
+    },
+    startBigBtn: {
+        backgroundColor: '#28a745',
+        paddingVertical: 18,
+        paddingHorizontal: 40,
+        borderRadius: 15,
+        elevation: 5,
+    },
+    startBigBtnText: {
+        color: 'white',
+        fontSize: 18,
+        fontWeight: 'bold',
     },
 });
