@@ -513,17 +513,18 @@ const styles = StyleSheet.create({
     },
     actions: {
         flexDirection: 'row',
-        gap: 10,
     },
     acceptBtn: {
         backgroundColor: '#28a745',
         padding: 5,
         borderRadius: 20,
+        marginHorizontal: 5,
     },
     rejectBtn: {
         backgroundColor: '#dc3545',
         padding: 5,
         borderRadius: 20,
+        marginHorizontal: 5,
     },
     footer: {
         padding: 20,

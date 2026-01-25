@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import SafeScreen from '../../components/SafeScreen';
 
 export default function CreateTrailScreen() {
     const router = useRouter();
@@ -77,91 +78,97 @@ export default function CreateTrailScreen() {
     };
 
     return (
-        <ScrollView style={styles.container}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color="#333" />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>New Trail</Text>
-            </View>
+        <SafeScreen backgroundColor="#f8f9fa">
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+            >
+                <ScrollView contentContainerStyle={styles.scrollContent}>
+                    <View style={styles.header}>
+                        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                            <Ionicons name="arrow-back" size={24} color="#333" />
+                        </TouchableOpacity>
+                        <Text style={styles.headerTitle}>New Trail</Text>
+                    </View>
 
-            <View style={styles.form}>
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Trail Name</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="E.g. Morning Hike"
-                        value={name}
-                        onChangeText={setName}
-                    />
-                </View>
+                    <View style={styles.form}>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Trail Name</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="E.g. Morning Hike"
+                                value={name}
+                                onChangeText={setName}
+                            />
+                        </View>
 
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Trail Description</Text>
-                    <TextInput
-                        style={[styles.input, styles.textArea]}
-                        placeholder="Tell others about this trail..."
-                        value={description}
-                        onChangeText={setDescription}
-                        multiline
-                        numberOfLines={4}
-                    />
-                </View>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Trail Description</Text>
+                            <TextInput
+                                style={[styles.input, styles.textArea]}
+                                placeholder="Tell others about this trail..."
+                                value={description}
+                                onChangeText={setDescription}
+                                multiline
+                                numberOfLines={4}
+                            />
+                        </View>
 
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Location</Text>
-                    <View style={styles.locationContainer}>
-                        <Ionicons name="location" size={20} color="#666" />
-                        {isLocating ? (
-                            <ActivityIndicator size="small" color="#28a745" style={{ marginLeft: 10 }} />
-                        ) : (
-                            <Text style={styles.locationText}>{locationName}</Text>
-                        )}
-                        <TouchableOpacity onPress={detectLocation} style={{ marginLeft: 'auto' }}>
-                            <Ionicons name="refresh" size={20} color="#28a745" />
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Location</Text>
+                            <View style={styles.locationContainer}>
+                                <Ionicons name="location" size={20} color="#666" />
+                                {isLocating ? (
+                                    <ActivityIndicator size="small" color="#28a745" style={{ marginLeft: 10 }} />
+                                ) : (
+                                    <Text style={styles.locationText}>{locationName}</Text>
+                                )}
+                                <TouchableOpacity onPress={detectLocation} style={{ marginLeft: 'auto' }}>
+                                    <Ionicons name="refresh" size={20} color="#28a745" />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        <Text style={styles.sectionHeader}>Start Trailing</Text>
+
+                        <TouchableOpacity
+                            style={[styles.actionButton, styles.soloButton]}
+                            onPress={() => handleStart('solo')}
+                        >
+                            <Ionicons name="person" size={24} color="white" />
+                            <View style={styles.buttonContent}>
+                                <Text style={styles.buttonTitle}>Solo Trail</Text>
+                                <Text style={styles.buttonSubtitle}>Just you and the trail</Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.actionButton, styles.groupButton]}
+                            onPress={() => router.push({
+                                pathname: '/trek/group-menu',
+                                params: {
+                                    name,
+                                    description,
+                                    location: locationName
+                                }
+                            })}
+                        >
+                            <Ionicons name="people" size={24} color="white" />
+                            <View style={styles.buttonContent}>
+                                <Text style={styles.buttonTitle}>Group Trail</Text>
+                                <Text style={styles.buttonSubtitle}>Invite friends to join</Text>
+                            </View>
                         </TouchableOpacity>
                     </View>
-                </View>
-
-                <Text style={styles.sectionHeader}>Start Trailing</Text>
-
-                <TouchableOpacity
-                    style={[styles.actionButton, styles.soloButton]}
-                    onPress={() => handleStart('solo')}
-                >
-                    <Ionicons name="person" size={24} color="white" />
-                    <View style={styles.buttonContent}>
-                        <Text style={styles.buttonTitle}>Solo Trail</Text>
-                        <Text style={styles.buttonSubtitle}>Just you and the trail</Text>
-                    </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={[styles.actionButton, styles.groupButton]}
-                    onPress={() => router.push({
-                        pathname: '/trek/group-menu',
-                        params: {
-                            name,
-                            description,
-                            location: locationName
-                        }
-                    })}
-                >
-                    <Ionicons name="people" size={24} color="white" />
-                    <View style={styles.buttonContent}>
-                        <Text style={styles.buttonTitle}>Group Trail</Text>
-                        <Text style={styles.buttonSubtitle}>Invite friends to join</Text>
-                    </View>
-                </TouchableOpacity>
-            </View>
-        </ScrollView>
+                </ScrollView>
+            </KeyboardAvoidingView>
+        </SafeScreen>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#f8f9fa',
+    scrollContent: {
+        flexGrow: 1,
     },
     header: {
         flexDirection: 'row',
@@ -170,7 +177,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'white',
         borderBottomWidth: 1,
         borderBottomColor: '#eee',
-        marginTop: 30,
     },
     backButton: {
         marginRight: 15,
@@ -259,3 +265,4 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
 });
+

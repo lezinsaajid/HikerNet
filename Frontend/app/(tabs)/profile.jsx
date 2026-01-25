@@ -1,14 +1,16 @@
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, ScrollView, Modal, TextInput, Alert, ActivityIndicator, Dimensions, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, Alert, Modal, ScrollView, TextInput, KeyboardAvoidingView, Platform, Dimensions } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
+import * as ImagePicker from 'expo-image-picker';
 import UserListModal from '../../components/UserListModal';
+import SafeScreen from '../../components/SafeScreen';
 
 const { width } = Dimensions.get('window');
+
+
 
 export default function Profile() {
     const { user, updateUserData, accounts, switchAccount, prepareAddAccount, logout, logoutAll } = useAuth();
@@ -347,14 +349,14 @@ export default function Profile() {
 
     if (loading || (isMismatched && user?._id)) {
         return (
-            <View style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
+            <SafeScreen style={{ justifyContent: 'center', alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#4A7C44" />
-            </View>
+            </SafeScreen>
         );
     }
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <SafeScreen>
             <View style={styles.topBar}>
                 <TouchableOpacity
                     style={styles.headerTitleContainer}
@@ -526,7 +528,7 @@ export default function Profile() {
                     activeOpacity={1}
                     onPress={() => setIsAccountModalVisible(false)}
                 >
-                    <View style={styles.accountModalContent}>
+                    <SafeScreen style={styles.accountModalContent}>
                         <View style={styles.accountModalHeader}>
                             <Text style={styles.accountModalTitle}>Switch Accounts</Text>
                         </View>
@@ -634,9 +636,10 @@ export default function Profile() {
                                 </TouchableOpacity>
                             )}
                         </View>
-                    </View>
+                    </SafeScreen>
                 </TouchableOpacity>
             </Modal>
+
 
             {/* Create Post Modal */}
             <Modal
@@ -644,7 +647,7 @@ export default function Profile() {
                 animationType="slide"
                 transparent={false}
             >
-                <SafeAreaView style={styles.modalContainer}>
+                <SafeScreen style={styles.modalContainer}>
                     <KeyboardAvoidingView
                         behavior={Platform.OS === "ios" ? "padding" : "height"}
                         style={{ flex: 1 }}
@@ -687,7 +690,7 @@ export default function Profile() {
                             />
                         </ScrollView>
                     </KeyboardAvoidingView>
-                </SafeAreaView>
+                </SafeScreen>
             </Modal>
 
             {/* User List Modal */}
@@ -710,10 +713,7 @@ export default function Profile() {
                     activeOpacity={1}
                     onPress={() => setIsAdventureModalVisible(false)}
                 >
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === "ios" ? "padding" : "height"}
-                        style={styles.adventureModalContent}
-                    >
+                    <SafeScreen style={styles.adventureModalContent} edges={['top']}>
                         <View style={styles.adventureModalHeader}>
                             <Text style={styles.adventureModalTitle}>New Adventure Remark</Text>
                             <TouchableOpacity onPress={() => setIsAdventureModalVisible(false)}>
@@ -753,10 +753,11 @@ export default function Profile() {
                                 )}
                             </TouchableOpacity>
                         </View>
-                    </KeyboardAvoidingView>
+                    </SafeScreen>
                 </TouchableOpacity>
             </Modal>
-        </SafeAreaView >
+
+        </SafeScreen >
     );
 }
 
@@ -843,7 +844,6 @@ const styles = StyleSheet.create({
     },
     actionRow: {
         flexDirection: 'row',
-        gap: 12,
         marginBottom: 25,
     },
     actionBtn: {
@@ -852,6 +852,7 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
+        marginHorizontal: 6,
     },
     chatBtn: {
         backgroundColor: '#403A36',

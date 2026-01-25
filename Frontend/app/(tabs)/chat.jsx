@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
-import { useAuth } from '../../context/AuthContext'; // Assuming context exists
+import SafeScreen from '../../components/SafeScreen';
+
 
 export default function ChatDashboard() {
     const router = useRouter();
@@ -115,7 +116,7 @@ export default function ChatDashboard() {
     );
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeScreen>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Chats</Text>
                 <View style={styles.searchContainer}>
@@ -163,7 +164,7 @@ export default function ChatDashboard() {
                     )}
                 </View>
             )}
-        </SafeAreaView>
+        </SafeScreen>
     );
 }
 

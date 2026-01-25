@@ -3,7 +3,9 @@ import { Stack } from "expo-router";
 import { AuthProvider } from "../context/AuthContext";
 import * as SplashScreen from 'expo-splash-screen';
 import { View, Animated, StyleSheet, Image } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
+
 import NotificationManager from '../components/NotificationManager';
 
 // Keep the splash screen visible while we fetch resources
@@ -58,36 +60,39 @@ export default function RootLayout() {
   }, [appIsReady]);
 
   return (
-    <AuthProvider>
-      <NotificationManager />
-      <View style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false }} />
+    <SafeAreaProvider>
+      <AuthProvider>
+        <NotificationManager />
+        <View style={{ flex: 1 }}>
+          <Stack screenOptions={{ headerShown: false }} />
 
-        {splashVisible && (
-          <Animated.View style={[styles.splashContainer, { opacity: fadeAnim }]}>
-            {/* Dramatic Forest Background */}
-            <Image
-              source={require('../assets/images/forest_splash_bg.png')}
-              style={StyleSheet.absoluteFill}
-              resizeMode="cover"
-            />
-            <View style={styles.overlay} />
-
-            {/* Fun Lottie Animation */}
-            <Animated.View style={{ transform: [{ scale: scaleAnim }], width: '100%', alignItems: 'center' }}>
-              <LottieView
-                source={require('../assets/animations/hiking.json')}
-                autoPlay
-                loop
-                style={styles.lottie}
+          {splashVisible && (
+            <Animated.View style={[styles.splashContainer, { opacity: fadeAnim }]}>
+              {/* Dramatic Forest Background */}
+              <Image
+                source={require('../assets/images/forest_splash_bg.png')}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
               />
+              <View style={styles.overlay} />
+
+              {/* Fun Lottie Animation */}
+              <Animated.View style={{ transform: [{ scale: scaleAnim }], width: '100%', alignItems: 'center' }}>
+                <LottieView
+                  source={require('../assets/animations/hiking.json')}
+                  autoPlay
+                  loop
+                  style={styles.lottie}
+                />
+              </Animated.View>
             </Animated.View>
-          </Animated.View>
-        )}
-      </View>
-    </AuthProvider>
+          )}
+        </View>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
+
 
 const styles = StyleSheet.create({
   splashContainer: {

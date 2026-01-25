@@ -42,6 +42,7 @@ export default function WeatherWidget({ compact = false }) {
         if (cond.includes('rain')) return 'rainy';
         if (cond.includes('thunder')) return 'thunderstorm';
         if (cond.includes('snow')) return 'snow';
+        if (cond.includes('mist') || cond.includes('fog')) return 'water';
         return 'partly-sunny';
     };
 
@@ -51,57 +52,104 @@ export default function WeatherWidget({ compact = false }) {
         </View>
     );
 
-    if (error) return null; // Silently hide if error
+    if (error || !weather) return null;
 
     return (
         <View style={[styles.container, compact && styles.compactContainer]}>
-            <Ionicons
-                name={getWeatherIcon(weather.condition)}
-                size={compact ? 20 : 32}
-                color="#28a745"
-            />
-            <View style={styles.info}>
-                <Text style={[styles.temp, compact && styles.compactTemp]}>
-                    {Math.round(weather.temp)}°C
-                </Text>
-                {!compact && (
-                    <Text style={styles.location}>{weather.city || 'Somewhere out there'}</Text>
-                )}
+            <View style={styles.mainRow}>
+                <Ionicons
+                    name={getWeatherIcon(weather.condition)}
+                    size={compact ? 22 : 36}
+                    color="#28a745"
+                />
+                <View style={styles.info}>
+                    <Text style={[styles.temp, compact && styles.compactTemp]}>
+                        {Math.round(weather.temp)}°C
+                    </Text>
+                    <Text style={styles.condition}>{weather.condition}</Text>
+                </View>
             </View>
+
+            {!compact && (
+                <View style={styles.detailsRow}>
+                    <View style={styles.detailItem}>
+                        <Ionicons name="water-outline" size={14} color="#6c757d" />
+                        <Text style={styles.detailText}>{weather.humidity}%</Text>
+                    </View>
+                    <View style={styles.detailItem}>
+                        <Ionicons name="speedometer-outline" size={14} color="#6c757d" />
+                        <Text style={styles.detailText}>{weather.wind}m/s</Text>
+                    </View>
+                    <Text style={styles.location}>{weather.city || 'Trailhead'}</Text>
+                </View>
+            )}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 12,
-        backgroundColor: '#f8f9fa',
-        borderRadius: 15,
-        borderWidth: 1,
-        borderColor: '#e9ecef',
+        padding: 15,
+        backgroundColor: '#fff',
+        borderRadius: 20,
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        minWidth: 120,
     },
     compactContainer: {
-        padding: 8,
-        backgroundColor: 'rgba(255,255,255,0.9)',
-        borderWidth: 0,
-        borderRadius: 10,
+        padding: 10,
+        backgroundColor: 'rgba(255,255,255,0.92)',
+        borderRadius: 12,
+        minWidth: 80,
+    },
+    mainRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     info: {
-        marginLeft: 10,
+        marginLeft: 12,
     },
     temp: {
-        fontSize: 18,
+        fontSize: 24,
         fontWeight: 'bold',
-        color: '#343a40',
+        color: '#1a1a1a',
     },
     compactTemp: {
-        fontSize: 14,
-        marginLeft: 5,
+        fontSize: 18,
+        marginLeft: 0,
+    },
+    condition: {
+        fontSize: 12,
+        color: '#666',
+        textTransform: 'capitalize',
+    },
+    detailsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 10,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#f0f0f0',
+    },
+    detailItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    detailText: {
+        fontSize: 12,
+        color: '#6c757d',
+        marginLeft: 4,
     },
     location: {
         fontSize: 12,
-        color: '#6c757d',
+        color: '#28a745',
+        fontWeight: '500',
+        marginLeft: 'auto',
     },
 });
+
+

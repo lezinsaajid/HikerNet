@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Modal, ScrollView, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Modal, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
+import SafeScreen from '../../components/SafeScreen';
 
 export default function GroupMenu() {
     const router = useRouter();
@@ -87,59 +87,66 @@ export default function GroupMenu() {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color="#333" />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Group Trail</Text>
-            </View>
-
-            <View style={styles.content}>
-                {/* Create Room Section */}
-                <View style={styles.section}>
-                    <View style={styles.iconContainer}>
-                        <Ionicons name="add-circle" size={50} color="#28a745" />
+        <SafeScreen backgroundColor="#f8f9fa">
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+            >
+                <ScrollView contentContainerStyle={styles.scrollContent}>
+                    <View style={styles.header}>
+                        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                            <Ionicons name="arrow-back" size={24} color="#333" />
+                        </TouchableOpacity>
+                        <Text style={styles.headerTitle}>Group Trail</Text>
                     </View>
-                    <Text style={styles.sectionTitle}>Start a New Group</Text>
-                    <Text style={styles.sectionDesc}>Create a room and invite your friends via code.</Text>
-                    <TouchableOpacity style={styles.createButton} onPress={handleCreateRoomPress}>
-                        <Text style={styles.createButtonText}>Create a Room</Text>
-                    </TouchableOpacity>
-                </View>
 
-                <View style={styles.divider}>
-                    <View style={styles.line} />
-                    <Text style={styles.orText}>OR</Text>
-                    <View style={styles.line} />
-                </View>
+                    <View style={styles.content}>
+                        {/* Create Room Section */}
+                        <View style={styles.section}>
+                            <View style={styles.iconContainer}>
+                                <Ionicons name="add-circle" size={50} color="#28a745" />
+                            </View>
+                            <Text style={styles.sectionTitle}>Start a New Group</Text>
+                            <Text style={styles.sectionDesc}>Create a room and invite your friends via code.</Text>
+                            <TouchableOpacity style={styles.createButton} onPress={handleCreateRoomPress}>
+                                <Text style={styles.createButtonText}>Create a Room</Text>
+                            </TouchableOpacity>
+                        </View>
 
-                {/* Join Room Section */}
-                <View style={styles.section}>
-                    <View style={styles.iconContainer}>
-                        <Ionicons name="enter" size={50} color="#007bff" />
+                        <View style={styles.divider}>
+                            <View style={styles.line} />
+                            <Text style={styles.orText}>OR</Text>
+                            <View style={styles.line} />
+                        </View>
+
+                        {/* Join Room Section */}
+                        <View style={styles.section}>
+                            <View style={styles.iconContainer}>
+                                <Ionicons name="enter" size={50} color="#007bff" />
+                            </View>
+                            <Text style={styles.sectionTitle}>Join Existing Group</Text>
+                            <Text style={styles.sectionDesc}>Enter the code shared by your trail leader.</Text>
+
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Enter 7-character code"
+                                value={joinCode}
+                                onChangeText={setJoinCode}
+                                autoCapitalize="none"
+                                maxLength={7}
+                            />
+
+                            <TouchableOpacity
+                                style={[styles.joinButton, isJoining && styles.disabledBtn]}
+                                onPress={handleJoinRoom}
+                                disabled={isJoining}
+                            >
+                                <Text style={styles.joinButtonText}>{isJoining ? "Joining..." : "Join Room"}</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                    <Text style={styles.sectionTitle}>Join Existing Group</Text>
-                    <Text style={styles.sectionDesc}>Enter the code shared by your trail leader.</Text>
-
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Enter 7-character code"
-                        value={joinCode}
-                        onChangeText={setJoinCode}
-                        autoCapitalize="none"
-                        maxLength={7}
-                    />
-
-                    <TouchableOpacity
-                        style={[styles.joinButton, isJoining && styles.disabledBtn]}
-                        onPress={handleJoinRoom}
-                        disabled={isJoining}
-                    >
-                        <Text style={styles.joinButtonText}>{isJoining ? "Joining..." : "Join Room"}</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
+                </ScrollView>
+            </KeyboardAvoidingView>
 
             {/* Room Setup Modal */}
             <Modal
@@ -149,57 +156,64 @@ export default function GroupMenu() {
                 onRequestClose={() => setIsSetupVisible(false)}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Set Up Group</Text>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    >
+                        <View style={styles.modalContent}>
+                            <Text style={styles.modalTitle}>Set Up Group</Text>
 
-                        <Text style={styles.label}>Trail Name</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="e.g. Weekend Hike"
-                            value={roomName}
-                            onChangeText={setRoomName}
-                        />
+                            <Text style={styles.label}>Trail Name</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="e.g. Weekend Hike"
+                                value={roomName}
+                                onChangeText={setRoomName}
+                            />
 
-                        {params.location && (
-                            <View style={styles.locationInfo}>
-                                <Ionicons name="location" size={16} color="#28a745" />
-                                <Text style={styles.locationInfoText}>{params.location}</Text>
+                            {params.location && (
+                                <View style={styles.locationInfo}>
+                                    <Ionicons name="location" size={16} color="#28a745" />
+                                    <Text style={styles.locationInfoText}>{params.location}</Text>
+                                </View>
+                            )}
+
+                            <Text style={styles.label}>Description (Optional)</Text>
+                            <TextInput
+                                style={[styles.modalInput, styles.modalTextArea]}
+                                placeholder="Brief plan..."
+                                value={roomDesc}
+                                onChangeText={setRoomDesc}
+                                multiline
+                            />
+
+                            <View style={styles.modalActions}>
+                                <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setIsSetupVisible(false)}>
+                                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.modalButton, styles.confirmButton]}
+                                    onPress={confirmCreateRoom}
+                                    disabled={isCreating}
+                                >
+                                    {isCreating ? (
+                                        <ActivityIndicator size="small" color="white" />
+                                    ) : (
+                                        <Text style={styles.confirmButtonText}>Create Group</Text>
+                                    )}
+                                </TouchableOpacity>
                             </View>
-                        )}
-
-                        <Text style={styles.label}>Description (Optional)</Text>
-                        <TextInput
-                            style={[styles.modalInput, styles.modalTextArea]}
-                            placeholder="Brief plan..."
-                            value={roomDesc}
-                            onChangeText={setRoomDesc}
-                            multiline
-                        />
-
-                        <View style={styles.modalActions}>
-                            <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setIsSetupVisible(false)}>
-                                <Text style={styles.cancelButtonText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.modalButton, styles.confirmButton]}
-                                onPress={confirmCreateRoom}
-                                disabled={isCreating}
-                            >
-                                {isCreating ? (
-                                    <ActivityIndicator size="small" color="white" />
-                                ) : (
-                                    <Text style={styles.confirmButtonText}>Create Group</Text>
-                                )}
-                            </TouchableOpacity>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
-        </SafeAreaView>
+        </SafeScreen>
     );
 }
 
 const styles = StyleSheet.create({
+    scrollContent: {
+        flexGrow: 1,
+    },
     container: {
         flex: 1,
         backgroundColor: '#f8f9fa',
@@ -387,3 +401,4 @@ const styles = StyleSheet.create({
         flex: 1,
     },
 });
+

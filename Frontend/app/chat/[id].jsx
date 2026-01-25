@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, KeyboardAvoidingView, Platform, Image, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
-import { useAuth } from '../../context/AuthContext';
+import SafeScreen from '../../components/SafeScreen';
+
 
 export default function ChatScreen() {
     const { id } = useLocalSearchParams();
@@ -99,7 +100,7 @@ export default function ChatScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeScreen backgroundColor="#f5f5f5">
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
@@ -133,7 +134,7 @@ export default function ChatScreen() {
                     <Ionicons name="send" size={24} color="#fff" />
                 </TouchableOpacity>
             </KeyboardAvoidingView>
-        </SafeAreaView>
+        </SafeScreen>
     );
 }
 
@@ -149,7 +150,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         borderBottomWidth: 1,
         borderBottomColor: '#eee',
-        paddingTop: Platform.OS === 'android' ? 40 : 15,
     },
     backButton: {
         marginRight: 15,

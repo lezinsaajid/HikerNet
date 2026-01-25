@@ -163,7 +163,7 @@ export default function ViewStory() {
             {/* Viewer List Modal */}
             <Modal visible={showViewers} animationType="slide" transparent={true}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                    <SafeScreen style={styles.modalContent} edges={['top']}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Viewed by</Text>
                             <TouchableOpacity onPress={() => setShowViewers(false)}>
@@ -181,7 +181,7 @@ export default function ViewStory() {
                                 <Text style={styles.noViewers}>No views yet</Text>
                             )}
                         </ScrollView>
-                    </View>
+                    </SafeScreen>
                 </View>
             </Modal>
         </View>

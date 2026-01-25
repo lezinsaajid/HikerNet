@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator, Alert, Dimensions, FlatList } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, Alert, Dimensions } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
-import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
 import UserListModal from '../../components/UserListModal';
+import SafeScreen from '../../components/SafeScreen';
 
 const { width } = Dimensions.get('window');
+
 
 export default function UserProfile() {
     const { user, updateUserData } = useAuth();
@@ -154,7 +155,7 @@ export default function UserProfile() {
 
     const handleBlock = async () => {
         try {
-            await client.post(`/users/block/${id}`);
+            const res = await client.post(`/users/block/${id}`);
 
             // Update local state if needed, or simply route back
             Alert.alert("Blocked", "User has been blocked.");
@@ -246,14 +247,14 @@ export default function UserProfile() {
 
     if (loading && !userData) {
         return (
-            <View style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
+            <SafeScreen style={{ justifyContent: 'center', alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#4A7C44" />
-            </View>
+            </SafeScreen>
         );
     }
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <SafeScreen>
             <View style={styles.topBar}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="chevron-back" size={28} color="#000" />
@@ -381,7 +382,7 @@ export default function UserProfile() {
                 userId={id}
                 type={userListType}
             />
-        </SafeAreaView>
+        </SafeScreen>
     );
 }
 
@@ -456,7 +457,6 @@ const styles = StyleSheet.create({
     },
     actionRow: {
         flexDirection: 'row',
-        gap: 12,
         marginBottom: 25,
     },
     actionBtn: {
@@ -465,6 +465,7 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
+        marginHorizontal: 6,
     },
     chatBtn: {
         backgroundColor: '#403A36',

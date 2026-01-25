@@ -760,7 +760,6 @@ const styles = StyleSheet.create({
         top: 110,
         left: 20,
         zIndex: 10,
-        gap: 10,
     },
     mapIconButton: {
         backgroundColor: 'white',
@@ -774,6 +773,7 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.25,
         shadowRadius: 3.84,
+        marginBottom: 10,
     },
     centered: {
         flex: 1,
@@ -809,7 +809,6 @@ const styles = StyleSheet.create({
     },
     row: {
         flexDirection: 'row',
-        gap: 20
     },
     button: {
         width: 70,
@@ -817,6 +816,7 @@ const styles = StyleSheet.create({
         borderRadius: 35,
         justifyContent: 'center',
         alignItems: 'center',
+        marginHorizontal: 10,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,

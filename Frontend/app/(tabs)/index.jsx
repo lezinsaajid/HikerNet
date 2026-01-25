@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, Image, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
-import client from '../../api/client';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import client from '../../api/client';
 import StoryBar from '../../components/StoryBar';
 import WeatherWidget from '../../components/WeatherWidget';
+import SafeScreen from '../../components/SafeScreen';
+
 
 export default function HomeFeed() {
     const [posts, setPosts] = useState([]);
@@ -61,7 +63,7 @@ export default function HomeFeed() {
     );
 
     return (
-        <View style={styles.container}>
+        <SafeScreen>
             <View style={styles.topBar}>
                 <Text style={styles.logo}>Hikernet</Text>
                 <WeatherWidget compact={true} />
@@ -82,7 +84,7 @@ export default function HomeFeed() {
                     ListEmptyComponent={<Text style={styles.emptyText}>No posts yet. Follow some hikers!</Text>}
                 />
             )}
-        </View>
+        </SafeScreen>
     );
 }
 
@@ -90,7 +92,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#fff',
-        paddingTop: 50, // safe area
     },
     topBar: {
         flexDirection: 'row',

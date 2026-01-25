@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
-import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import NativeMap, { Marker } from '../../components/NativeMap';
+import SafeScreen from '../../components/SafeScreen';
+
 
 export default function RendezvousFinder() {
     const [markers, setMarkers] = useState([]);
@@ -60,7 +62,7 @@ export default function RendezvousFinder() {
     };
 
     return (
-        <View style={styles.container}>
+        <SafeScreen>
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
@@ -128,7 +130,7 @@ export default function RendezvousFinder() {
                     )}
                 </TouchableOpacity>
             </View>
-        </View>
+        </SafeScreen>
     );
 }
 
@@ -136,7 +138,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#fff',
-        paddingTop: 60,
     },
     header: {
         flexDirection: 'row',

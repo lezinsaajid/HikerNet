@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, TextInput, Modal, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../api/client';
 import { useRouter } from 'expo-router';
+import SafeScreen from './SafeScreen';
 
 export default function UserListModal({ visible, onClose, userId, type, mode = 'view', onInvite }) {
     const [users, setUsers] = useState([]);
@@ -161,7 +161,7 @@ export default function UserListModal({ visible, onClose, userId, type, mode = '
 
     return (
         <Modal visible={visible} animationType="slide" transparent={false}>
-            <SafeAreaView style={styles.container}>
+            <SafeScreen>
                 <View style={styles.header}>
                     <TouchableOpacity onPress={onClose} style={styles.backButton}>
                         <Ionicons name="chevron-back" size={28} color="#000" />
@@ -198,12 +198,10 @@ export default function UserListModal({ visible, onClose, userId, type, mode = '
                         }
                     />
                 )}
-            </SafeAreaView>
+            </SafeScreen>
         </Modal>
     );
 }
-
-
 
 const styles = StyleSheet.create({
     container: {
@@ -306,4 +304,3 @@ const styles = StyleSheet.create({
         fontSize: 16,
     },
 });
-

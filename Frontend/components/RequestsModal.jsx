@@ -60,7 +60,7 @@ export default function RequestsModal({ visible, onClose, room, onAccept, onReje
 
     return (
         <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-            <SafeAreaView style={styles.container}>
+            <SafeScreen>
                 <View style={styles.header}>
                     <Text style={styles.title}>Requests Section</Text>
                     <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -77,16 +77,12 @@ export default function RequestsModal({ visible, onClose, room, onAccept, onReje
                         <Text style={styles.emptyText}>No request history found.</Text>
                     }
                 />
-            </SafeAreaView>
+            </SafeScreen>
         </Modal>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#f8f9fa',
-    },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -140,18 +136,20 @@ const styles = StyleSheet.create({
     },
     actions: {
         flexDirection: 'row',
-        gap: 10,
     },
     acceptBtn: {
         backgroundColor: '#28a745',
         padding: 8,
         borderRadius: 20,
+        marginHorizontal: 5,
     },
     rejectBtn: {
         backgroundColor: '#dc3545',
         padding: 8,
         borderRadius: 20,
+        marginHorizontal: 5,
     },
+
     emptyText: {
         textAlign: 'center',
         color: '#999',

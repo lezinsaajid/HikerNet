@@ -1,5 +1,4 @@
 import express from "express";
-import fetch from 'node-fetch'; // Ensure node-fetch or native fetch is available/used correctly
 
 const router = express.Router();
 
@@ -10,31 +9,57 @@ router.get("/current", async (req, res) => {
             return res.status(400).json({ message: "Latitude and Longitude required" });
         }
 
-        const apiKey = process.env.OPENWEATHER_API_KEY;
+        const apiKey = process.env.API_KEY || process.env.WEATHER_API_KEY || process.env.OPENWEATHER_API_KEY;
+        const apiBase = process.env.API_BASE || process.env.WEATHER_API_BASE || "https://api.openweathermap.org/data/2.5";
+
+        console.log(`[Weather] Request for Lat: ${lat}, Lon: ${lon}`);
+
         if (!apiKey) {
-            // Mock response if no API key
+            console.log("[Weather] No API key found, returning mock data");
             return res.json({
-                temp: 12.5,
-                condition: "Clear",
-                city: "Mock Location"
+                temp: 18.5,
+                condition: "Cloudy",
+                humidity: 65,
+                wind: 4.2,
+                city: "Trail Mountain (Mock)"
             });
         }
 
-        const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
+        // Combine API_BASE with /weather endpoint
+        const endpoint = apiBase.endsWith('/weather') ? apiBase : `${apiBase}/weather`;
+        const url = `${endpoint}?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
+
+        console.log(`[Weather] Fetching real data from: ${endpoint}`);
         const response = await fetch(url);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[Weather] API Error (${response.status}):`, errorText);
+            throw new Error(`Weather API responded with status: ${response.status}`);
+        }
+
         const data = await response.json();
 
         // Transform data to flat structure expected by frontend
         const weatherData = {
-            temp: data.main.temp,
-            condition: data.weather[0].main,
-            city: data.name
+            temp: data.main?.temp ?? 0,
+            condition: data.weather?.[0]?.main ?? "Unknown",
+            humidity: data.main?.humidity ?? 0,
+            wind: data.wind?.speed ?? 0,
+            city: data.name ?? "Unknown Location"
         };
 
+        console.log("[Weather] Success:", weatherData.city, weatherData.temp);
         res.json(weatherData);
+
     } catch (error) {
-        console.error("Error fetching weather:", error);
-        res.status(500).json({ message: "Error fetching weather" });
+        console.error("[Weather] Route Error:", error.message);
+        res.status(500).json({
+            temp: 0,
+            condition: "Service Unavailable",
+            city: "N/A",
+            error: error.message
+        });
     }
 });
 

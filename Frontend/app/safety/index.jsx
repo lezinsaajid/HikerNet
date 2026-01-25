@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, FlatList, Modal, TextInput } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
-import EmergencyContactItem from '../../components/EmergencyContactItem';
-import { useRouter } from 'expo-router';
+import SafeScreen from '../../components/SafeScreen';
+
 
 export default function SafetyCenter() {
     const [contacts, setContacts] = useState([]);
@@ -100,7 +101,7 @@ export default function SafetyCenter() {
     };
 
     return (
-        <View style={styles.container}>
+        <SafeScreen style={styles.container}>
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
@@ -167,8 +168,12 @@ export default function SafetyCenter() {
                 visible={modalVisible}
                 onRequestClose={() => setModalVisible(false)}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setModalVisible(false)}
+                >
+                    <SafeScreen style={styles.modalContent} edges={['top', 'bottom']}>
                         <Text style={styles.modalTitle}>Add Emergency Contact</Text>
                         <TextInput
                             style={styles.input}
@@ -204,10 +209,11 @@ export default function SafetyCenter() {
                                 <Text style={styles.addText}>Add</Text>
                             </TouchableOpacity>
                         </View>
-                    </View>
-                </View>
+                    </SafeScreen>
+                </TouchableOpacity>
             </Modal>
-        </View>
+
+        </SafeScreen>
     );
 }
 
@@ -215,7 +221,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#fff',
-        paddingTop: 60,
         paddingHorizontal: 20,
     },
     header: {

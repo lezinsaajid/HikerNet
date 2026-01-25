@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, Image, ActivityIndicator } from 'react-native';
-import client from '../../api/client';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import client from '../../api/client';
+import SafeScreen from '../../components/SafeScreen';
+
 
 export default function Leaderboard() {
     const [users, setUsers] = useState([]);
@@ -42,7 +44,7 @@ export default function Leaderboard() {
     );
 
     return (
-        <View style={styles.container}>
+        <SafeScreen>
             <Text style={styles.headerTitle}>Global Leaderboard</Text>
             {loading ? (
                 <ActivityIndicator size="large" color="#28a745" />
@@ -54,7 +56,7 @@ export default function Leaderboard() {
                     contentContainerStyle={styles.list}
                 />
             )}
-        </View>
+        </SafeScreen>
     );
 }
 
@@ -62,7 +64,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#fff',
-        paddingTop: 60,
     },
     headerTitle: {
         fontSize: 24,

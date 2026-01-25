@@ -201,7 +201,6 @@ const styles = StyleSheet.create({
     },
     inputSection: {
         width: '100%',
-        gap: 20,
     },
     inputWrapper: {
         flexDirection: 'row',
@@ -210,6 +209,7 @@ const styles = StyleSheet.create({
         borderRadius: 15,
         paddingHorizontal: 20,
         paddingVertical: 14,
+        marginBottom: 20,
     },
     inputIcon: {
         marginRight: 15,
@@ -245,11 +245,11 @@ const styles = StyleSheet.create({
     checkboxRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
     },
     rememberText: {
         fontSize: 12,
         color: '#999',
+        marginLeft: 8,
     },
     forgotText: {
         fontSize: 12,
@@ -260,7 +260,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         marginVertical: 20,
-        gap: 15,
     },
     dividerLine: {
         flex: 1,
@@ -270,11 +269,11 @@ const styles = StyleSheet.create({
     dividerText: {
         color: '#999',
         fontSize: 12,
+        marginHorizontal: 15,
     },
     socialRow: {
         flexDirection: 'row',
         justifyContent: 'center',
-        gap: 20,
     },
     socialBtn: {
         width: 50,
@@ -284,6 +283,7 @@ const styles = StyleSheet.create({
         borderColor: '#EEE',
         justifyContent: 'center',
         alignItems: 'center',
+        marginHorizontal: 10,
     },
     footer: {
         flexDirection: 'row',

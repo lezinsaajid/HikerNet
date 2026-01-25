@@ -81,7 +81,6 @@ const styles = StyleSheet.create({
   footerSection: {
     width: '100%',
     alignItems: 'center',
-    gap: 20,
   },
   signInButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.25)', // Translucent White
@@ -91,6 +90,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
+    marginBottom: 20,
   },
   signInText: {
     color: '#FFFFFF',

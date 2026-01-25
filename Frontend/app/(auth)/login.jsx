@@ -175,15 +175,15 @@ const styles = StyleSheet.create({
     },
     inputSection: {
         width: '100%',
-        gap: 20,
     },
     inputWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F0F4EF',
+        backgroundColor: '#F7F7F7',
         borderRadius: 15,
         paddingHorizontal: 20,
-        paddingVertical: 14,
+        paddingVertical: 18,
+        marginBottom: 20,
     },
     inputIcon: {
         marginRight: 15,
@@ -202,7 +202,6 @@ const styles = StyleSheet.create({
     checkboxRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
     },
     rememberText: {
         fontSize: 12,

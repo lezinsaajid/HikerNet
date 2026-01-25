@@ -1,14 +1,15 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import SafeScreen from '../../components/SafeScreen';
+
 
 export default function TrailDashboard() {
     const router = useRouter();
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeScreen style={styles.container}>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Explore Trails</Text>
             </View>
@@ -45,7 +46,7 @@ export default function TrailDashboard() {
                 </TouchableOpacity>
             </View>
 
-        </SafeAreaView >
+        </SafeScreen >
     );
 }
 
