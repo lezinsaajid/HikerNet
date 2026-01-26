@@ -27,6 +27,14 @@ const protectRoute = async (req, res, next) => {
         if (!user) return res.status(401).json({ message: "Token is not valid" });
 
         req.user = user;
+
+        // Update last seen if more than 1 minute has passed to avoid excessive DB writes
+        const now = new Date();
+        if (!user.lastSeen || (now - new Date(user.lastSeen)) > 60000) {
+            user.lastSeen = now;
+            await user.save();
+        }
+
         next();
     } catch (error) {
         console.error("Authentication error:", error.message);

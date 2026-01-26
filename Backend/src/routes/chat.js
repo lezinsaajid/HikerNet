@@ -78,10 +78,31 @@ router.get("/user/:userId", protectRoute, async (req, res) => {
     }
 });
 
+// GET SINGLE CHAT BY ID
+router.get("/:chatId", protectRoute, async (req, res) => {
+    try {
+        const { chatId } = req.params;
+        const chat = await Chat.findById(chatId).populate("participants", "username profileImage email lastSeen");
+        if (!chat) return res.status(404).json({ message: "Chat not found" });
+        res.json(chat);
+    } catch (error) {
+        console.error("Get chat error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
 // GET MESSAGES
 router.get("/:chatId/messages", protectRoute, async (req, res) => {
     try {
         const { chatId } = req.params;
+        const userId = req.user._id;
+
+        // Mark all messages from other person as read when I fetch them
+        await Message.updateMany(
+            { chatId, sender: { $ne: userId } },
+            { $addToSet: { readBy: userId } }
+        );
+
         const messages = await Message.find({ chatId })
             .populate("sender", "username profileImage")
             .sort({ createdAt: 1 }); // Oldest first for chat history
@@ -104,6 +125,7 @@ router.post("/:chatId/messages", protectRoute, async (req, res) => {
             chatId,
             sender: senderId,
             content,
+            readBy: [senderId],
         });
 
         // Update last message in chat

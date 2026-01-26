@@ -47,16 +47,37 @@ export default function ChatScreen() {
     const { user: currentUser } = useAuth();
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
+    const [partner, setPartner] = useState(null);
     const [chatInstance, setChatInstance] = useState(null);
     const flatListRef = useRef(null);
 
     // Initial fetch
     useEffect(() => {
+        fetchChatDetails();
         fetchMessages();
-        // Poll for new messages every 3 seconds
-        const interval = setInterval(fetchMessages, 3000);
+        // Poll for new messages and partner status
+        const interval = setInterval(() => {
+            fetchMessages();
+            fetchChatDetails();
+        }, 5000);
         return () => clearInterval(interval);
     }, [id]);
+
+    const getReadStatus = (message) => {
+        if (message.sender._id !== currentUser._id) return null;
+        return message.readBy?.length > 1 ? "Read" : "Sent";
+    };
+
+    const fetchChatDetails = async () => {
+        try {
+            const res = await client.get(`/chat/${id}`);
+            const chat = res.data;
+            const chatPartner = chat.participants.find(p => p._id !== currentUser._id) || chat.participants[0];
+            setPartner(chatPartner);
+        } catch (error) {
+            console.error("Failed to fetch chat details", error);
+        }
+    };
 
     const fetchMessages = async () => {
         try {
@@ -138,22 +159,27 @@ export default function ChatScreen() {
                 )}
                 <View style={[styles.messageContainer, isMe ? styles.myMessageContainer : styles.theirMessageContainer]}>
                     {!isMe && (
-                        <Image
-                            source={{ uri: item.sender.profileImage || 'https://via.placeholder.com/30' }}
-                            style={styles.avatar}
-                        />
+                        <TouchableOpacity onPress={() => router.push(`/user-profile/${item.sender._id}`)}>
+                            <Image
+                                source={{ uri: item.sender.profileImage || 'https://via.placeholder.com/30' }}
+                                style={styles.avatar}
+                            />
+                        </TouchableOpacity>
                     )}
-                    <TouchableOpacity
-                        activeOpacity={0.8}
-                        onLongPress={() => isMe && handleDeleteMessage(item._id)}
-                        style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}
-                    >
+                    <TouchableOpacity onPress={() => item.sender._id === currentUser._id && handleDeleteMessage(item._id)} onLongPress={() => isMe && handleDeleteMessage(item._id)} style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}>
                         <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
                             {item.content}
                         </Text>
-                        <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
-                            {formatTime(item.createdAt)}
-                        </Text>
+                        <View style={styles.messageFooter}>
+                            <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
+                                {formatTime(item.createdAt)}
+                            </Text>
+                            {isMe && (
+                                <Text style={styles.readStatusText}>
+                                    {getReadStatus(item)}
+                                </Text>
+                            )}
+                        </View>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -166,8 +192,22 @@ export default function ChatScreen() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Chat</Text>
-                {/* Could fetch chat details to show partner name in header */}
+                {partner ? (
+                    <TouchableOpacity
+                        style={styles.headerPartnerInfo}
+                        onPress={() => router.push(`/user-profile/${partner._id}`)}
+                    >
+                        <Image
+                            source={{ uri: partner.profileImage || 'https://via.placeholder.com/40' }}
+                            style={styles.headerAvatar}
+                        />
+                        <View>
+                            <Text style={styles.headerPartnerName}>{partner.username}</Text>
+                        </View>
+                    </TouchableOpacity>
+                ) : (
+                    <Text style={styles.headerTitle}>Chat</Text>
+                )}
             </View>
 
             <FlatList
@@ -219,6 +259,35 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: 'bold',
         color: '#333',
+    },
+    headerPartnerInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    headerAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        marginRight: 12,
+        backgroundColor: '#eee',
+    },
+    headerPartnerName: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    messageFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        marginTop: 4,
+    },
+    readStatusText: {
+        fontSize: 10,
+        color: 'rgba(255,255,255,0.7)',
+        marginLeft: 5,
+        fontStyle: 'italic',
     },
     listContent: {
         padding: 15,
