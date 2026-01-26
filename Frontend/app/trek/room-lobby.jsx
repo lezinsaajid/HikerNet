@@ -94,10 +94,10 @@ export default function RoomLobby() {
             }
 
             // Check if current user is Removed (if they were a member but no longer in list)
-            if (role === 'member' && !loading) { // Avoid check on first load
-                const isMember = data.members.some(m => m.user._id === currentUser._id);
+            if (role === 'member' && !loading && currentUser) { // Avoid check on first load
+                const isMember = data.members.some(m => m.user?._id === currentUser._id);
                 // Also check requests to see if we are still requested
-                const isRequested = data.requests.some(r => r.user._id === currentUser._id);
+                const isRequested = data.requests.some(r => r.user?._id === currentUser._id);
                 // Only alert if we are NEITHER member NOR requested (and purely removed)
                 // But wait, initially we are neither.
                 // We need to know if we *were* a member? Or just rely on "Loading" check.
@@ -245,7 +245,8 @@ export default function RoomLobby() {
     }
 
     const isLeader = role === 'leader';
-    const me = room.members.find(m => m.user._id === currentUser._id);
+    // Safely check if currentUser exists
+    const me = (currentUser && room?.members) ? room.members.find(m => m.user?._id === currentUser._id) : null;
     const isMember = !!me;
 
     // Waiting View (Exclusive)
@@ -263,7 +264,7 @@ export default function RoomLobby() {
                     <View style={styles.waitingCard}>
                         <Ionicons name="hourglass-outline" size={60} color="#007bff" />
                         <Text style={styles.waitingTitle}>Waiting for Approval</Text>
-                        <Text style={styles.waitingDesc}>We&apos;ve sent your request to {room.leader.username}. You&apos;ll join the room once they accept.</Text>
+                        <Text style={styles.waitingDesc}>We&apos;ve sent your request to {room?.leader?.username || "the leader"}. You&apos;ll join the room once they accept.</Text>
                         <ActivityIndicator size="large" color="#007bff" style={{ marginVertical: 20 }} />
 
                         {joinCooldown > 0 ? (
@@ -297,7 +298,7 @@ export default function RoomLobby() {
                     >
                         <View>
                             <Ionicons name="notifications" size={28} color="#007bff" />
-                            {room.requests.length > 0 && (
+                            {room?.requests?.length > 0 && (
                                 <View style={styles.bellBadge}>
                                     <Text style={styles.bellBadgeText}>{room.requests.length}</Text>
                                 </View>
@@ -314,25 +315,25 @@ export default function RoomLobby() {
             </View>
 
             <View style={styles.listContainer}>
-                <Text style={styles.sectionTitle}>Members ({room.members.length})</Text>
+                <Text style={styles.sectionTitle}>Members ({room?.members?.length || 0})</Text>
                 <FlatList
-                    data={room.members}
-                    keyExtractor={item => item.user._id}
+                    data={room?.members || []}
+                    keyExtractor={(item, index) => item.user?._id || index.toString()}
                     renderItem={({ item }) => (
                         <View style={styles.memberItem}>
                             <View style={styles.userInfo}>
-                                <Image source={{ uri: item.user.profileImage || 'https://via.placeholder.com/150' }} style={styles.avatar} />
+                                <Image source={{ uri: item.user?.profileImage || 'https://via.placeholder.com/150' }} style={styles.avatar} />
                                 <View>
                                     <Text style={styles.username}>
-                                        {item.user.username} {item.user._id === room.leader._id && <Text style={{ color: '#fcc419' }}> (Leader)</Text>}
+                                        {item.user?.username || 'Unknown'} {item.user?._id === room.leader?._id && <Text style={{ color: '#fcc419' }}> (Leader)</Text>}
                                     </Text>
                                     <Text style={[styles.statusText, item.isReady ? styles.statusReady : styles.statusNot]}>
                                         {item.isReady ? "READY" : "WAITING"}
                                     </Text>
                                 </View>
                             </View>
-                            {isLeader && item.user._id !== room.leader._id && (
-                                <TouchableOpacity onPress={() => handleRemove(item.user._id)}>
+                            {isLeader && item.user?._id !== room.leader?._id && (
+                                <TouchableOpacity onPress={() => handleRemove(item.user?._id)}>
                                     <Ionicons name="trash-outline" size={20} color="#dc3545" />
                                 </TouchableOpacity>
                             )}
@@ -363,15 +364,15 @@ export default function RoomLobby() {
                     <TouchableOpacity
                         style={[
                             styles.mainButton,
-                            (room.members.every(m => m.isReady) && room.members.length > 1) ? styles.startBtn : styles.disabledBtn
+                            (room?.members?.every(m => m.isReady) && (room?.members?.length || 0) > 1) ? styles.startBtn : styles.disabledBtn
                         ]}
                         onPress={handleStartTrail}
-                        disabled={!room.members.every(m => m.isReady) || room.members.length < 1}
+                        disabled={!room?.members?.every(m => m.isReady) || (room?.members?.length || 0) < 1}
                     >
                         <Text style={styles.mainButtonText}>
-                            {room.members.length < 2
+                            {(room?.members?.length || 0) < 2
                                 ? "WAITING FOR FRIEND..."
-                                : (!room.members.every(m => m.isReady) ? "WAITING FOR READY..." : "START TRAIL")
+                                : (!room?.members?.every(m => m.isReady) ? "WAITING FOR READY..." : "START TRAIL")
                             }
                         </Text>
                     </TouchableOpacity>

@@ -60,7 +60,7 @@ export default function RequestsModal({ visible, onClose, room, onAccept, onReje
 
     return (
         <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-            <SafeScreen>
+            <SafeAreaView style={{ flex: 1 }}>
                 <View style={styles.header}>
                     <Text style={styles.title}>Requests Section</Text>
                     <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -77,7 +77,7 @@ export default function RequestsModal({ visible, onClose, room, onAccept, onReje
                         <Text style={styles.emptyText}>No request history found.</Text>
                     }
                 />
-            </SafeScreen>
+            </SafeAreaView>
         </Modal>
     );
 }
