@@ -21,7 +21,7 @@ export default function TrailDetailsScreen() {
             const res = await client.get(`/treks/${id}`);
             setTrail(res.data);
         } catch (error) {
-            console.error("Failed to load trail details", error);
+            console.error(`Failed to load trail details for id: ${id}`, error.response?.status, error.response?.data);
         } finally {
             setIsLoading(false);
         }

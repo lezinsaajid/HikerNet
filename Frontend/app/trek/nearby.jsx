@@ -21,7 +21,7 @@ export default function NearbyTrails() {
             const res = await client.get('/treks/feed/public');
             setTrails(res.data);
         } catch (error) {
-            console.error("Failed to load trails", error);
+            console.error("Failed to load trails", error.response?.status, error.response?.data);
         } finally {
             setIsLoading(false);
         }
@@ -30,10 +30,7 @@ export default function NearbyTrails() {
     const renderTrailItem = ({ item }) => (
         <TouchableOpacity
             style={styles.card}
-            onPress={() => router.push({
-                pathname: `/trek/${item._id}`,
-                params: { id: item._id }
-            })}
+            onPress={() => router.push(`/trek/${item._id}`)}
         >
             <Image
                 source={{ uri: item.images?.[0] || 'https://images.unsplash.com/photo-1551632811-561732d1e306?q=80&w=2070&auto=format&fit=crop' }}

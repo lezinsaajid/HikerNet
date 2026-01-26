@@ -28,6 +28,31 @@ router.post("/start", protectRoute, async (req, res) => {
     }
 });
 
+// Get public feed (all public treks)
+router.get("/feed/public", async (req, res) => {
+    try {
+        const treks = await Trek.find({ privacy: "public" })
+            .sort({ createdAt: -1 })
+            .populate("user", "username profileImage")
+            .limit(20);
+        res.json(treks);
+    } catch (error) {
+        console.error("Error fetching public feed:", error);
+        res.status(500).json({ message: "Error fetching public feed" });
+    }
+});
+
+// Get user's treks
+router.get("/user/:userId", async (req, res) => {
+    try {
+        const treks = await Trek.find({ user: req.params.userId }).sort({ createdAt: -1 });
+        res.json(treks);
+    } catch (error) {
+        console.error("Error fetching user treks:", error);
+        res.status(500).json({ message: "Error fetching user treks" });
+    }
+});
+
 // Update trek (add points, update stats, finish)
 router.put("/update/:id", protectRoute, async (req, res) => {
     try {
@@ -96,16 +121,7 @@ router.get("/:id", async (req, res) => {
     }
 });
 
-// Get user's treks
-router.get("/user/:userId", async (req, res) => {
-    try {
-        const treks = await Trek.find({ user: req.params.userId }).sort({ createdAt: -1 });
-        res.json(treks);
-    } catch (error) {
-        console.error("Error fetching user treks:", error);
-        res.status(500).json({ message: "Error fetching user treks" });
-    }
-});
+
 
 // Sync offline data (Bulk upload of treks)
 router.post("/sync", protectRoute, async (req, res) => {
@@ -137,18 +153,6 @@ router.post("/sync", protectRoute, async (req, res) => {
     }
 });
 
-// Get public feed (all public treks)
-router.get("/feed/public", async (req, res) => {
-    try {
-        const treks = await Trek.find({ privacy: "public" })
-            .sort({ createdAt: -1 })
-            .populate("user", "username profileImage")
-            .limit(20);
-        res.json(treks);
-    } catch (error) {
-        console.error("Error fetching public feed:", error);
-        res.status(500).json({ message: "Error fetching public feed" });
-    }
-});
+
 
 export default router;
