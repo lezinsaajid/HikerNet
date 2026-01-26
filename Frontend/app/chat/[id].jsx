@@ -1,10 +1,44 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Image } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
 import SafeScreen from '../../components/SafeScreen';
+
+const getDateHeaderLabel = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    // Helper to check if it's the same calendar day
+    const isSameDay = (d1, d2) =>
+        d1.getFullYear() === d2.getFullYear() &&
+        d1.getMonth() === d2.getMonth() &&
+        d1.getDate() === d2.getDate();
+
+    // Helper to check if it's yesterday
+    const isYesterday = (d1, d2) => {
+        const yesterday = new Date(d2);
+        yesterday.setDate(yesterday.getDate() - 1);
+        return isSameDay(d1, yesterday);
+    };
+
+    if (isSameDay(date, now)) {
+        return "Today";
+    } else if (isYesterday(date, now)) {
+        return "Yesterday";
+    } else if (diffDays < 7) {
+        return date.toLocaleDateString([], { weekday: 'long' });
+    } else {
+        return date.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' });
+    }
+};
+
+const formatTime = (dateString) => {
+    return new Date(dateString).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+};
 
 
 export default function ChatScreen() {
@@ -73,28 +107,55 @@ export default function ChatScreen() {
         );
     };
 
-    const renderMessage = ({ item }) => {
+    const renderMessage = ({ item, index }) => {
         const isMe = item.sender._id === currentUser._id;
+
+        // Date Header Logic
+        let showDateHeader = false;
+        if (index === 0) {
+            showDateHeader = true;
+        } else {
+            const prevDate = new Date(messages[index - 1].createdAt);
+            const currDate = new Date(item.createdAt);
+
+            if (prevDate.getDate() !== currDate.getDate() ||
+                prevDate.getMonth() !== currDate.getMonth() ||
+                prevDate.getFullYear() !== currDate.getFullYear()) {
+                showDateHeader = true;
+            }
+        }
+
         return (
-            <View style={[styles.messageContainer, isMe ? styles.myMessageContainer : styles.theirMessageContainer]}>
-                {!isMe && (
-                    <Image
-                        source={{ uri: item.sender.profileImage || 'https://via.placeholder.com/30' }}
-                        style={styles.avatar}
-                    />
+            <View>
+                {showDateHeader && (
+                    <View style={styles.dateHeaderContainer}>
+                        <View style={styles.dateHeaderBadge}>
+                            <Text style={styles.dateHeaderText}>
+                                {getDateHeaderLabel(item.createdAt)}
+                            </Text>
+                        </View>
+                    </View>
                 )}
-                <TouchableOpacity
-                    activeOpacity={0.8}
-                    onLongPress={() => isMe && handleDeleteMessage(item._id)}
-                    style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}
-                >
-                    <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
-                        {item.content}
-                    </Text>
-                    <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
-                        {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                </TouchableOpacity>
+                <View style={[styles.messageContainer, isMe ? styles.myMessageContainer : styles.theirMessageContainer]}>
+                    {!isMe && (
+                        <Image
+                            source={{ uri: item.sender.profileImage || 'https://via.placeholder.com/30' }}
+                            style={styles.avatar}
+                        />
+                    )}
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        onLongPress={() => isMe && handleDeleteMessage(item._id)}
+                        style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}
+                    >
+                        <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
+                            {item.content}
+                        </Text>
+                        <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
+                            {formatTime(item.createdAt)}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
             </View>
         );
     };
@@ -240,5 +301,21 @@ const styles = StyleSheet.create({
         borderRadius: 22,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    dateHeaderContainer: {
+        alignItems: 'center',
+        marginVertical: 10,
+        marginBottom: 15,
+    },
+    dateHeaderBadge: {
+        backgroundColor: 'rgba(0,0,0,0.1)',
+        paddingHorizontal: 12,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    dateHeaderText: {
+        fontSize: 12,
+        color: '#666',
+        fontWeight: '600',
     },
 });
