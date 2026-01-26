@@ -78,10 +78,12 @@ export default function ChatDashboard() {
                 style={styles.chatItem}
                 onPress={() => router.push(`/chat/${item._id}`)}
             >
-                <Image
-                    source={{ uri: partner.profileImage || 'https://via.placeholder.com/50' }}
-                    style={styles.avatar}
-                />
+                <TouchableOpacity onPress={() => router.push(`/user-profile/${partner._id}`)}>
+                    <Image
+                        source={{ uri: partner.profileImage || 'https://via.placeholder.com/50' }}
+                        style={styles.avatar}
+                    />
+                </TouchableOpacity>
                 <View style={styles.chatInfo}>
                     <View style={styles.chatHeader}>
                         <Text style={styles.userName}>{partner.username}</Text>
@@ -89,14 +91,11 @@ export default function ChatDashboard() {
                             {item.updatedAt ? new Date(item.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                         </Text>
                     </View>
-                    <Text style={styles.lastMessage} numberOfLines={1}>
-                        {/* If lastMessage is populated, show content. If strictly ID, we might need better populate or check */}
-                        {/* Based on my model, lastMessage is a ref, backend populates it? Wait, my backend implementation of get chats didn't populate createdBy or content deeply enough maybe? 
-                            Ah, I used .populate("lastMessage"). 
-                            But Message schema has `content`. So item.lastMessage.content should exist if populated. 
-                         */}
-                        {item.lastMessage?.content || "No messages yet"}
-                    </Text>
+                    <View style={styles.chatFooter}>
+                        <Text style={styles.lastMessage} numberOfLines={1}>
+                            {item.lastMessage?.content || "No messages yet"}
+                        </Text>
+                    </View>
                 </View>
             </TouchableOpacity>
         );
@@ -107,10 +106,12 @@ export default function ChatDashboard() {
             style={styles.userItem}
             onPress={() => handleUserSelect(item._id)}
         >
-            <Image
-                source={{ uri: item.profileImage || 'https://via.placeholder.com/50' }}
-                style={styles.avatar}
-            />
+            <TouchableOpacity onPress={() => router.push(`/user-profile/${item._id}`)}>
+                <Image
+                    source={{ uri: item.profileImage || 'https://via.placeholder.com/50' }}
+                    style={styles.avatar}
+                />
+            </TouchableOpacity>
             <Text style={styles.userName}>{item.username}</Text>
         </TouchableOpacity>
     );
@@ -249,6 +250,12 @@ const styles = StyleSheet.create({
     lastMessage: {
         fontSize: 14,
         color: '#666',
+        flex: 1,
+    },
+    chatFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
     },
     emptyContainer: {
         alignItems: 'center',

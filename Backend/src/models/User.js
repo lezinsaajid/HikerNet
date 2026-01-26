@@ -73,7 +73,11 @@ const userSchema = new mongoose.Schema(
                 },
                 sentAt: { type: Date, default: Date.now }
             }
-        ]
+        ],
+        lastSeen: {
+            type: Date,
+            default: Date.now,
+        },
     },
     { timestamps: true }
 );
