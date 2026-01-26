@@ -41,6 +41,16 @@ const formatTime = (dateString) => {
 };
 
 
+const getTierColor = (tier) => {
+    switch (tier) {
+        case 'Trail Master': return '#ff922b'; // Orange
+        case 'Pathfinder': return '#5c7cfa'; // Blue
+        case 'Explorer': return '#28a745'; // Green
+        case 'Wanderer': return '#94d82d'; // Lime
+        default: return '#adb5bd'; // Gray
+    }
+};
+
 export default function ChatScreen() {
     const { id } = useLocalSearchParams();
     const router = useRouter();
@@ -202,7 +212,12 @@ export default function ChatScreen() {
                             style={styles.headerAvatar}
                         />
                         <View>
-                            <Text style={styles.headerPartnerName}>{partner.username}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Text style={styles.headerPartnerName}>{partner.username}</Text>
+                                <View style={[styles.chatTierBadge, { backgroundColor: getTierColor(partner?.tier) }]}>
+                                    <Text style={styles.chatTierBadgeText}>{partner.tier || "Newbie"}</Text>
+                                </View>
+                            </View>
                         </View>
                     </TouchableOpacity>
                 ) : (
@@ -288,6 +303,18 @@ const styles = StyleSheet.create({
         color: 'rgba(255,255,255,0.7)',
         marginLeft: 5,
         fontStyle: 'italic',
+    },
+    chatTierBadge: {
+        backgroundColor: '#e8f5e9',
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 8,
+        marginLeft: 6,
+    },
+    chatTierBadgeText: {
+        fontSize: 10,
+        color: '#fff',
+        fontWeight: 'bold',
     },
     listContent: {
         padding: 15,

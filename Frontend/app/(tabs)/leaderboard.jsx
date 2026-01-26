@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
 import SafeScreen from '../../components/SafeScreen';
 
 
 export default function Leaderboard() {
+    const router = useRouter();
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -23,24 +25,43 @@ export default function Leaderboard() {
         fetchLeaderboard();
     }, []);
 
+    const getTierColor = (tier) => {
+        switch (tier) {
+            case 'Trail Master': return '#ff922b'; // Orange
+            case 'Pathfinder': return '#5c7cfa'; // Blue
+            case 'Explorer': return '#28a745'; // Green
+            case 'Wanderer': return '#94d82d'; // Lime
+            default: return '#adb5bd'; // Gray
+        }
+    };
+
     const renderItem = ({ item, index }) => (
-        <View style={styles.card}>
-            <View style={styles.rankContainer}>
-                {index < 3 ? (
-                    <Ionicons name="trophy" size={24} color={index === 0 ? 'gold' : index === 1 ? 'silver' : '#cd7f32'} />
-                ) : (
-                    <Text style={styles.rankText}>#{index + 1}</Text>
-                )}
+        <TouchableOpacity
+            style={styles.card}
+            onPress={() => router.push(`/user-profile/${item._id}`)}
+        >
+            <View style={styles.rankBadgeContainer}>
+                <View style={[styles.tierBadgeWrapper, { backgroundColor: getTierColor(item.tier) }]}>
+                    <Text style={styles.tierRankText}>{item.tier || "Newbie"}</Text>
+                </View>
+                <Text style={styles.rankLabel}>Rank #{index + 1}</Text>
             </View>
-            <Image
-                source={{ uri: item.userDetails?.profileImage || 'https://via.placeholder.com/50' }}
-                style={styles.avatar}
-            />
-            <View style={styles.info}>
-                <Text style={styles.username}>{item.userDetails?.username || "Hiker"}</Text>
-                <Text style={styles.stats}>{Math.round(item.totalDistance / 1000)} km • {item.treksCount} trails</Text>
+
+            <View style={styles.profileSection}>
+                <Image
+                    source={{ uri: item.profileImage || 'https://via.placeholder.com/60' }}
+                    style={styles.avatar}
+                />
+                <View style={styles.info}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={styles.username}>{item.username}</Text>
+                        {item.location && <Text style={styles.locationSmall}> • {item.location}</Text>}
+                    </View>
+                    <Text style={styles.stats}>{item.treksCount} trails • {Math.round(item.totalDistance / 1000)} km</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#CCC" />
             </View>
-        </View>
+        </TouchableOpacity>
     );
 
     return (
@@ -82,31 +103,66 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         marginBottom: 10,
     },
-    rankContainer: {
-        width: 40,
+    rankBadgeContainer: {
+        width: 85,
         alignItems: 'center',
+        paddingRight: 10,
+        borderRightWidth: 1,
+        borderRightColor: '#F0F0F0',
     },
-    rankText: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#777',
+    tierBadgeWrapper: {
+        paddingHorizontal: 6,
+        paddingVertical: 3,
+        borderRadius: 8,
+        marginBottom: 4,
+        alignItems: 'center',
+        width: '100%',
+    },
+    tierRankText: {
+        fontSize: 9,
+        color: '#fff',
+        fontWeight: '900',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    rankLabel: {
+        fontSize: 11,
+        color: '#AAB8C2',
+        fontWeight: '700',
+    },
+    profileSection: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+        paddingLeft: 15,
     },
     avatar: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        marginHorizontal: 15,
-        backgroundColor: '#eee',
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        marginRight: 12,
+        backgroundColor: '#F5F5F5',
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
     },
     info: {
         flex: 1,
     },
     username: {
-        fontSize: 16,
+        fontSize: 17,
         fontWeight: 'bold',
+        color: '#1A1A1B',
+        marginBottom: 2,
     },
     stats: {
-        color: '#666',
-        marginTop: 4,
+        fontSize: 12,
+        color: '#71767B',
+        marginTop: 2,
     },
+    locationSmall: {
+        fontSize: 12,
+        color: '#28a745',
+        marginLeft: 4,
+        fontWeight: '500',
+    }
 });
