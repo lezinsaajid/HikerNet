@@ -301,6 +301,7 @@ export default function ActiveTrailScreen() {
                 });
                 setTrailId(res.data._id);
                 trailIdRef.current = res.data._id;
+                setStats(prev => ({ ...prev, startName: res.data.name }));
             }
 
             await startLocationTracking();
@@ -323,9 +324,35 @@ export default function ActiveTrailScreen() {
                     setIsTracking(false);
                     if (timerRef.current) clearInterval(timerRef.current);
 
-                    // Optional: Update status on backend now or wait for final exit
                     if (trailId) {
-                        await client.put(`/treks/update/${trailId}`, { status: 'completed' });
+                        try {
+                            await client.put(`/treks/update/${trailId}`, { status: 'completed' });
+
+                            // Share Prompt
+                            Alert.alert(
+                                "Share Trail?",
+                                "Would you like to share this achievement to your feed?",
+                                [
+                                    { text: "Later", style: "cancel" },
+                                    {
+                                        text: "Share Now",
+                                        onPress: async () => {
+                                            try {
+                                                await client.post('/posts/create', {
+                                                    caption: `Just finished trailing "${name || 'a new path'}"! 🏔️`,
+                                                    trekId: trailId
+                                                });
+                                                Alert.alert("Shared!", "Your trail is now on the feed.");
+                                            } catch (e) {
+                                                console.error("Share error", e);
+                                            }
+                                        }
+                                    }
+                                ]
+                            );
+                        } catch (e) {
+                            console.error("Finish error", e);
+                        }
                     }
                 }
             }

@@ -7,6 +7,13 @@ import cloudinary from "../lib/cloudinary.js";
 import mongoose from "mongoose";
 
 const router = express.Router();
+const getHikerTier = (count) => {
+    if (count >= 30) return "Trail Master";
+    if (count >= 15) return "Pathfinder";
+    if (count >= 5) return "Explorer";
+    if (count >= 1) return "Wanderer";
+    return "Newbie";
+};
 
 // Get user profile with social stats
 router.get("/profile/:id", async (req, res) => {
@@ -25,10 +32,10 @@ router.get("/profile/:id", async (req, res) => {
             {
                 $group: {
                     _id: "$user",
-                    totalDistance: { $sum: "$stats.distance" },
+                    treksCount: { $sum: 1 },
                 },
             },
-            { $sort: { totalDistance: -1 } },
+            { $sort: { treksCount: -1 } },
         ]);
 
         const rank = leaderboard.findIndex(item => item && item._id && item._id.toString() === req.params.id) + 1;
@@ -36,6 +43,8 @@ router.get("/profile/:id", async (req, res) => {
         res.json({
             ...user.toObject(),
             rank: rank || 0,
+            treksCount: leaderboard.find(item => item && item._id && item._id.toString() === req.params.id)?.treksCount || 0,
+            tier: getHikerTier(leaderboard.find(item => item && item._id && item._id.toString() === req.params.id)?.treksCount || 0),
         });
     } catch (error) {
         console.error("Error fetching user profile:", error);
@@ -168,42 +177,57 @@ router.post("/invitations/clear", protectRoute, async (req, res) => {
     }
 });
 
-// Leaderboard: Top hikers based on distance
 router.get("/leaderboard", async (req, res) => {
     try {
-        const leaderboard = await Trek.aggregate([
-            { $match: { status: "completed" } }, // Only count completed treks
-            {
-                $group: {
-                    _id: "$user",
-                    totalDistance: { $sum: "$stats.distance" },
-                    totalDuration: { $sum: "$stats.duration" },
-                    totalElevation: { $sum: "$stats.elevationGain" },
-                    treksCount: { $sum: 1 },
-                },
-            },
-            { $sort: { totalDistance: -1 } }, // Sort by distance descending
-            { $limit: 20 }, // Top 20
+        const leaderboard = await User.aggregate([
             {
                 $lookup: {
-                    from: "users",
+                    from: "treks",
                     localField: "_id",
-                    foreignField: "_id",
-                    as: "userDetails",
-                },
+                    foreignField: "user",
+                    as: "userTreks"
+                }
             },
-            { $unwind: "$userDetails" },
+            {
+                $addFields: {
+                    completedTreks: {
+                        $filter: {
+                            input: "$userTreks",
+                            as: "trek",
+                            cond: { $eq: ["$$trek.status", "completed"] }
+                        }
+                    }
+                }
+            },
+            {
+                $addFields: {
+                    treksCount: { $size: "$completedTreks" },
+                    totalDistance: { $sum: "$completedTreks.stats.distance" }
+                }
+            },
+            { $sort: { treksCount: -1, totalDistance: -1 } },
+            { $limit: 20 },
             {
                 $project: {
                     _id: 1,
-                    totalDistance: 1,
-                    totalDuration: 1,
-                    totalElevation: 1,
+                    username: 1,
+                    profileImage: 1,
+                    location: 1,
                     treksCount: 1,
-                    username: "$userDetails.username",
-                    profileImage: "$userDetails.profileImage",
-                },
-            },
+                    totalDistance: 1,
+                    tier: {
+                        $switch: {
+                            branches: [
+                                { case: { $gte: ["$treksCount", 30] }, then: "Trail Master" },
+                                { case: { $gte: ["$treksCount", 15] }, then: "Pathfinder" },
+                                { case: { $gte: ["$treksCount", 5] }, then: "Explorer" },
+                                { case: { $gte: ["$treksCount", 1] }, then: "Wanderer" }
+                            ],
+                            default: "Newbie"
+                        }
+                    }
+                }
+            }
         ]);
 
         res.json(leaderboard);

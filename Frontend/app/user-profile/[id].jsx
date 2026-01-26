@@ -9,6 +9,16 @@ import SafeScreen from '../../components/SafeScreen';
 
 const { width } = Dimensions.get('window');
 
+const getTierColor = (tier) => {
+    switch (tier) {
+        case 'Trail Master': return '#ff922b'; // Orange
+        case 'Pathfinder': return '#5c7cfa'; // Blue
+        case 'Explorer': return '#28a745'; // Green
+        case 'Wanderer': return '#94d82d'; // Lime
+        default: return '#adb5bd'; // Gray
+    }
+};
+
 
 export default function UserProfile() {
     const { user, updateUserData } = useAuth();
@@ -71,10 +81,10 @@ export default function UserProfile() {
 
     const fetchUserAdventures = useCallback(async () => {
         try {
-            const res = await client.get(`/adventures/user/${id}`);
+            const res = await client.get(`/treks/user/${id}`);
             setUserAdventures(res.data || []);
         } catch (error) {
-            console.error("Error fetching adventures:", error);
+            console.error("Error fetching treks:", error);
         }
     }, [id]);
 
@@ -205,14 +215,19 @@ export default function UserProfile() {
                 <View style={styles.adventureCard}>
                     <View style={styles.adventureHeader}>
                         <View style={styles.adventureUserGroup}>
-                            <Image source={{ uri: item.user?.profileImage }} style={styles.adventureAvatar} />
+                            <Ionicons name="map-outline" size={24} color="#4A7C44" style={{ marginRight: 10 }} />
                             <View>
-                                <Text style={styles.adventureUsername}>{item.user?.username}</Text>
+                                <Text style={styles.adventureUsername}>{item.name}</Text>
                                 <Text style={styles.adventureDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
                             </View>
                         </View>
                     </View>
-                    <Text style={styles.adventureContent}>{item.content}</Text>
+                    {item.location && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                            <Ionicons name="location" size={14} color="#666" />
+                            <Text style={[styles.adventureContent, { marginLeft: 4 }]}>{item.location}</Text>
+                        </View>
+                    )}
                 </View>
             );
         }
@@ -293,6 +308,9 @@ export default function UserProfile() {
                                 <View style={styles.locationRow}>
                                     <Ionicons name="location-outline" size={14} color="#666" />
                                     <Text style={styles.locationText}>{userData?.location || "Mountain Peak, CO"}</Text>
+                                    <View style={[styles.tierBadge, { backgroundColor: getTierColor(userData?.tier) }]}>
+                                        <Text style={styles.tierBadgeText}>{userData?.tier || "Newbie"}</Text>
+                                    </View>
                                 </View>
                             </View>
                         </View>
@@ -323,7 +341,7 @@ export default function UserProfile() {
 
                         <View style={styles.statsContainer}>
                             <View style={styles.statItem}>
-                                <Text style={styles.statValue}>{posts.length}</Text>
+                                <Text style={styles.statValue}>{userAdventures.length}</Text>
                                 <Text style={styles.statLabel}>Trails</Text>
                             </View>
                             <View style={styles.statsDivider} />
@@ -336,7 +354,7 @@ export default function UserProfile() {
                             <View style={styles.statsDivider} />
                             <View style={styles.statItem}>
                                 <Text style={styles.statValue}>
-                                    {posts.length > 0 && userData?.rank ? `#${userData.rank}` : '#-'}
+                                    {userAdventures.length > 0 && userData?.rank ? `#${userData.rank}` : '#-'}
                                 </Text>
                                 <Text style={styles.statLabel}>Rank</Text>
                             </View>
@@ -470,6 +488,18 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#6F6F6F',
         marginLeft: 4,
+    },
+    tierBadge: {
+        backgroundColor: '#e8f5e9',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 10,
+        marginLeft: 8,
+    },
+    tierBadgeText: {
+        fontSize: 11,
+        color: '#fff',
+        fontWeight: 'bold',
     },
     bioText: {
         fontSize: 14,
