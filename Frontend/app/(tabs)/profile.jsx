@@ -22,7 +22,7 @@ export default function Profile() {
     const [userAdventures, setUserAdventures] = useState([]);
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState('posts'); // 'posts', 'tagged'
+    const [activeTab, setActiveTab] = useState('posts'); // 'posts', 'trails', 'tagged'
     const [uploading, setUploading] = useState(false);
 
     // Account Switching State
@@ -295,6 +295,28 @@ export default function Profile() {
     };
 
     const renderPostGrid = ({ item }) => {
+        if (activeTab === 'trails') {
+            return (
+                <View style={styles.adventureCard}>
+                    <View style={styles.adventureHeader}>
+                        <View style={styles.adventureUserGroup}>
+                            <Image source={{ uri: item.user.profileImage }} style={styles.adventureAvatar} />
+                            <View>
+                                <Text style={styles.adventureUsername}>{item.user.username}</Text>
+                                <Text style={styles.adventureDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                            </View>
+                        </View>
+                        {isOwner && (
+                            <TouchableOpacity onPress={() => handleDeleteAdventure(item._id)}>
+                                <Ionicons name="trash-outline" size={18} color="#999" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                    <Text style={styles.adventureContent}>{item.content}</Text>
+                </View>
+            );
+        }
+
         if (activeTab === 'tagged') {
             return (
                 <View style={styles.emptyContainer}>
@@ -363,9 +385,9 @@ export default function Profile() {
             </View>
 
             <FlatList
-                key={activeTab === 'tagged' ? 'single' : 'grid'}
-                data={activeTab === 'posts' ? posts : []}
-                numColumns={activeTab === 'tagged' ? 1 : 3}
+                key={activeTab === 'trails' ? 'single' : 'grid'}
+                data={activeTab === 'posts' ? posts : (activeTab === 'trails' ? userAdventures : [])}
+                numColumns={activeTab === 'trails' ? 1 : 3}
                 keyExtractor={(item) => item._id}
                 ListHeaderComponent={
                     <View style={styles.headerContainer}>
@@ -463,6 +485,17 @@ export default function Profile() {
                                 {activeTab === 'posts' && <View style={styles.activeIndicator} />}
                             </TouchableOpacity>
                             <TouchableOpacity
+                                style={[styles.tabItem, activeTab === 'trails' && styles.activeTabItem]}
+                                onPress={() => setActiveTab('trails')}
+                            >
+                                <Ionicons
+                                    name={activeTab === 'trails' ? "map" : "map-outline"}
+                                    size={24}
+                                    color={activeTab === 'trails' ? "#2D2D2D" : "#A0A0A0"}
+                                />
+                                {activeTab === 'trails' && <View style={styles.activeIndicator} />}
+                            </TouchableOpacity>
+                            <TouchableOpacity
                                 style={[styles.tabItem, activeTab === 'tagged' && styles.activeTabItem]}
                                 onPress={() => setActiveTab('tagged')}
                             >
@@ -487,7 +520,7 @@ export default function Profile() {
                                 color="#EEE"
                             />
                             <Text style={styles.emptyText}>
-                                {activeTab === 'posts' ? "No posts yet" : "No tagged posts yet"}
+                                {activeTab === 'posts' ? "No posts yet" : activeTab === 'trails' ? "No trails yet" : "No tagged posts yet"}
                             </Text>
                         </View>
                     )
