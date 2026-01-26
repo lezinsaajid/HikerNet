@@ -93,7 +93,7 @@ export default function EditProfile() {
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Edit Profile</Text>
                 <TouchableOpacity onPress={handleSave} disabled={loading}>
-                    {loading ? <ActivityIndicator size="small" color="#0095f6" /> : <Text style={styles.doneText}>Done</Text>}
+                    {loading ? <ActivityIndicator size="small" color="#4A7C44" /> : <Text style={styles.doneText}>Done</Text>}
                 </TouchableOpacity>
             </View>
 
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
     doneText: {
         fontSize: 16,
         fontWeight: '600',
-        color: '#0095f6',
+        color: '#4A7C44',
     },
     content: {
         flex: 1,
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     changePhotoText: {
-        color: '#0095f6',
+        color: '#7A4B3A',
         fontSize: 14,
         fontWeight: '600',
     },

@@ -22,7 +22,7 @@ export default function UserProfile() {
     // User List Modal State
     const [userListVisible, setUserListVisible] = useState(false);
     const [userListType, setUserListType] = useState('followers');
-    const [activeTab, setActiveTab] = useState('snaps'); // 'snaps', 'stories', 'adventures'
+    const [activeTab, setActiveTab] = useState('posts'); // 'posts', 'tagged'
     const [userStories, setUserStories] = useState([]);
     const [userAdventures, setUserAdventures] = useState([]);
 
@@ -200,19 +200,11 @@ export default function UserProfile() {
     };
 
     const renderGridItem = ({ item }) => {
-        if (activeTab === 'adventures') {
+        if (activeTab === 'tagged') {
             return (
-                <View style={styles.adventureCard}>
-                    <View style={styles.adventureHeader}>
-                        <View style={styles.adventureUserGroup}>
-                            <Image source={{ uri: item.user?.profileImage }} style={styles.adventureAvatar} />
-                            <View>
-                                <Text style={styles.adventureUsername}>{item.user?.username}</Text>
-                                <Text style={styles.adventureDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
-                            </View>
-                        </View>
-                    </View>
-                    <Text style={styles.adventureContent}>{item.content}</Text>
+                <View style={styles.emptyContainer}>
+                    <Ionicons name="person-circle-outline" size={64} color="#EEE" />
+                    <Text style={styles.emptyText}>No tagged posts yet</Text>
                 </View>
             );
         }
@@ -266,9 +258,9 @@ export default function UserProfile() {
             </View>
 
             <FlatList
-                key={activeTab === 'adventures' ? 'single' : 'grid'}
-                data={activeTab === 'snaps' ? posts : (activeTab === 'stories' ? userStories : userAdventures)}
-                numColumns={activeTab === 'adventures' ? 1 : 3}
+                key={activeTab === 'tagged' ? 'single' : 'grid'}
+                data={activeTab === 'posts' ? posts : []}
+                numColumns={activeTab === 'tagged' ? 1 : 3}
                 keyExtractor={(item) => item._id}
                 ListHeaderComponent={
                     <View style={styles.headerContainer}>
@@ -335,25 +327,26 @@ export default function UserProfile() {
 
                         <View style={styles.tabsSection}>
                             <TouchableOpacity
-                                style={[styles.tabItem, activeTab === 'snaps' && styles.activeTabItem]}
-                                onPress={() => setActiveTab('snaps')}
+                                style={[styles.tabItem, activeTab === 'posts' && styles.activeTabItem]}
+                                onPress={() => setActiveTab('posts')}
                             >
-                                <Text style={[styles.tabLabel, activeTab === 'snaps' && styles.activeTabLabel]}>Snaps</Text>
-                                {activeTab === 'snaps' && <View style={styles.activeIndicator} />}
+                                <Ionicons
+                                    name={activeTab === 'posts' ? "grid" : "grid-outline"}
+                                    size={24}
+                                    color={activeTab === 'posts' ? "#2D2D2D" : "#A0A0A0"}
+                                />
+                                {activeTab === 'posts' && <View style={styles.activeIndicator} />}
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.tabItem, activeTab === 'stories' && styles.activeTabItem]}
-                                onPress={() => setActiveTab('stories')}
+                                style={[styles.tabItem, activeTab === 'tagged' && styles.activeTabItem]}
+                                onPress={() => setActiveTab('tagged')}
                             >
-                                <Text style={[styles.tabLabel, activeTab === 'stories' && styles.activeTabLabel]}>Stories</Text>
-                                {activeTab === 'stories' && <View style={styles.activeIndicator} />}
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.tabItem, activeTab === 'adventures' && styles.activeTabItem]}
-                                onPress={() => setActiveTab('adventures')}
-                            >
-                                <Text style={[styles.tabLabel, activeTab === 'adventures' && styles.activeTabLabel]}>Adventures</Text>
-                                {activeTab === 'adventures' && <View style={styles.activeIndicator} />}
+                                <Ionicons
+                                    name={activeTab === 'tagged' ? "person" : "person-outline"}
+                                    size={24}
+                                    color={activeTab === 'tagged' ? "#2D2D2D" : "#A0A0A0"}
+                                />
+                                {activeTab === 'tagged' && <View style={styles.activeIndicator} />}
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -369,7 +362,7 @@ export default function UserProfile() {
                                 color="#EEE"
                             />
                             <Text style={styles.emptyText}>
-                                {activeTab === 'stories' ? "No stories yet" : activeTab === 'adventures' ? "No adventures yet" : "No posts yet"}
+                                {activeTab === 'posts' ? "No posts yet" : "No tagged posts yet"}
                             </Text>
                         </View>
                     )
@@ -416,32 +409,34 @@ const styles = StyleSheet.create({
         backgroundColor: '#FBFBFB',
     },
     profileMainInfo: {
-        flexDirection: 'row',
+        flexDirection: 'column',
         alignItems: 'center',
-        marginBottom: 25,
+        marginBottom: 20,
     },
     avatarContainer: {
-        marginRight: 20,
+        marginBottom: 15,
     },
     avatar: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
+        width: 100,
+        height: 100,
+        borderRadius: 50,
         backgroundColor: '#F0F0F0',
+        borderWidth: 3,
+        borderColor: '#FFF',
     },
     titleInfo: {
-        flex: 1,
+        alignItems: 'center',
     },
     displayName: {
-        fontSize: 24,
+        fontSize: 26,
         fontWeight: 'bold',
         color: '#2D2D2D',
         letterSpacing: 0.5,
+        marginBottom: 4,
     },
     locationRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 4,
     },
     locationText: {
         fontSize: 14,
@@ -452,20 +447,22 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#262626',
         lineHeight: 20,
-        marginBottom: 20,
-        paddingHorizontal: 4,
+        marginBottom: 25,
+        paddingHorizontal: 20,
+        textAlign: 'center',
     },
     actionRow: {
         flexDirection: 'row',
-        marginBottom: 25,
+        marginBottom: 30,
+        paddingHorizontal: 15,
     },
     actionBtn: {
         flex: 1,
-        height: 48,
+        height: 44,
         borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
-        marginHorizontal: 6,
+        marginHorizontal: 5,
     },
     chatBtn: {
         backgroundColor: '#403A36',
@@ -493,42 +490,46 @@ const styles = StyleSheet.create({
     },
     statsContainer: {
         flexDirection: 'row',
-        borderWidth: 1,
-        borderColor: '#E8E8E8',
-        borderRadius: 20,
-        paddingVertical: 20,
-        marginBottom: 30,
-        backgroundColor: '#FFF',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        marginBottom: 20,
+        backgroundColor: 'transparent',
     },
     statItem: {
-        flex: 1,
         alignItems: 'center',
+        marginHorizontal: 20,
     },
     statValue: {
-        fontSize: 18,
-        fontWeight: 'bold',
+        fontSize: 20,
+        fontWeight: '800',
         color: '#2D2D2D',
-        marginBottom: 4,
+        marginBottom: 2,
     },
     statLabel: {
-        fontSize: 12,
-        color: '#8A8A8A',
+        fontSize: 11,
+        color: '#999',
+        fontWeight: '600',
         textTransform: 'uppercase',
-        letterSpacing: 1,
+        letterSpacing: 1.2,
     },
     statsDivider: {
         width: 1,
-        height: '60%',
-        backgroundColor: '#E8E8E8',
+        height: '40%',
+        backgroundColor: '#DDD',
         alignSelf: 'center',
     },
     tabsSection: {
         flexDirection: 'row',
         marginBottom: 10,
+        justifyContent: 'space-around',
+        borderTopWidth: 1,
+        borderTopColor: '#F0F0F0',
+        paddingTop: 10,
     },
     tabItem: {
-        marginRight: 30,
-        paddingBottom: 8,
+        flex: 1,
+        alignItems: 'center',
+        paddingBottom: 12,
         position: 'relative',
     },
     tabLabel: {
