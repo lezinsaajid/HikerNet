@@ -121,6 +121,12 @@ export default function UserListModal({ visible, onClose, userId, type, mode = '
                 />
                 <View style={styles.userInfo}>
                     <Text style={styles.username}>{item.username}</Text>
+                    {item.location ? (
+                        <View style={styles.locationRow}>
+                            <Ionicons name="location-outline" size={12} color="#888" />
+                            <Text style={styles.locationText}>{item.location}</Text>
+                        </View>
+                    ) : null}
                     {item.bio ? <Text style={styles.bio} numberOfLines={1}>{item.bio}</Text> : null}
                 </View>
                 {!isSelf && (
@@ -161,7 +167,7 @@ export default function UserListModal({ visible, onClose, userId, type, mode = '
 
     return (
         <Modal visible={visible} animationType="slide" transparent={false}>
-            <SafeScreen>
+            <SafeScreen edges={['top', 'left', 'right', 'bottom']}>
                 <View style={styles.header}>
                     <TouchableOpacity onPress={onClose} style={styles.backButton}>
                         <Ionicons name="chevron-back" size={28} color="#000" />
@@ -264,6 +270,16 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#666',
         marginTop: 2,
+    },
+    locationRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 2,
+    },
+    locationText: {
+        fontSize: 12,
+        color: '#888',
+        marginLeft: 3,
     },
     disabledButton: {
         backgroundColor: '#e9ecef',

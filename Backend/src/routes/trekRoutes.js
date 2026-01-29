@@ -2,6 +2,7 @@ import express from "express";
 import Trek from "../models/Trek.js";
 import protectRoute from "../middleware/auth.middleware.js";
 import mongoose from "mongoose";
+import { discoverTreks, getTrekDetails } from "../lib/trekDiscoveryService.js";
 
 const router = express.Router();
 
@@ -28,10 +29,56 @@ router.post("/start", protectRoute, async (req, res) => {
     }
 });
 
+// Discover trails (External OSM)
+router.get("/discover", async (req, res) => {
+    console.log("GET /discover:", req.query);
+    try {
+        const { q, lat, lon, radius } = req.query;
+        let query;
+
+        if (q || (lat && lon)) {
+            query = {
+                q,
+                lat: lat ? parseFloat(lat) : null,
+                lon: lon ? parseFloat(lon) : null,
+                radius: radius ? parseInt(radius) : 50000
+            };
+        } else {
+            return res.status(400).json({ message: "Query or Lat/Lon required" });
+        }
+
+        const trails = await discoverTreks(query);
+        res.json(trails);
+    } catch (error) {
+        console.error("Error discovering treks:", error);
+        res.status(500).json({ message: "Error discovering treks" });
+    }
+});
+
+// Get OSM trail details
+router.get("/discover/:osmId", async (req, res) => {
+    console.log("GET /discover/:osmId:", req.params.osmId, req.query);
+    try {
+        const { osmId } = req.params;
+        const { type } = req.query; // 'relation' (default) or 'way'
+
+        const details = await getTrekDetails(osmId, type || 'relation');
+        if (!details) return res.status(404).json({ message: "Trail not found" });
+
+        res.json(details);
+    } catch (error) {
+        console.error("Error fetching trail details:", error);
+        res.status(500).json({ message: "Error fetching trail details" });
+    }
+});
+
 // Get public feed (all public treks)
 router.get("/feed/public", async (req, res) => {
     try {
-        const treks = await Trek.find({ privacy: "public" })
+        const treks = await Trek.find({
+            privacy: "public",
+            "stats.distance": { $gt: 10 } // Only legit trails (at least 10m walk)
+        })
             .sort({ createdAt: -1 })
             .populate("user", "username profileImage")
             .limit(20);
@@ -45,7 +92,10 @@ router.get("/feed/public", async (req, res) => {
 // Get user's treks
 router.get("/user/:userId", async (req, res) => {
     try {
-        const treks = await Trek.find({ user: req.params.userId }).sort({ createdAt: -1 });
+        const treks = await Trek.find({
+            user: req.params.userId,
+            "stats.distance": { $gt: 10 } // Filter out aborted/empty treks
+        }).sort({ createdAt: -1 });
         res.json(treks);
     } catch (error) {
         console.error("Error fetching user treks:", error);

@@ -68,21 +68,12 @@ export default function RootLayout() {
 
           {splashVisible && (
             <Animated.View style={[styles.splashContainer, { opacity: fadeAnim }]}>
-              {/* Dramatic Forest Background */}
-              <Image
-                source={require('../assets/images/forest_splash_bg.png')}
-                style={StyleSheet.absoluteFill}
-                resizeMode="cover"
-              />
-              <View style={styles.overlay} />
-
-              {/* Fun Lottie Animation */}
+              {/* Minimalist Logo Splash */}
               <Animated.View style={{ transform: [{ scale: scaleAnim }], width: '100%', alignItems: 'center' }}>
-                <LottieView
-                  source={require('../assets/animations/hiking.json')}
-                  autoPlay
-                  loop
-                  style={styles.lottie}
+                <Image
+                  source={require('../assets/images/logo_hikernet.png')}
+                  style={styles.logoImage}
+                  resizeMode="contain"
                 />
               </Animated.View>
             </Animated.View>
@@ -99,14 +90,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#171010',
+    backgroundColor: '#FFFFFF', // Clean white background for the logo
   },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(23, 16, 16, 0.5)',
-  },
-  lottie: {
-    width: 300,
-    height: 300,
+  logoImage: {
+    width: 320, // Slightly larger for impact
+    height: 320,
   }
 });
