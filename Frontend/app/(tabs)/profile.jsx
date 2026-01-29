@@ -7,6 +7,7 @@ import client from '../../api/client';
 import * as ImagePicker from 'expo-image-picker';
 import UserListModal from '../../components/UserListModal';
 import SafeScreen from '../../components/SafeScreen';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
@@ -406,7 +407,7 @@ export default function Profile() {
                 keyExtractor={(item) => item._id}
                 ListHeaderComponent={
                     <View style={styles.headerContainer}>
-                        <View style={styles.profileMainInfo}>
+                        <View style={styles.profileRow}>
                             <TouchableOpacity onPress={pickProfileImage} style={styles.avatarContainer}>
                                 {uploading ? (
                                     <View style={[styles.avatar, styles.loadingAvatar]}>
@@ -418,24 +419,30 @@ export default function Profile() {
                                         style={styles.avatar}
                                     />
                                 )}
-                            </TouchableOpacity>
-                            <View style={styles.titleInfo}>
-                                <Text style={styles.displayName}>{user?.username}</Text>
-                                <View style={styles.locationRow}>
-                                    <Ionicons name="location-outline" size={14} color="#666" />
-                                    <Text style={styles.locationText}>{userData?.location || "Mountain Peak, CO"}</Text>
-                                    <View style={[styles.tierBadge, { backgroundColor: getTierColor(userData?.tier) }]}>
-                                        <Text style={styles.tierBadgeText}>{userData?.tier || "Newbie"}</Text>
-                                    </View>
+                                <View style={styles.editBadge}>
+                                    <Ionicons name="camera" size={12} color="#FFF" />
                                 </View>
+                            </TouchableOpacity>
+
+                            <View style={styles.infoColumn}>
+                                <Text style={styles.displayName}>{userData?.username || 'Hiker'}</Text>
+
+                                {userData?.location && (
+                                    <View style={styles.locationRow}>
+                                        <Ionicons name="location-sharp" size={14} color="#6F6F6F" />
+                                        <Text style={styles.locationText}>{userData.location}</Text>
+                                    </View>
+                                )}
+
+                                <View style={[styles.tierBadge, { backgroundColor: getTierColor(userData?.tier || 'Wanderer') }]}>
+                                    <Text style={styles.tierBadgeText}>{userData?.tier || 'Wanderer'}</Text>
+                                </View>
+
+                                {userData?.bio && (
+                                    <Text style={styles.bioText} numberOfLines={3}>{userData.bio}</Text>
+                                )}
                             </View>
                         </View>
-
-                        {userData?.bio ? (
-                            <Text style={styles.bioText} numberOfLines={3}>
-                                {userData.bio}
-                            </Text>
-                        ) : null}
 
                         <View style={styles.actionRow}>
                             {isOwner ? (
@@ -557,115 +564,117 @@ export default function Profile() {
                     activeOpacity={1}
                     onPress={() => setIsAccountModalVisible(false)}
                 >
-                    <SafeScreen style={styles.accountModalContent}>
-                        <View style={styles.accountModalHeader}>
-                            <Text style={styles.accountModalTitle}>Switch Accounts</Text>
-                        </View>
+                    <SafeAreaProvider>
+                        <SafeScreen style={styles.accountModalContent}>
+                            <View style={styles.accountModalHeader}>
+                                <Text style={styles.accountModalTitle}>Switch Accounts</Text>
+                            </View>
 
-                        <ScrollView style={{ maxHeight: 300 }}>
-                            {accounts.map((acc, index) => {
-                                const accId = String(acc.user._id);
-                                const currentId = String(user?._id);
-                                return (
-                                    <TouchableOpacity
-                                        key={accId || index}
-                                        style={styles.accountItem}
-                                        onPress={() => {
-                                            console.log(`[Profile] Account item pressed: "${accId}" (Current: "${currentId}")`);
-                                            setIsAccountModalVisible(false);
-                                            if (accId !== currentId) {
-                                                console.log(`[Profile] Calling switchAccount("${accId}")`);
-                                                switchAccount(accId);
-                                            } else {
-                                                console.log(`[Profile] Selected same account, ignoring.`);
-                                            }
-                                        }}
-                                    >
-                                        <View style={styles.accountLeft}>
-                                            <Image
-                                                source={{ uri: acc.user.profileImage || 'https://via.placeholder.com/150' }}
-                                                style={styles.accountAvatar}
-                                            />
-                                            <Text style={[
-                                                styles.accountUsername,
-                                                accId === currentId && styles.activeAccountText
-                                            ]}>
-                                                {acc.user.username}
-                                            </Text>
-                                        </View>
-                                        {accId === currentId && (
-                                            <Ionicons name="checkmark-circle" size={24} color="#4A7C44" />
-                                        )}
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </ScrollView>
-
-                        <View style={styles.accountActions}>
-                            <TouchableOpacity
-                                style={styles.addAccountBtn}
-                                onPress={() => {
-                                    setIsAccountModalVisible(false);
-                                    prepareAddAccount();
-                                }}
-                            >
-                                <Ionicons name="add" size={24} color="#000" />
-                                <Text style={styles.addAccountText}>Add Account</Text>
-                            </TouchableOpacity>
-
-                            <View style={styles.accountDivider} />
-
-                            <TouchableOpacity
-                                style={styles.logoutBtn}
-                                onPress={() => {
-                                    Alert.alert(
-                                        "Logout",
-                                        `Log out of ${user?.username}?`,
-                                        [
-                                            { text: "Cancel", style: "cancel" },
-                                            {
-                                                text: "Log Out",
-                                                style: "destructive",
-                                                onPress: () => {
-                                                    setIsAccountModalVisible(false);
-                                                    logout();
+                            <ScrollView style={{ maxHeight: 300 }}>
+                                {accounts.map((acc, index) => {
+                                    const accId = String(acc.user._id);
+                                    const currentId = String(user?._id);
+                                    return (
+                                        <TouchableOpacity
+                                            key={accId || index}
+                                            style={styles.accountItem}
+                                            onPress={() => {
+                                                console.log(`[Profile] Account item pressed: "${accId}" (Current: "${currentId}")`);
+                                                setIsAccountModalVisible(false);
+                                                if (accId !== currentId) {
+                                                    console.log(`[Profile] Calling switchAccount("${accId}")`);
+                                                    switchAccount(accId);
+                                                } else {
+                                                    console.log(`[Profile] Selected same account, ignoring.`);
                                                 }
-                                            }
-                                        ]
+                                            }}
+                                        >
+                                            <View style={styles.accountLeft}>
+                                                <Image
+                                                    source={{ uri: acc.user.profileImage || 'https://via.placeholder.com/150' }}
+                                                    style={styles.accountAvatar}
+                                                />
+                                                <Text style={[
+                                                    styles.accountUsername,
+                                                    accId === currentId && styles.activeAccountText
+                                                ]}>
+                                                    {acc.user.username}
+                                                </Text>
+                                            </View>
+                                            {accId === currentId && (
+                                                <Ionicons name="checkmark-circle" size={24} color="#4A7C44" />
+                                            )}
+                                        </TouchableOpacity>
                                     );
-                                }}
-                            >
-                                <Ionicons name="log-out-outline" size={20} color="#FF3B30" style={{ marginRight: 10 }} />
-                                <Text style={styles.logoutText}>Log Out {user?.username}</Text>
-                            </TouchableOpacity>
+                                })}
+                            </ScrollView>
 
-                            {accounts.length > 1 && (
+                            <View style={styles.accountActions}>
                                 <TouchableOpacity
-                                    style={[styles.logoutBtn, { marginTop: 10 }]}
+                                    style={styles.addAccountBtn}
+                                    onPress={() => {
+                                        setIsAccountModalVisible(false);
+                                        prepareAddAccount();
+                                    }}
+                                >
+                                    <Ionicons name="add" size={24} color="#000" />
+                                    <Text style={styles.addAccountText}>Add Account</Text>
+                                </TouchableOpacity>
+
+                                <View style={styles.accountDivider} />
+
+                                <TouchableOpacity
+                                    style={styles.logoutBtn}
                                     onPress={() => {
                                         Alert.alert(
-                                            "Logout from All",
-                                            "Are you sure you want to log out of all accounts?",
+                                            "Logout",
+                                            `Log out of ${user?.username}?`,
                                             [
                                                 { text: "Cancel", style: "cancel" },
                                                 {
-                                                    text: "Log Out All",
+                                                    text: "Log Out",
                                                     style: "destructive",
                                                     onPress: () => {
                                                         setIsAccountModalVisible(false);
-                                                        logoutAll();
+                                                        logout();
                                                     }
                                                 }
                                             ]
                                         );
                                     }}
                                 >
-                                    <Ionicons name="power-outline" size={20} color="#FF3B30" style={{ marginRight: 10 }} />
-                                    <Text style={styles.logoutText}>Log Out of All Accounts</Text>
+                                    <Ionicons name="log-out-outline" size={20} color="#FF3B30" style={{ marginRight: 10 }} />
+                                    <Text style={styles.logoutText}>Log Out {user?.username}</Text>
                                 </TouchableOpacity>
-                            )}
-                        </View>
-                    </SafeScreen>
+
+                                {accounts.length > 1 && (
+                                    <TouchableOpacity
+                                        style={[styles.logoutBtn, { marginTop: 10 }]}
+                                        onPress={() => {
+                                            Alert.alert(
+                                                "Logout from All",
+                                                "Are you sure you want to log out of all accounts?",
+                                                [
+                                                    { text: "Cancel", style: "cancel" },
+                                                    {
+                                                        text: "Log Out All",
+                                                        style: "destructive",
+                                                        onPress: () => {
+                                                            setIsAccountModalVisible(false);
+                                                            logoutAll();
+                                                        }
+                                                    }
+                                                ]
+                                            );
+                                        }}
+                                    >
+                                        <Ionicons name="power-outline" size={20} color="#FF3B30" style={{ marginRight: 10 }} />
+                                        <Text style={styles.logoutText}>Log Out of All Accounts</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        </SafeScreen>
+                    </SafeAreaProvider>
                 </TouchableOpacity>
             </Modal>
 
@@ -676,50 +685,52 @@ export default function Profile() {
                 animationType="slide"
                 transparent={false}
             >
-                <SafeScreen style={styles.modalContainer}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === "ios" ? "padding" : "height"}
-                        style={{ flex: 1 }}
-                    >
-                        <View style={styles.modalHeader}>
-                            <TouchableOpacity onPress={() => setIsPostModalVisible(false)}>
-                                <Ionicons name="close" size={30} color="#000" />
-                            </TouchableOpacity>
-                            <Text style={styles.modalTitle}>New Post</Text>
-                            <TouchableOpacity
-                                onPress={handleCreatePost}
-                                disabled={creatingPost}
-                            >
-                                {creatingPost ? (
-                                    <ActivityIndicator color="#4A7C44" />
-                                ) : (
-                                    <Text style={styles.shareText}>Share</Text>
-                                )}
-                            </TouchableOpacity>
-                        </View>
+                <SafeAreaProvider>
+                    <SafeScreen style={styles.modalContainer}>
+                        <KeyboardAvoidingView
+                            behavior={Platform.OS === "ios" ? "padding" : "height"}
+                            style={{ flex: 1 }}
+                        >
+                            <View style={styles.modalHeader}>
+                                <TouchableOpacity onPress={() => setIsPostModalVisible(false)}>
+                                    <Ionicons name="close" size={30} color="#000" />
+                                </TouchableOpacity>
+                                <Text style={styles.modalTitle}>New Post</Text>
+                                <TouchableOpacity
+                                    onPress={handleCreatePost}
+                                    disabled={creatingPost}
+                                >
+                                    {creatingPost ? (
+                                        <ActivityIndicator color="#4A7C44" />
+                                    ) : (
+                                        <Text style={styles.shareText}>Share</Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
 
-                        <ScrollView style={styles.modalBody}>
-                            <TouchableOpacity onPress={pickPostImage} style={styles.imagePlaceholder}>
-                                {newPostImage ? (
-                                    <Image source={{ uri: newPostImage.uri }} style={styles.selectedImage} />
-                                ) : (
-                                    <View style={styles.placeholderContent}>
-                                        <Ionicons name="image-outline" size={60} color="#CCC" />
-                                        <Text style={styles.placeholderLabel}>Add Photos</Text>
-                                    </View>
-                                )}
-                            </TouchableOpacity>
+                            <ScrollView style={styles.modalBody}>
+                                <TouchableOpacity onPress={pickPostImage} style={styles.imagePlaceholder}>
+                                    {newPostImage ? (
+                                        <Image source={{ uri: newPostImage.uri }} style={styles.selectedImage} />
+                                    ) : (
+                                        <View style={styles.placeholderContent}>
+                                            <Ionicons name="image-outline" size={60} color="#CCC" />
+                                            <Text style={styles.placeholderLabel}>Add Photos</Text>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
 
-                            <TextInput
-                                style={styles.captionInput}
-                                placeholder="Write a caption..."
-                                multiline
-                                value={newPostCaption}
-                                onChangeText={setNewPostCaption}
-                            />
-                        </ScrollView>
-                    </KeyboardAvoidingView>
-                </SafeScreen>
+                                <TextInput
+                                    style={styles.captionInput}
+                                    placeholder="Write a caption..."
+                                    multiline
+                                    value={newPostCaption}
+                                    onChangeText={setNewPostCaption}
+                                />
+                            </ScrollView>
+                        </KeyboardAvoidingView>
+                    </SafeScreen>
+                </SafeAreaProvider>
             </Modal>
 
             {/* User List Modal */}
@@ -742,47 +753,49 @@ export default function Profile() {
                     activeOpacity={1}
                     onPress={() => setIsAdventureModalVisible(false)}
                 >
-                    <SafeScreen style={styles.adventureModalContent} edges={['top']}>
-                        <View style={styles.adventureModalHeader}>
-                            <Text style={styles.adventureModalTitle}>New Adventure Remark</Text>
-                            <TouchableOpacity onPress={() => setIsAdventureModalVisible(false)}>
-                                <Ionicons name="close" size={24} color="#000" />
-                            </TouchableOpacity>
-                        </View>
+                    <SafeAreaProvider>
+                        <SafeScreen style={styles.adventureModalContent} edges={['top']}>
+                            <View style={styles.adventureModalHeader}>
+                                <Text style={styles.adventureModalTitle}>New Adventure Remark</Text>
+                                <TouchableOpacity onPress={() => setIsAdventureModalVisible(false)}>
+                                    <Ionicons name="close" size={24} color="#000" />
+                                </TouchableOpacity>
+                            </View>
 
-                        <TextInput
-                            style={styles.adventureInput}
-                            placeholder="What's your remark today?"
-                            multiline
-                            maxLength={280}
-                            value={newAdventureContent}
-                            onChangeText={setNewAdventureContent}
-                            autoFocus
-                        />
+                            <TextInput
+                                style={styles.adventureInput}
+                                placeholder="What's your remark today?"
+                                multiline
+                                maxLength={280}
+                                value={newAdventureContent}
+                                onChangeText={setNewAdventureContent}
+                                autoFocus
+                            />
 
-                        <View style={styles.adventureFooter}>
-                            <Text style={[
-                                styles.charCount,
-                                newAdventureContent.length > 250 && { color: '#FF3B30' }
-                            ]}>
-                                {newAdventureContent.length}/280
-                            </Text>
-                            <TouchableOpacity
-                                style={[
-                                    styles.postAdventureBtn,
-                                    !newAdventureContent.trim() && { opacity: 0.5 }
-                                ]}
-                                onPress={handleCreateAdventure}
-                                disabled={creatingAdventure || !newAdventureContent.trim()}
-                            >
-                                {creatingAdventure ? (
-                                    <ActivityIndicator color="#FFF" size="small" />
-                                ) : (
-                                    <Text style={styles.postAdventureBtnText}>Post</Text>
-                                )}
-                            </TouchableOpacity>
-                        </View>
-                    </SafeScreen>
+                            <View style={styles.adventureFooter}>
+                                <Text style={[
+                                    styles.charCount,
+                                    newAdventureContent.length > 250 && { color: '#FF3B30' }
+                                ]}>
+                                    {newAdventureContent.length}/280
+                                </Text>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.postAdventureBtn,
+                                        !newAdventureContent.trim() && { opacity: 0.5 }
+                                    ]}
+                                    onPress={handleCreateAdventure}
+                                    disabled={creatingAdventure || !newAdventureContent.trim()}
+                                >
+                                    {creatingAdventure ? (
+                                        <ActivityIndicator color="#FFF" size="small" />
+                                    ) : (
+                                        <Text style={styles.postAdventureBtnText}>Post</Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        </SafeScreen>
+                    </SafeAreaProvider>
                 </TouchableOpacity>
             </Modal>
 
@@ -824,21 +837,21 @@ const styles = StyleSheet.create({
     },
     headerContainer: {
         paddingHorizontal: 20,
-        paddingTop: 15,
+        paddingTop: 20,
         backgroundColor: '#FBFBFB',
     },
-    profileMainInfo: {
-        flexDirection: 'column',
-        alignItems: 'center',
+    profileRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start', // Align to top
         marginBottom: 20,
     },
     avatarContainer: {
-        marginBottom: 15,
+        marginRight: 20,
     },
     avatar: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
+        width: 90,
+        height: 90,
+        borderRadius: 45,
         backgroundColor: '#F0F0F0',
         borderWidth: 3,
         borderColor: '#FFF',
@@ -847,11 +860,22 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    titleInfo: {
-        alignItems: 'center',
+    editBadge: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        backgroundColor: '#4A7C44',
+        borderRadius: 12,
+        padding: 5,
+        borderWidth: 2,
+        borderColor: '#fff',
+    },
+    infoColumn: {
+        flex: 1,
+        justifyContent: 'center',
     },
     displayName: {
-        fontSize: 26,
+        fontSize: 22,
         fontWeight: 'bold',
         color: '#2D2D2D',
         letterSpacing: 0.5,
@@ -860,36 +884,36 @@ const styles = StyleSheet.create({
     locationRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        marginBottom: 6,
     },
     locationText: {
-        fontSize: 14,
+        fontSize: 13,
         color: '#6F6F6F',
         marginLeft: 4,
     },
     tierBadge: {
-        backgroundColor: '#e8f5e9',
+        alignSelf: 'flex-start', // Don't stretch
         paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
-        marginLeft: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        marginBottom: 8,
     },
     tierBadgeText: {
-        fontSize: 11,
+        fontSize: 10,
         color: '#fff',
         fontWeight: 'bold',
+        textTransform: 'uppercase',
     },
     bioText: {
-        fontSize: 14,
+        fontSize: 13,
         color: '#262626',
-        lineHeight: 20,
-        marginBottom: 25,
-        paddingHorizontal: 20,
-        textAlign: 'center',
+        lineHeight: 18,
+        textAlign: 'left', // Ensure left alignment
     },
     actionRow: {
         flexDirection: 'row',
-        marginBottom: 30,
-        paddingHorizontal: 15,
+        marginBottom: 20,
+        // paddingHorizontal: 15, // Removed padding
     },
     actionBtn: {
         flex: 1,

@@ -1,30 +1,31 @@
+
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import SafeScreen from '../../components/SafeScreen';
 import client from '../../api/client';
 
 export default function CreateStory() {
+    const [hasPermission, setHasPermission] = useState(null);
     const [image, setImage] = useState(null);
-    const [caption, setCaption] = useState('');
-    const [uploading, setUploading] = useState(false);
+    const [loading, setLoading] = useState(false);
     const router = useRouter();
 
+    useEffect(() => {
+        (async () => {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            setHasPermission(status === 'granted');
+        })();
+    }, []);
+
     const pickImage = async () => {
-        // Request permissions
-        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-        if (permissionResult.granted === false) {
-            Alert.alert("Permission Required", "You need to allow access to your photos to create a story.");
-            return;
-        }
-
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images, // Video support could be added
+        let result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
             aspect: [9, 16],
-            quality: 0.8,
+            quality: 0.7,
             base64: true,
         });
 
@@ -33,63 +34,60 @@ export default function CreateStory() {
         }
     };
 
-    const handlePost = async () => {
+    const uploadStory = async () => {
         if (!image) return;
-
-        setUploading(true);
+        setLoading(true);
         try {
-            // Upload to Cloudinary (Frontend Direct or Backend Proxy?)
-            // For this quick impl, we'll assume we send to backend, but usually we need Multipart form data.
-            // Simplified: We will mock upload or send base64 if small, but let's try multipart.
-
-            const payload = {
+            await client.post('/stories/create', {
                 media: `data:image/jpeg;base64,${image.base64}`,
                 type: 'image'
-            };
-
-            await client.post('/stories/create', payload);
-
-            Alert.alert("Success", "Story posted!");
+            });
+            Alert.alert("Success", "Story added!");
             router.back();
-
         } catch (error) {
-            console.error("Error posting story", error);
-            Alert.alert("Error", "Could not post story");
+            console.error("Error uploading story:", error);
+            Alert.alert("Error", "Failed to upload story");
         } finally {
-            setUploading(false);
+            setLoading(false);
         }
     };
 
-    useEffect(() => {
-        pickImage(); // Auto open picker on load
-    }, []);
+    if (hasPermission === null) {
+        return <View />;
+    }
+    if (hasPermission === false) {
+        return <Text>No access to camera/gallery</Text>;
+    }
 
     return (
-        <View style={styles.container}>
-            {image ? (
-                <View style={styles.previewContainer}>
+        <SafeScreen style={styles.container}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => router.back()}>
+                    <Ionicons name="close" size={30} color="white" />
+                </TouchableOpacity>
+                <Text style={styles.title}>Add to Story</Text>
+                <View style={{ width: 30 }} />
+            </View>
+
+            <View style={styles.content}>
+                {image ? (
                     <Image source={{ uri: image.uri }} style={styles.preview} />
-                    <TouchableOpacity style={styles.closeBtn} onPress={() => setImage(null)}>
-                        <Ionicons name="close-circle" size={32} color="white" />
+                ) : (
+                    <TouchableOpacity style={styles.pickButton} onPress={pickImage}>
+                        <Ionicons name="image" size={60} color="#fff" />
+                        <Text style={styles.pickText}>Select from Gallery</Text>
                     </TouchableOpacity>
-                </View>
-            ) : (
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.text}>Pick an image to share</Text>
-                    <TouchableOpacity style={styles.pickBtn} onPress={pickImage}>
-                        <Text style={styles.btnText}>Open Gallery</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
+                )}
+            </View>
 
             {image && (
                 <View style={styles.footer}>
-                    <TouchableOpacity style={styles.postBtn} onPress={handlePost} disabled={uploading}>
-                        {uploading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Share to Story</Text>}
+                    <TouchableOpacity style={styles.uploadButton} onPress={uploadStory} disabled={loading}>
+                        {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.uploadText}>Share to Story</Text>}
                     </TouchableOpacity>
                 </View>
             )}
-        </View>
+        </SafeScreen>
     );
 }
 
@@ -98,48 +96,47 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: 'black',
     },
-    previewContainer: {
-        flex: 1,
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        padding: 20,
+        alignItems: 'center',
     },
-    preview: {
-        width: '100%',
-        height: '100%',
-        resizeMode: 'contain',
+    title: {
+        color: 'white',
+        fontSize: 18,
+        fontWeight: 'bold',
     },
-    closeBtn: {
-        position: 'absolute',
-        top: 40,
-        left: 20,
-    },
-    emptyContainer: {
+    content: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    text: {
-        color: 'white',
-        marginBottom: 20,
-    },
-    pickBtn: {
-        backgroundColor: '#333',
-        padding: 15,
-        borderRadius: 8,
-    },
-    footer: {
-        position: 'absolute',
-        bottom: 30,
+    preview: {
         width: '100%',
+        height: '80%',
+        borderRadius: 20,
+    },
+    pickButton: {
         alignItems: 'center',
     },
-    postBtn: {
-        backgroundColor: '#28a745',
-        paddingVertical: 15,
-        paddingHorizontal: 40,
-        borderRadius: 30,
-    },
-    btnText: {
+    pickText: {
         color: 'white',
-        fontWeight: 'bold',
+        marginTop: 10,
         fontSize: 16,
     },
+    footer: {
+        padding: 20,
+        alignItems: 'center',
+    },
+    uploadButton: {
+        backgroundColor: 'white',
+        paddingHorizontal: 40,
+        paddingVertical: 15,
+        borderRadius: 30,
+    },
+    uploadText: {
+        fontWeight: 'bold',
+        fontSize: 16,
+    }
 });

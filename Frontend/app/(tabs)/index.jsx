@@ -6,13 +6,16 @@ import PostItem from '../../components/PostItem';
 import { useAuth } from '../../context/AuthContext';
 
 // V2 Components
-import HeroHeader from '../../components/HeroHeader';
+import StoryBar from '../../components/StoryBar';
 import LiveTrekCard from '../../components/LiveTrekCard';
 import NewsSection from '../../components/NewsSection';
 import UpcomingTreks from '../../components/UpcomingTreks';
 import TopTrekkers from '../../components/TopTrekkers';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 export default function HomeFeed() {
+    const insets = useSafeAreaInsets();
     const { user } = useAuth();
     const [posts, setPosts] = useState([]);
     const [processedData, setProcessedData] = useState([]);
@@ -47,14 +50,16 @@ export default function HomeFeed() {
         const friendsPosts = [];
         const otherPosts = [];
 
-        posts.forEach(post => {
-            const isFriend = followingArr.includes(post.user._id) || post.user._id === user._id;
-            if (isFriend) {
-                friendsPosts.push(post);
-            } else {
-                otherPosts.push(post);
-            }
-        });
+        if (Array.isArray(posts)) {
+            posts.forEach(post => {
+                const isFriend = followingArr.includes(post.user._id) || post.user._id === user._id;
+                if (isFriend) {
+                    friendsPosts.push(post);
+                } else {
+                    otherPosts.push(post);
+                }
+            });
+        }
 
         const newData = [];
         if (friendsPosts.length > 0) {
@@ -78,9 +83,26 @@ export default function HomeFeed() {
         fetchFeed();
     };
 
+    const TopHeader = () => (
+        <View style={[styles.topHeader, { paddingTop: insets.top + 10 }]}>
+            <Text style={styles.logoText}>HikerNet</Text>
+            <View style={styles.headerIcons}>
+                <View style={styles.iconButton}>
+                    {/* Placeholder for notifications/messages */}
+                </View>
+            </View>
+        </View>
+    );
+
     const renderHeader = () => (
         <View style={styles.headerContainer}>
-            <HeroHeader />
+            <StoryBar />
+
+            {/* 
+               User requested cleanup: "add the header under it only story"
+               Commenting out widgets that made it look "not nice" or cluttered for now.
+               If user wants them back in a different spot, we can uncomment.
+            */}
             <LiveTrekCard />
             <NewsSection />
             <UpcomingTreks />
@@ -113,6 +135,7 @@ export default function HomeFeed() {
 
     return (
         <View style={styles.container}>
+            <TopHeader />
             {loading ? (
                 <ActivityIndicator size="large" color="#28a745" style={{ marginTop: 50 }} />
             ) : (
@@ -123,7 +146,7 @@ export default function HomeFeed() {
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
                     ListHeaderComponent={renderHeader}
                     ListEmptyComponent={<Text style={styles.emptyText}>No posts yet.</Text>}
-                    contentContainerStyle={{ paddingBottom: 20 }}
+                    contentContainerStyle={{ paddingBottom: 20 + insets.bottom }}
                     showsVerticalScrollIndicator={false}
                 />
             )}
@@ -135,6 +158,29 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#fff',
+    },
+    topHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingBottom: 15,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
+        zIndex: 10,
+    },
+    logoText: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#28a745',
+        fontFamily: 'System', // Use default or custom font
+    },
+    headerIcons: {
+        flexDirection: 'row',
+    },
+    iconButton: {
+        marginLeft: 15,
     },
     headerContainer: {
         backgroundColor: '#fff',

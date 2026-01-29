@@ -1,17 +1,22 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Dimensions, Image, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { Link } from 'expo-router';
-import { useAuth } from '../../context/AuthContext';
-import { Ionicons } from '@expo/vector-icons';
-
-const { width } = Dimensions.get('window');
+// ... imports
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function Login() {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
-    const [loggingIn, setLoggingIn] = useState(false);
-    const { login, user, cancelAddAccount } = useAuth();
+    const insets = useSafeAreaInsets();
+    // ...
+
+    // In JSX:
+    {/* Show back/close button if adding an account */ }
+    {
+        user && (
+            <TouchableOpacity
+                onPress={cancelAddAccount}
+                style={[styles.backButton, { top: insets.top + 10 }]}
+            >
+                <Ionicons name="close" size={24} color="#FFF" />
+            </TouchableOpacity>
+        )
+    }
 
     const handleLogin = async () => {
         if (!email || !password) {
@@ -45,7 +50,7 @@ export default function Login() {
                         />
                         {/* Show back/close button if adding an account */}
                         {user && (
-                            <TouchableOpacity onPress={cancelAddAccount} style={styles.backButton}>
+                            <TouchableOpacity onPress={cancelAddAccount} style={[styles.backButton, { top: insets.top + 10 }]}>
                                 <Ionicons name="close" size={24} color="#FFF" />
                             </TouchableOpacity>
                         )}

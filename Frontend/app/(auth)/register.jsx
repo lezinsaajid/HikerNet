@@ -3,8 +3,10 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityInd
 import { Link, useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function Register() {
+    const insets = useSafeAreaInsets();
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -45,7 +47,10 @@ export default function Register() {
                     />
 
                     {/* Back Button */}
-                    <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                    <TouchableOpacity
+                        style={[styles.backButton, { marginTop: insets.top + 10 }]}
+                        onPress={() => router.back()}
+                    >
                         <Ionicons name="chevron-back" size={24} color="#2D5A27" />
                     </TouchableOpacity>
 

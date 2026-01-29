@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import client from '../api/client';
 import { useRouter } from 'expo-router';
 import SafeScreen from './SafeScreen';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 export default function UserListModal({ visible, onClose, userId, type, mode = 'view', onInvite }) {
     const [users, setUsers] = useState([]);
@@ -110,7 +111,7 @@ export default function UserListModal({ visible, onClose, userId, type, mode = '
 
     const renderUserItem = ({ item }) => {
         // Robust check for following status (handles mixed array of strings/objects)
-        const isFollowing = user.following.some(f => (typeof f === 'object' ? f._id : f) === item._id);
+        const isFollowing = (user?.following || []).some(f => (typeof f === 'object' ? f._id : f) === item._id);
         const isSelf = user._id === item._id;
 
         return (
@@ -167,44 +168,47 @@ export default function UserListModal({ visible, onClose, userId, type, mode = '
 
     return (
         <Modal visible={visible} animationType="slide" transparent={false}>
-            <SafeScreen edges={['top', 'left', 'right', 'bottom']}>
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={onClose} style={styles.backButton}>
-                        <Ionicons name="chevron-back" size={28} color="#000" />
-                    </TouchableOpacity>
-                    <Text style={styles.title}>
-                        {type === 'followers' ? 'Followers' : type === 'following' ? 'Following' : 'Find Friends'}
-                    </Text>
-                    <View style={{ width: 40 }} />
-                </View>
-
-                <View style={styles.searchBar}>
-                    <Ionicons name="search" size={20} color="#999" />
-                    <TextInput
-                        style={styles.searchInput}
-                        placeholder="Search users..."
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
-                    />
-                </View>
-
-                {loading ? (
-                    <View style={styles.center}>
-                        <ActivityIndicator color="#4A7C44" />
+            <SafeAreaProvider>
+                <SafeScreen edges={['top', 'left', 'right', 'bottom']}>
+                    <View style={styles.header}>
+                        <TouchableOpacity onPress={onClose} style={styles.backButton}>
+                            <Ionicons name="chevron-back" size={28} color="#000" />
+                        </TouchableOpacity>
+                        <Text style={styles.title}>
+                            {type === 'followers' ? 'Followers' : type === 'following' ? 'Following' : 'Find Friends'}
+                        </Text>
+                        <View style={{ width: 40 }} />
                     </View>
-                ) : (
-                    <FlatList
-                        data={filteredUsers}
-                        keyExtractor={(item) => item._id}
-                        renderItem={renderUserItem}
-                        ListEmptyComponent={
-                            <View style={styles.center}>
-                                <Text style={styles.emptyText}>No users found</Text>
-                            </View>
-                        }
-                    />
-                )}
-            </SafeScreen>
+
+                    <View style={styles.searchBar}>
+                        <Ionicons name="search" size={20} color="#999" />
+                        <TextInput
+                            style={styles.searchInput}
+                            placeholder="Search users..."
+                            value={searchQuery}
+                            onChangeText={setSearchQuery}
+                        />
+                    </View>
+
+                    {loading ? (
+                        <View style={styles.center}>
+                            <ActivityIndicator color="#4A7C44" />
+                        </View>
+                    ) : (
+                        <FlatList
+                            style={{ flex: 1 }}
+                            data={filteredUsers}
+                            keyExtractor={(item) => item._id}
+                            renderItem={renderUserItem}
+                            ListEmptyComponent={
+                                <View style={styles.center}>
+                                    <Text style={styles.emptyText}>No users found</Text>
+                                </View>
+                            }
+                        />
+                    )}
+                </SafeScreen>
+            </SafeAreaProvider>
         </Modal>
     );
 }

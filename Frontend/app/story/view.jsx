@@ -1,189 +1,108 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Image, StyleSheet, TouchableOpacity, ProgressBarAndroid, Platform, Text, Dimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../context/AuthContext';
-import { Modal, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-export default function ViewStory() {
+export default function StoryView() {
     const { userId } = useLocalSearchParams();
-    const { user } = useAuth();
-    const router = useRouter();
     const [stories, setStories] = useState([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [loading, setLoading] = useState(true);
-    const [progress, setProgress] = useState(0);
-    const [showViewers, setShowViewers] = useState(false);
-    const [groupUser, setGroupUser] = useState(null);
+    const router = useRouter();
 
     useEffect(() => {
-        fetchUserStories();
+        fetchStories();
     }, [userId]);
 
-    const fetchUserStories = async () => {
+    const fetchStories = async () => {
         try {
-            // Fetch stories specifically for this user (could include archived ones if called from profile)
+            // Fetch ALL stories for this user (or we could fetch via feed logic if needed)
+            // But simpler is utilizing /stories/user/:userId which returns all for that user
+            // We might want to filter for active ones only
             const res = await client.get(`/stories/user/${userId}`);
-            const userStories = res.data;
-
-            if (userStories && userStories.length > 0) {
-                setStories(userStories);
-                // The /stories/user/:userId endpoint might not populate user in every story in a grouped way, 
-                // but we can get it from the first one or we might need to fetch profile if missing.
-                // Our backend route returns populated trail but not user (it's implicit).
-                // Let's check the backend route again.
-                if (userStories[0].user && typeof userStories[0].user === 'object') {
-                    setGroupUser(userStories[0].user);
-                } else {
-                    // Fetch user info if not populated
-                    const userRes = await client.get(`/users/profile/${userId}`);
-                    setGroupUser(userRes.data);
-                }
-            } else {
-                router.back(); // No stories found
-            }
+            // Filter active
+            const active = res.data.filter(s => new Date(s.expiresAt) > new Date());
+            setStories(active);
         } catch (error) {
             console.error("Error fetching stories:", error);
-            router.back();
         } finally {
             setLoading(false);
         }
     };
 
-    // Auto Advance Logic
-    useEffect(() => {
-        if (!stories.length) return;
-
-        const duration = 5000; // 5 seconds per story
-        const start = Date.now();
-
-        const timer = setInterval(() => {
-            const elapsed = Date.now() - start;
-            const p = elapsed / duration;
-
-            if (p >= 1) {
-                nextStory();
-                clearInterval(timer);
-            } else {
-                setProgress(p);
-            }
-        }, 50);
-
-        return () => clearInterval(timer);
-    }, [currentIndex, stories]);
-
-    // Track Viewers
-    useEffect(() => {
-        if (stories[currentIndex] && String(groupUser?._id) !== String(user?._id)) {
-            markAsViewed(stories[currentIndex]._id);
-        }
-    }, [currentIndex, stories, groupUser]);
-
-    const markAsViewed = async (storyId) => {
-        try {
-            await client.post(`/stories/view/${storyId}`);
-        } catch (error) {
-            console.error("Error marking story as viewed", error);
-        }
-    };
-
-    const nextStory = () => {
+    const handleNext = () => {
         if (currentIndex < stories.length - 1) {
-            setCurrentIndex(prev => prev + 1);
-            setProgress(0);
+            setCurrentIndex(currentIndex + 1);
         } else {
             router.back();
         }
     };
 
-    const prevStory = () => {
+    const handlePrev = () => {
         if (currentIndex > 0) {
-            setCurrentIndex(prev => prev - 1);
-            setProgress(0);
+            setCurrentIndex(currentIndex - 1);
+        } else {
+            router.back();
         }
     };
 
-    if (loading || !stories[currentIndex]) return <View style={styles.container} />;
+    // Mark as viewed when index changes
+    useEffect(() => {
+        if (stories[currentIndex]) {
+            client.post(`/stories/view/${stories[currentIndex]._id}`).catch(err => console.error(err));
+        }
+    }, [currentIndex, stories]);
+
+    if (loading) {
+        return <View style={styles.loadingContainer}><ActivityIndicator color="#fff" /></View>;
+    }
+
+    if (stories.length === 0) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <Text style={{ color: 'white', textAlign: 'center', marginTop: 100 }}>No active stories</Text>
+                <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
+                    <Text style={{ color: '#28a745', textAlign: 'center' }}>Close</Text>
+                </TouchableOpacity>
+            </SafeAreaView>
+        );
+    }
+
+    const currentStory = stories[currentIndex];
 
     return (
         <View style={styles.container}>
-            {/* Progress Bar (Custom simple bar since default one varies by OS) */}
-            <View style={styles.progressContainer}>
-                {stories.map((_, index) => (
-                    <View key={index} style={styles.barBackground}>
-                        <View style={[
-                            styles.barFill,
-                            {
-                                width: index === currentIndex ? `${progress * 100}%` : index < currentIndex ? '100%' : '0%'
-                            }
-                        ]} />
-                    </View>
-                ))}
-            </View>
+            <Image source={{ uri: currentStory.media }} style={styles.image} resizeMode="cover" />
 
-            {/* Header info */}
-            <SafeAreaView style={styles.header}>
-                <View style={styles.userInfo}>
-                    <Image source={{ uri: groupUser?.profileImage }} style={styles.headerAvatar} />
-                    <View>
-                        <Text style={styles.username}>{groupUser?.username || 'User'}</Text>
-                        <Text style={styles.time}>{new Date(stories[currentIndex].createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                    </View>
+            <SafeAreaView style={styles.overlay}>
+                {/* Progress Bar */}
+                <View style={styles.progressContainer}>
+                    {stories.map((_, idx) => (
+                        <View key={idx} style={[styles.progressBar, idx <= currentIndex ? styles.activeBar : styles.inactiveBar]} />
+                    ))}
                 </View>
-                <TouchableOpacity onPress={() => router.back()}>
-                    <Ionicons name="close" size={28} color="white" />
-                </TouchableOpacity>
+
+                {/* Header */}
+                <View style={styles.header}>
+                    <Image source={{ uri: currentStory.user?.profileImage }} style={styles.avatar} />
+                    <Text style={styles.username}>{currentStory.user?.username}</Text>
+                    <Text style={styles.time}>{new Date(currentStory.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                    <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 'auto' }}>
+                        <Ionicons name="close" size={28} color="white" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* Tappable Areas */}
+                <View style={styles.tapContainer}>
+                    <TouchableOpacity style={styles.tapArea} onPress={handlePrev} />
+                    <TouchableOpacity style={styles.tapArea} onPress={handleNext} />
+                </View>
             </SafeAreaView>
-
-            {/* Main Content */}
-            <Image
-                source={{ uri: stories[currentIndex].media }}
-                style={styles.image}
-                resizeMode="cover"
-            />
-
-            {/* Tap Zones */}
-            <View style={styles.touchContainer}>
-                <TouchableOpacity style={styles.touchSide} onPress={prevStory} />
-                <TouchableOpacity style={styles.touchSide} onPress={nextStory} />
-            </View>
-
-            {/* Viewer Count (Only for owner) */}
-            {String(groupUser?._id) === String(user?._id) && (
-                <TouchableOpacity style={styles.viewerFooter} onPress={() => setShowViewers(true)}>
-                    <Ionicons name="eye-outline" size={20} color="white" />
-                    <Text style={styles.viewerCount}>{stories[currentIndex].viewers?.length || 0} Viewers</Text>
-                </TouchableOpacity>
-            )}
-
-            {/* Viewer List Modal */}
-            <Modal visible={showViewers} animationType="slide" transparent={true}>
-                <View style={styles.modalOverlay}>
-                    <SafeScreen style={styles.modalContent} edges={['top']}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Viewed by</Text>
-                            <TouchableOpacity onPress={() => setShowViewers(false)}>
-                                <Ionicons name="close" size={24} color="#000" />
-                            </TouchableOpacity>
-                        </View>
-                        <ScrollView>
-                            {stories[currentIndex].viewers?.map((viewer) => (
-                                <View key={viewer._id} style={styles.viewerItem}>
-                                    <Image source={{ uri: viewer.profileImage }} style={styles.viewerAvatar} />
-                                    <Text style={styles.viewerName}>{viewer.username}</Text>
-                                </View>
-                            ))}
-                            {(!stories[currentIndex].viewers || stories[currentIndex].viewers.length === 0) && (
-                                <Text style={styles.noViewers}>No views yet</Text>
-                            )}
-                        </ScrollView>
-                    </SafeScreen>
-                </View>
-            </Modal>
         </View>
     );
 }
@@ -193,119 +112,68 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: 'black',
     },
+    loadingContainer: {
+        flex: 1,
+        backgroundColor: 'black',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
     image: {
-        width: '100%',
-        height: '100%',
+        width: width,
+        height: height,
+        position: 'absolute',
+    },
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.1)'
     },
     progressContainer: {
-        position: 'absolute',
-        top: 50,
         flexDirection: 'row',
-        zIndex: 10,
-        width: '100%',
         paddingHorizontal: 10,
+        paddingTop: 10,
         height: 3,
+        marginBottom: 10,
     },
-    barBackground: {
+    progressBar: {
         flex: 1,
-        backgroundColor: 'rgba(255,255,255,0.3)',
-        height: 3,
+        height: 2,
+        borderRadius: 1,
         marginHorizontal: 2,
-        borderRadius: 2,
-        overflow: 'hidden',
     },
-    barFill: {
+    activeBar: {
         backgroundColor: 'white',
-        height: '100%',
+    },
+    inactiveBar: {
+        backgroundColor: 'rgba(255,255,255,0.3)',
     },
     header: {
-        position: 'absolute',
-        top: 60,
-        width: '100%',
-        zIndex: 10,
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingHorizontal: 20,
         alignItems: 'center',
+        paddingHorizontal: 15,
+        marginTop: 10,
     },
-    userInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    avatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        marginRight: 10,
     },
     username: {
         color: 'white',
         fontWeight: 'bold',
+        fontSize: 14,
         marginRight: 10,
     },
     time: {
         color: 'rgba(255,255,255,0.7)',
         fontSize: 12,
     },
-    touchContainer: {
-        ...StyleSheet.absoluteFillObject,
-        flexDirection: 'row',
-    },
-    touchSide: {
+    tapContainer: {
         flex: 1,
-    },
-    headerAvatar: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        marginRight: 10,
-    },
-    viewerFooter: {
-        position: 'absolute',
-        bottom: 40,
-        alignSelf: 'center',
-        alignItems: 'center',
-        zIndex: 10,
-    },
-    viewerCount: {
-        color: 'white',
-        fontSize: 12,
-        marginTop: 4,
-    },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'flex-end',
-    },
-    modalContent: {
-        backgroundColor: 'white',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        maxHeight: '70%',
-        padding: 20,
-    },
-    modalHeader: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 20,
-    },
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
-    viewerItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 15,
-    },
-    viewerAvatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        marginRight: 15,
-    },
-    viewerName: {
-        fontSize: 16,
-        fontWeight: '500',
-    },
-    noViewers: {
-        textAlign: 'center',
-        color: '#999',
         marginTop: 20,
+    },
+    tapArea: {
+        flex: 1,
     }
 });

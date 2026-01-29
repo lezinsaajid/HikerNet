@@ -13,7 +13,11 @@ export default function StoryBar() {
     const fetchStories = useCallback(async () => {
         try {
             const res = await client.get('/stories/feed');
-            setStories(res.data);
+            if (Array.isArray(res.data)) {
+                setStories(res.data);
+            } else {
+                setStories([]);
+            }
         } catch (error) {
             console.error("Error fetching stories", error);
         }
@@ -42,7 +46,10 @@ export default function StoryBar() {
                 {/* My Story Button */}
                 <TouchableOpacity
                     style={styles.item}
-                    onPress={() => myStoryGroup ? handleView(user._id) : handleCreate()}
+                    onPress={() => {
+                        if (!user) return;
+                        myStoryGroup ? handleView(user._id) : handleCreate();
+                    }}
                 >
                     <View style={[styles.ring, myStoryGroup ? styles.activeRing : styles.addRing]}>
                         <Image source={{ uri: user?.profileImage || 'https://via.placeholder.com/150' }} style={styles.avatar} />

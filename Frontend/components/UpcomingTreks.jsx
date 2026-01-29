@@ -12,7 +12,12 @@ export default function UpcomingTreks() {
                 // Fetch nearby (or just generic) treks. 
                 // Since this is generic "Upcoming", let's just fetch some treks.
                 const res = await client.get('/treks/nearby?lat=11.6854&lon=76.1320&radius=100'); // Wayanad coords default
-                setTreks(res.data.slice(0, 5));
+                if (Array.isArray(res.data)) {
+                    setTreks(res.data.slice(0, 5));
+                } else {
+                    console.log("UpcomingTreks: res.data is not an array", res.data);
+                    setTreks([]);
+                }
             } catch (error) {
                 console.log("Error fetching upcoming treks", error);
             }
