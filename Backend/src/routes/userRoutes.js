@@ -181,6 +181,9 @@ router.get("/leaderboard", async (req, res) => {
     try {
         const leaderboard = await User.aggregate([
             {
+                $match: { email: { $ne: "system@hikernet.com" } }
+            },
+            {
                 $lookup: {
                     from: "treks",
                     localField: "_id",

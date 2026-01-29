@@ -103,6 +103,65 @@ router.get("/user/:userId", async (req, res) => {
     }
 });
 
+// Helper for distance calculation (Haversine formula)
+function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Radius of the earth in km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const d = R * c; // Distance in km
+    return d;
+}
+
+function deg2rad(deg) {
+    return deg * (Math.PI / 180);
+}
+
+// Get nearby treks (Local DB)
+router.get("/nearby", async (req, res) => {
+    try {
+        const { lat, lon, radius = 50 } = req.query; // radius in km
+
+        if (!lat || !lon) {
+            return res.status(400).json({ message: "Latitude and Longitude required" });
+        }
+
+        const userLat = parseFloat(lat);
+        const userLon = parseFloat(lon);
+        const maxDist = parseFloat(radius);
+
+        // Fetch all public treks with coordinates
+        // Optimization: In real app, use MongoDB $near or 2dsphere index.
+        // Since we don't have 2dsphere index on specific start point yet, we do in-memory filter.
+        // It's fine for < 5000 treks.
+        const allTreks = await Trek.find({
+            privacy: "public",
+            coordinates: { $exists: true, $not: { $size: 0 } }
+        }).select("name location coordinates stats user images description");
+
+        const nearbyTreks = allTreks.filter(trek => {
+            if (!trek.coordinates || trek.coordinates.length === 0) return false;
+            const startNode = trek.coordinates[0];
+            const dist = getDistanceFromLatLonInKm(userLat, userLon, startNode.latitude, startNode.longitude);
+            return dist <= maxDist;
+        }).map(trek => {
+            const startNode = trek.coordinates[0];
+            const dist = getDistanceFromLatLonInKm(userLat, userLon, startNode.latitude, startNode.longitude);
+            return { ...trek.toObject(), distanceConfig: dist }; // Enrich with distance from user
+        }).sort((a, b) => a.distanceConfig - b.distanceConfig);
+
+        res.json(nearbyTreks);
+
+    } catch (error) {
+        console.error("Error fetching nearby treks:", error);
+        res.status(500).json({ message: "Error fetching nearby treks" });
+    }
+});
+
 // Update trek (add points, update stats, finish)
 router.put("/update/:id", protectRoute, async (req, res) => {
     try {

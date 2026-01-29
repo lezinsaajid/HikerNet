@@ -38,16 +38,30 @@ router.post("/create", protectRoute, async (req, res) => {
     }
 });
 
-// Get feed (posts from followed users + own posts)
+// Get feed (Global, but prioritized)
 router.get("/feed", protectRoute, async (req, res) => {
     try {
         const currentUser = await User.findById(req.user._id);
-        const following = currentUser.following;
+        const followingIds = currentUser.following.map(id => id.toString());
+        followingIds.push(req.user._id.toString()); // Include own posts in priority group
 
-        const posts = await Post.find({ user: { $in: [...following, req.user._id] } })
-            .sort({ createdAt: -1 })
-            .populate("user", "username profileImage")
-            .populate("trek", "name stats");
+        // Fetch all posts
+        let posts = await Post.find({})
+            .populate("user", "username profileImage followers")
+            .populate("trek", "name stats")
+            .lean();
+
+        // Custom Sort: Friends/Self first, then Others. Both desc by date.
+        posts.sort((a, b) => {
+            const aIsFriend = followingIds.includes(a.user._id.toString());
+            const bIsFriend = followingIds.includes(b.user._id.toString());
+
+            if (aIsFriend && !bIsFriend) return -1;
+            if (!aIsFriend && bIsFriend) return 1;
+
+            // Secondary sort: Date descending
+            return new Date(b.createdAt) - new Date(a.createdAt);
+        });
 
         res.json(posts);
     } catch (error) {

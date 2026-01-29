@@ -1,14 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import client from '../../api/client';
-import StoryBar from '../../components/StoryBar';
-import WeatherWidget from '../../components/WeatherWidget';
-import SafeScreen from '../../components/SafeScreen';
 
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
+import client from '../../api/client';
+import PostItem from '../../components/PostItem';
+import { useAuth } from '../../context/AuthContext';
+
+// V2 Components
+import HeroHeader from '../../components/HeroHeader';
+import LiveTrekCard from '../../components/LiveTrekCard';
+import NewsSection from '../../components/NewsSection';
+import UpcomingTreks from '../../components/UpcomingTreks';
+import TopTrekkers from '../../components/TopTrekkers';
 
 export default function HomeFeed() {
+    const { user } = useAuth();
     const [posts, setPosts] = useState([]);
+    const [processedData, setProcessedData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
@@ -28,63 +35,99 @@ export default function HomeFeed() {
         fetchFeed();
     }, []);
 
+    useEffect(() => {
+        if (!user || posts.length === 0) {
+            setProcessedData(posts);
+            return;
+        }
+
+        const followingArr = user.following || [];
+
+        // Split posts
+        const friendsPosts = [];
+        const otherPosts = [];
+
+        posts.forEach(post => {
+            const isFriend = followingArr.includes(post.user._id) || post.user._id === user._id;
+            if (isFriend) {
+                friendsPosts.push(post);
+            } else {
+                otherPosts.push(post);
+            }
+        });
+
+        const newData = [];
+        if (friendsPosts.length > 0) {
+            newData.push({ type: 'header', title: 'Your Activity', _id: 'header-friends' });
+            newData.push(...friendsPosts);
+        } else {
+            newData.push({ type: 'empty-friends', title: 'Start following people', _id: 'empty-friends' });
+        }
+
+        if (otherPosts.length > 0) {
+            newData.push({ type: 'header', title: 'Suggested for You', _id: 'header-suggestions' });
+            newData.push(...otherPosts);
+        }
+
+        setProcessedData(newData);
+
+    }, [posts, user]);
+
     const onRefresh = () => {
         setRefreshing(true);
         fetchFeed();
     };
 
-    const renderPost = ({ item }) => (
-        <View style={styles.postCard}>
-            <View style={styles.header}>
-                <Image source={{ uri: item.user.profileImage }} style={styles.avatar} />
-                <Text style={styles.username}>{item.user.username}</Text>
-            </View>
-            {item.image && (
-                <Image source={{ uri: item.image }} style={styles.postImage} />
-            )}
-            <View style={styles.content}>
-                <Text style={styles.caption}>
-                    <Text style={styles.usernameText}>{item.user.username} </Text>
-                    {item.caption}
-                </Text>
+    const renderHeader = () => (
+        <View style={styles.headerContainer}>
+            <HeroHeader />
+            <LiveTrekCard />
+            <NewsSection />
+            <UpcomingTreks />
+            <TopTrekkers />
 
-                <View style={styles.actions}>
-                    <TouchableOpacity style={styles.actionButton}>
-                        <Ionicons name="heart-outline" size={24} color="black" />
-                        <Text style={styles.actionText}>{item.likes.length}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButton}>
-                        <Ionicons name="chatbubble-outline" size={24} color="black" />
-                        <Text style={styles.actionText}>{item.comments.length}</Text>
-                    </TouchableOpacity>
-                </View>
+            <View style={styles.feedHeader}>
+                <Text style={styles.sectionTitle}>Community Feed</Text>
             </View>
         </View>
     );
 
+    const renderItem = ({ item }) => {
+        if (item.type === 'header') {
+            return (
+                <View style={styles.feedSectionHeader}>
+                    <Text style={styles.feedSectionTitle}>{item.title}</Text>
+                    <View style={styles.divider} />
+                </View>
+            );
+        }
+        if (item.type === 'empty-friends') {
+            return (
+                <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>Start following hikers to see their updates here!</Text>
+                </View>
+            );
+        }
+        return <PostItem post={item} />;
+    };
+
     return (
-        <SafeScreen>
-            <View style={styles.topBar}>
-                <Text style={styles.logo}>Hikernet</Text>
-                <WeatherWidget compact={true} />
-            </View>
-
-            <View>
-                <StoryBar />
-            </View>
-
+        <View style={styles.container}>
             {loading ? (
-                <ActivityIndicator size="large" color="#28a745" style={{ marginTop: 20 }} />
+                <ActivityIndicator size="large" color="#28a745" style={{ marginTop: 50 }} />
             ) : (
                 <FlatList
-                    data={posts}
-                    keyExtractor={(item) => item._id}
-                    renderItem={renderPost}
+                    data={processedData}
+                    keyExtractor={(item) => item._id || item.title || 'uknown' + Math.random()}
+                    renderItem={renderItem}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-                    ListEmptyComponent={<Text style={styles.emptyText}>No posts yet. Follow some hikers!</Text>}
+                    ListHeaderComponent={renderHeader}
+                    ListEmptyComponent={<Text style={styles.emptyText}>No posts yet.</Text>}
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                    showsVerticalScrollIndicator={false}
                 />
             )}
-        </SafeScreen>
+        </View>
     );
 }
 
@@ -93,71 +136,47 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#fff',
     },
-    topBar: {
+    headerContainer: {
+        backgroundColor: '#fff',
+    },
+    feedHeader: {
+        paddingHorizontal: 15,
+        marginBottom: 5,
+        marginTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#f0f0f0',
+        paddingTop: 20,
+    },
+    sectionTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    feedSectionHeader: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 15,
-        paddingBottom: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        paddingVertical: 15,
+        marginTop: 10,
     },
-    logo: {
-        fontSize: 24,
+    feedSectionTitle: {
+        fontSize: 16,
         fontWeight: 'bold',
-        color: '#28a745',
-        fontFamily: 'System', // default
-    },
-    postCard: {
-        marginBottom: 15,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 10,
-    },
-    avatar: {
-        width: 35,
-        height: 35,
-        borderRadius: 17.5,
+        color: '#666',
         marginRight: 10,
+    },
+    divider: {
+        flex: 1,
+        height: 1,
         backgroundColor: '#eee',
     },
-    username: {
-        fontWeight: 'bold',
-    },
-    postImage: {
-        width: '100%',
-        height: 300,
-        backgroundColor: '#f8f8f8',
-    },
-    content: {
-        padding: 10,
-    },
-    caption: {
-        fontSize: 14,
-        marginBottom: 10,
-    },
-    usernameText: {
-        fontWeight: 'bold',
-    },
-    actions: {
-        flexDirection: 'row',
-    },
-    actionButton: {
-        flexDirection: 'row',
+    emptyContainer: {
+        padding: 20,
         alignItems: 'center',
-        marginRight: 15,
-    },
-    actionText: {
-        marginLeft: 5,
-        fontSize: 14,
     },
     emptyText: {
         textAlign: 'center',
-        marginTop: 50,
         color: '#888',
+        fontSize: 14,
     }
 });
