@@ -3,6 +3,7 @@ import User from "../models/User.js";
 import Chat from "../models/Chat.js";
 import Message from "../models/Message.js";
 import protectRoute from "../middleware/auth.middleware.js";
+import cloudinary from "../lib/cloudinary.js";
 
 const router = express.Router();
 
@@ -118,13 +119,27 @@ router.get("/:chatId/messages", protectRoute, async (req, res) => {
 router.post("/:chatId/messages", protectRoute, async (req, res) => {
     try {
         const { chatId } = req.params;
-        const { content } = req.body;
+        const { content, messageType = "text", media } = req.body; // media is base64 for images or url for stickers
         const senderId = req.user._id;
+
+        let mediaUrl = null;
+
+        if (messageType === "image" && media) {
+            // Upload base64 to cloudinary
+            const uploadRes = await cloudinary.uploader.upload(media, {
+                folder: "hikernet_chats",
+            });
+            mediaUrl = uploadRes.secure_url;
+        } else if (messageType === "sticker" && media) {
+            mediaUrl = media;
+        }
 
         const message = await Message.create({
             chatId,
             sender: senderId,
-            content,
+            content: messageType === "text" ? content : "",
+            messageType,
+            mediaUrl,
             readBy: [senderId],
         });
 

@@ -12,9 +12,17 @@ const messageSchema = new mongoose.Schema(
             ref: "User",
             required: true,
         },
+        messageType: {
+            type: String,
+            enum: ["text", "image", "sticker"],
+            default: "text",
+        },
         content: {
             type: String,
-            required: true,
+            required: function () { return this.messageType === "text"; }
+        },
+        mediaUrl: {
+            type: String,
         },
         readBy: [
             {

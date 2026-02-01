@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Image } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import client from '../../api/client';
 import SafeScreen from '../../components/SafeScreen';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const getDateHeaderLabel = (dateString) => {
     const date = new Date(dateString);
@@ -58,8 +60,24 @@ export default function ChatScreen() {
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
     const [partner, setPartner] = useState(null);
-    const [chatInstance, setChatInstance] = useState(null);
+    const [sending, setSending] = useState(false);
+    const [showStickers, setShowStickers] = useState(false);
     const flatListRef = useRef(null);
+
+    const STICKERS = [
+        { id: 's1', url: 'https://cdn-icons-png.flaticon.com/512/2928/2928811.png', label: 'Mountain' },
+        { id: 's2', url: 'https://cdn-icons-png.flaticon.com/512/2928/2928842.png', label: 'Tent' },
+        { id: 's3', url: 'https://cdn-icons-png.flaticon.com/512/1048/1048953.png', label: 'Backpack' },
+        { id: 's4', url: 'https://cdn-icons-png.flaticon.com/512/2990/2990526.png', label: 'Bigfoot' },
+        { id: 's5', url: 'https://cdn-icons-png.flaticon.com/512/3075/3075977.png', label: 'Hiker Hunger' },
+        { id: 's6', url: 'https://cdn-icons-png.flaticon.com/512/91/91380.png', label: 'Laughing' },
+        { id: 's7', url: 'https://cdn-icons-png.flaticon.com/512/1043/1043009.png', label: 'Ghosted' },
+        { id: 's8', url: 'https://cdn-icons-png.flaticon.com/512/7504/7504364.png', label: 'Party' },
+        { id: 's9', url: 'https://cdn-icons-png.flaticon.com/512/356/356740.png', label: 'Exhausted' },
+        { id: 's10', url: 'https://cdn-icons-png.flaticon.com/512/2219/2219904.png', label: 'Compass' },
+        { id: 's11', url: 'https://cdn-icons-png.flaticon.com/512/2928/2928929.png', label: 'Bonfire' },
+        { id: 's12', url: 'https://cdn-icons-png.flaticon.com/512/2311/2311818.png', label: 'Bear' }
+    ];
 
     // Initial fetch
     useEffect(() => {
@@ -100,18 +118,37 @@ export default function ChatScreen() {
         }
     };
 
-    const handleSend = async () => {
-        if (!newMessage.trim()) return;
+    const handleSend = async (type = "text", mediaData = null) => {
+        if (type === "text" && !newMessage.trim()) return;
 
         try {
+            setSending(true);
             await client.post(`/chat/${id}/messages`, {
-                senderId: currentUser._id,
-                content: newMessage
+                messageType: type,
+                content: type === "text" ? newMessage : "",
+                media: mediaData
             });
-            setNewMessage('');
-            fetchMessages(); // Refresh immediately
+            if (type === "text") setNewMessage('');
+            if (type === "sticker") setShowStickers(false);
+            fetchMessages();
         } catch (error) {
             console.error("Failed to send message", error);
+            Alert.alert("Error", "Failed to send message");
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const pickImage = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            quality: 0.6,
+            base64: true,
+        });
+
+        if (!result.canceled) {
+            handleSend("image", `data:image/jpeg;base64,${result.assets[0].base64}`);
         }
     };
 
@@ -140,6 +177,8 @@ export default function ChatScreen() {
 
     const renderMessage = ({ item, index }) => {
         const isMe = item.sender._id === currentUser._id;
+        const isSticker = item.messageType === 'sticker';
+        const isImage = item.messageType === 'image';
 
         // Date Header Logic
         let showDateHeader = false;
@@ -176,16 +215,33 @@ export default function ChatScreen() {
                             />
                         </TouchableOpacity>
                     )}
-                    <TouchableOpacity onPress={() => item.sender._id === currentUser._id && handleDeleteMessage(item._id)} onLongPress={() => isMe && handleDeleteMessage(item._id)} style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}>
-                        <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
-                            {item.content}
-                        </Text>
-                        <View style={styles.messageFooter}>
-                            <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
+                    <TouchableOpacity
+                        onPress={() => item.sender._id === currentUser._id && handleDeleteMessage(item._id)}
+                        onLongPress={() => isMe && handleDeleteMessage(item._id)}
+                        activeOpacity={0.9}
+                        style={[
+                            styles.messageBubble,
+                            isMe ? styles.myMessage : styles.theirMessage,
+                            isSticker && styles.stickerBubble,
+                            isImage && styles.imageBubble
+                        ]}
+                    >
+                        {isSticker ? (
+                            <Image source={{ uri: item.mediaUrl }} style={styles.stickerImage} />
+                        ) : isImage ? (
+                            <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} />
+                        ) : (
+                            <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
+                                {item.content}
+                            </Text>
+                        )}
+
+                        <View style={[styles.messageFooter, (isSticker || isImage) && styles.mediaFooter]}>
+                            <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText, (isSticker || isImage) && styles.mediaTimeText]}>
                                 {formatTime(item.createdAt)}
                             </Text>
                             {isMe && (
-                                <Text style={styles.readStatusText}>
+                                <Text style={[styles.readStatusText, (isSticker || isImage) && styles.mediaTimeText]}>
                                     {getReadStatus(item)}
                                 </Text>
                             )}
@@ -236,20 +292,78 @@ export default function ChatScreen() {
             />
 
             <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "padding" : "height"}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0} // Adjusted for better screen fit
-                style={styles.inputContainer}
+                behavior={Platform.OS === "ios" ? "padding" : null}
+                keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+                style={styles.bottomSection}
             >
-                <TextInput
-                    style={styles.input}
-                    placeholder="Type a message..."
-                    value={newMessage}
-                    onChangeText={setNewMessage}
-                    multiline
-                />
-                <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-                    <Ionicons name="send" size={24} color="#fff" />
-                </TouchableOpacity>
+                {showStickers && (
+                    <View style={styles.stickerTray}>
+                        <FlatList
+                            data={STICKERS}
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            keyExtractor={s => s.id}
+                            renderItem={({ item }) => (
+                                <TouchableOpacity
+                                    style={styles.stickerItem}
+                                    onPress={() => handleSend("sticker", item.url)}
+                                >
+                                    <Image source={{ uri: item.url }} style={styles.stickerPreview} />
+                                </TouchableOpacity>
+                            )}
+                        />
+                    </View>
+                )}
+
+                <View style={styles.inputContainer}>
+                    <TouchableOpacity
+                        style={styles.attachButton}
+                        onPress={pickImage}
+                        disabled={sending}
+                    >
+                        <Ionicons name="image-outline" size={24} color="#666" />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.attachButton}
+                        onPress={() => setShowStickers(!showStickers)}
+                        disabled={sending}
+                    >
+                        <MaterialCommunityIcons
+                            name={showStickers ? "sticker-off-outline" : "sticker-emoji"}
+                            size={24}
+                            color={showStickers ? "#28a745" : "#666"}
+                        />
+                    </TouchableOpacity>
+
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Type a message..."
+                        value={newMessage}
+                        onChangeText={setNewMessage}
+                        multiline
+                        maxLength={500}
+                    />
+
+                    {newMessage.trim() ? (
+                        <TouchableOpacity
+                            style={styles.sendButton}
+                            onPress={() => handleSend("text")}
+                            disabled={sending}
+                        >
+                            <LinearGradient
+                                colors={['#28a745', '#1e7e34']}
+                                style={styles.sendGradient}
+                            >
+                                <Ionicons name="send" size={20} color="#fff" />
+                            </LinearGradient>
+                        </TouchableOpacity>
+                    ) : (
+                        <View style={[styles.sendButton, { backgroundColor: '#eee' }]}>
+                            <Ionicons name="mic-outline" size={20} color="#999" />
+                        </View>
+                    )}
+                </View>
             </KeyboardAvoidingView>
         </SafeScreen>
     );
@@ -378,41 +492,107 @@ const styles = StyleSheet.create({
         padding: 10,
         backgroundColor: '#fff',
         alignItems: 'center',
+        paddingBottom: Platform.OS === 'ios' ? 25 : 10,
+    },
+    bottomSection: {
+        backgroundColor: '#fff',
         borderTopWidth: 1,
-        borderTopColor: '#eee',
+        borderTopColor: '#f0f0f0',
+    },
+    attachButton: {
+        padding: 5,
+        marginRight: 5,
     },
     input: {
         flex: 1,
         backgroundColor: '#f8f9fa',
-        borderRadius: 20,
-        paddingHorizontal: 15,
-        paddingVertical: 10,
+        borderRadius: 24,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
         maxHeight: 100,
-        marginRight: 10,
+        marginRight: 8,
         fontSize: 16,
+        color: '#1a1a1b',
+        borderWidth: 1,
+        borderColor: '#e9ecef',
     },
     sendButton: {
-        backgroundColor: '#28a745',
-        width: 44,
-        height: 44,
-        borderRadius: 22,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        overflow: 'hidden',
+    },
+    sendGradient: {
+        width: '100%',
+        height: '100%',
         justifyContent: 'center',
         alignItems: 'center',
     },
+    stickerTray: {
+        backgroundColor: '#fff',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
+        paddingHorizontal: 10,
+    },
+    stickerItem: {
+        marginHorizontal: 10,
+        padding: 5,
+    },
+    stickerPreview: {
+        width: 50,
+        height: 50,
+        resizeMode: 'contain',
+    },
+    stickerBubble: {
+        backgroundColor: 'transparent',
+        padding: 0,
+        elevation: 0,
+    },
+    stickerImage: {
+        width: 120,
+        height: 120,
+        resizeMode: 'contain',
+    },
+    imageBubble: {
+        padding: 4,
+        overflow: 'hidden',
+    },
+    messageImage: {
+        width: 200,
+        height: 150,
+        borderRadius: 16,
+        backgroundColor: '#eee',
+    },
+    mediaFooter: {
+        position: 'absolute',
+        bottom: 8,
+        right: 8,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 8,
+        marginTop: 0,
+    },
+    mediaTimeText: {
+        color: '#fff',
+        fontSize: 9,
+    },
     dateHeaderContainer: {
         alignItems: 'center',
-        marginVertical: 10,
-        marginBottom: 15,
+        marginVertical: 15,
     },
     dateHeaderBadge: {
-        backgroundColor: 'rgba(0,0,0,0.1)',
-        paddingHorizontal: 12,
+        backgroundColor: '#e9ecef',
+        paddingHorizontal: 16,
         paddingVertical: 4,
-        borderRadius: 12,
+        borderRadius: 20,
     },
     dateHeaderText: {
         fontSize: 12,
-        color: '#666',
-        fontWeight: '600',
+        color: '#8e8e93',
+        fontWeight: '700',
     },
 });
