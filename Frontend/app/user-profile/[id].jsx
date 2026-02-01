@@ -301,9 +301,21 @@ export default function UserProfile() {
         );
     }
 
+    const handleChatPress = async () => {
+        try {
+            const res = await client.post('/chat', { partnerId: id });
+            router.push(`/chat/${res.data._id}`);
+        } catch (error) {
+            console.error("Chat creation error:", error);
+            Alert.alert("Error", "Could not start chat");
+        }
+    };
+
     return (
         <SafeScreen backgroundColor="#F8F9FA" statusBarStyle="dark-content">
+            {/* ... topBar ... */}
             <View style={styles.topBar}>
+                {/* ... existing topBar content ... */}
                 <LinearGradient
                     colors={['#F8F9FA', '#FBFBFB']}
                     style={StyleSheet.absoluteFill}
@@ -330,17 +342,21 @@ export default function UserProfile() {
             </View>
 
             <FlatList
+                // ... props ...
                 key={activeTab === 'trails' ? 'single' : 'grid'}
                 data={activeTab === 'posts' ? posts : (activeTab === 'trails' ? userAdventures : [])}
                 numColumns={activeTab === 'trails' ? 1 : 3}
                 keyExtractor={(item) => item._id}
                 ListHeaderComponent={
                     <Animated.View entering={FadeInUp.duration(600)} style={styles.headerContainer}>
+                        {/* ... headerGradient ... */}
                         <LinearGradient
                             colors={['#E8F5E9', '#FFFFFF']}
                             style={styles.headerGradient}
                         />
+                        {/* ... profileRow ... */}
                         <View style={styles.profileRow}>
+                            {/* ... avatarWrapper ... */}
                             <View style={styles.avatarWrapper}>
                                 <View style={[styles.avatarGlow, { backgroundColor: getTierGlow(userData?.tier || 'Wanderer') }]} />
                                 <View style={styles.avatarContainer}>
@@ -373,6 +389,7 @@ export default function UserProfile() {
                         </View>
 
                         <View style={styles.statsBar}>
+                            {/* ... statsBar items ... */}
                             <TouchableOpacity
                                 style={styles.statItem}
                                 onPress={() => {
@@ -414,7 +431,7 @@ export default function UserProfile() {
                                 style={[styles.actionBtn, styles.chatBtn]}
                                 onPress={() => {
                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                    Alert.alert("Chat", "Coming soon!");
+                                    handleChatPress();
                                 }}
                             >
                                 <Text style={styles.chatBtnText}>Chat</Text>

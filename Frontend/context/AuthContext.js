@@ -243,6 +243,14 @@ export const AuthProvider = ({ children }) => {
     const logout = useCallback(async () => {
         try {
             console.log("[AuthContext] Logout initiated...");
+
+            // Notify server to set offline status
+            try {
+                await client.post('/auth/logout');
+            } catch (err) {
+                console.warn("[AuthContext] Server logout failed (ignoring):", err.message);
+            }
+
             if (!user) {
                 console.warn("[AuthContext] Logout called but no user is active.");
                 return;
@@ -284,16 +292,15 @@ export const AuthProvider = ({ children }) => {
                 // Clear state
                 setAccounts([]);
                 setUser(null);
-
-                console.log("[AuthContext] Full logout complete. Navigating to login...");
-                router.replace('/login');
+                // Note: AuthGuard useEffect will detect user=null and redirect to /login
+                console.log("[AuthContext] Full logout complete.");
             }
         } catch (e) {
             console.error("[AuthContext] Logout error:", e);
             // Emergency cleanup
             setUser(null);
             setAccounts([]);
-            router.replace('/login');
+            // router.replace('/login'); // Handled by AuthGuard
         }
     }, [user, accounts, router]); // Removed switchAccount dependency to avoid loops
 
@@ -311,12 +318,12 @@ export const AuthProvider = ({ children }) => {
             setUser(null);
 
             console.log("[AuthContext] Full logout of all accounts complete.");
-            router.replace('/login');
+            // router.replace('/login'); // Handled by AuthGuard
         } catch (e) {
             console.error("[AuthContext] logoutAll error:", e);
             setUser(null);
             setAccounts([]);
-            router.replace('/login');
+            // router.replace('/login'); // Handled by AuthGuard
         }
     }, [router]);
 
