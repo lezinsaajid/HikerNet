@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
 import SafeScreen from '../../components/SafeScreen';
+import { decryptMessage } from '../../utils/encryption';
 
 
 export default function ChatDashboard() {
@@ -29,7 +30,63 @@ export default function ChatDashboard() {
         setIsLoading(true);
         try {
             const res = await client.get(`/chat/user/${currentUser._id}`);
-            setRecentChats(res.data);
+            let chats = res.data;
+
+            // Decrypt last messages E2EE
+            const decryptedChats = await Promise.all(chats.map(async (chat) => {
+                if (chat.lastMessage?.messageType === 'text' && chat.lastMessage?.content) {
+                    // Try to decrypt. We need the sender's public key if it was sent by them.
+                    // Actually, for E2EE with Box:
+                    // Sender used: box(message, nonce, TheirPubKey, MyPrivKey)
+                    // Receiver uses: box.open(message, nonce, SenderPubKey, MyPrivKey)
+                    // So we always need the Sender's Public Key.
+
+                    const sender = chat.lastMessage.sender === currentUser._id
+                        ? currentUser // It was sent by me, so I need MY public key? No wait. 
+                        // If I sent it, I encrypted it for THEM. I can't decrypt it with MY private key unless I encrypted it for MYSELF too?
+                        // Standard Signal protocol encrypts to self-device too. 
+                        // Simplified TweetNaCl Box: I cannot decrypt what I sent unless I saved a copy or encrypted it for myself.
+                        // BUG IN PLAN: If I just box it for receiver, I can't read my own sent messages on other devices or even this device if I don't store plain text locally.
+                        // BUT, assuming the backend returns the "content" I sent. 
+                        // Use Case: Last Message Preview. 
+                        // If I sent it, I probably know what it is? Or we just show "You sent a message".
+                        // Let's see if we can just decrypt using the partner's key? No.
+                        // Shared Secret (Me+Partner) is same either direction?
+                        // box(m, n, pkB, skA) can be opened with box.open(c, n, pkA, skB).
+                        // If I am A, I have skA. I need pkB to create the shared key.
+                        // Yes! Shared Key = skA * pkB == skB * pkA.
+                        // So I can decrypt my own message if I have the recipient's public key.
+
+                        // Who is the "Partner"?
+                        : chat.participants.find(p => p._id === chat.lastMessage.sender) || chat.participants.find(p => p._id !== currentUser._id); // Sender object might be populated?
+
+                    // Wait, lastMessage.sender is an ID usually unless populated. 
+                    // In fetching all chats, we popualted lastMessage? 
+                    // Backend: .populate("lastMessage") -> .populate("sender") inside it?
+                    // User check backend: 
+                    // .populate("lastMessage")
+                    // NO recursive populate in `get /user/:userId`? 
+                    // lastMessage schema has sender ref. 
+                    // Backend code did: `.populate("lastMessage")` but did NOT populate sender inside lastMessage.
+                    // So lastMessage.sender is just an ID.
+
+                    // We need to find the participant object that matches the OTHER person to get their key?
+                    // Or if I am sender, I need receiver's key. 
+                    // IF I am receiver, I need sender's key.
+                    // In 1-on-1 chat, the "other" participant is the key holder we need to mix with our Private Key.
+
+                    const otherPart = chat.participants.find(p => p._id !== currentUser._id);
+                    if (otherPart?.publicKey) {
+                        try {
+                            const decrypted = await decryptMessage(chat.lastMessage.content, otherPart.publicKey);
+                            chat.lastMessage.content = decrypted;
+                        } catch (e) { console.log("Failed to decrypt preview", e); }
+                    }
+                }
+                return chat;
+            }));
+
+            setRecentChats(decryptedChats);
         } catch (error) {
             console.error("Failed to load chats", error);
         } finally {

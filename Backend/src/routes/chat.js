@@ -4,6 +4,7 @@ import Chat from "../models/Chat.js";
 import Message from "../models/Message.js";
 import protectRoute from "../middleware/auth.middleware.js";
 import cloudinary from "../lib/cloudinary.js";
+// import { encrypt, decrypt } from "../lib/encryption.js"; // Not used for E2EE
 
 const router = express.Router();
 
@@ -24,7 +25,7 @@ router.get("/search", protectRoute, async (req, res) => {
         const users = await User.find({
             username: { $regex: query, $options: "i" },
             _id: { $ne: req.user._id }
-        }).limit(10).select("_id username profileImage email");
+        }).limit(10).select("_id username profileImage email publicKey");
 
         res.json(users);
     } catch (error) {
@@ -45,13 +46,13 @@ router.post("/", protectRoute, async (req, res) => {
     try {
         let chat = await Chat.findOne({
             participants: { $all: [currentUserId, partnerId] },
-        }).populate("participants", "username profileImage email");
+        }).populate("participants", "username profileImage email publicKey");
 
         if (!chat) {
             chat = await Chat.create({
                 participants: [currentUserId, partnerId],
             });
-            chat = await chat.populate("participants", "username profileImage email");
+            chat = await chat.populate("participants", "username profileImage email publicKey");
         }
 
         res.json(chat);
@@ -68,9 +69,12 @@ router.get("/user/:userId", protectRoute, async (req, res) => {
         const chats = await Chat.find({
             participants: { $in: [userId] },
         })
-            .populate("participants", "username profileImage email")
+            .populate("participants", "username profileImage email publicKey")
             .populate("lastMessage")
             .sort({ updatedAt: -1 });
+
+        // E2EE: We return the encrypted content as-is. 
+        // Client decrypts using their private key and sender's public key.
 
         res.json(chats);
     } catch (error) {
@@ -83,7 +87,7 @@ router.get("/user/:userId", protectRoute, async (req, res) => {
 router.get("/:chatId", protectRoute, async (req, res) => {
     try {
         const { chatId } = req.params;
-        const chat = await Chat.findById(chatId).populate("participants", "username profileImage email lastSeen");
+        const chat = await Chat.findById(chatId).populate("participants", "username profileImage email lastSeen publicKey");
         if (!chat) return res.status(404).json({ message: "Chat not found" });
         res.json(chat);
     } catch (error) {
@@ -105,7 +109,7 @@ router.get("/:chatId/messages", protectRoute, async (req, res) => {
         );
 
         const messages = await Message.find({ chatId })
-            .populate("sender", "username profileImage")
+            .populate("sender", "username profileImage publicKey")
             .sort({ createdAt: 1 }); // Oldest first for chat history
 
         res.json(messages);
@@ -134,10 +138,12 @@ router.post("/:chatId/messages", protectRoute, async (req, res) => {
             mediaUrl = media;
         }
 
+        // E2EE: 'content' is already encrypted by frontend using shared secret
+
         const message = await Message.create({
             chatId,
             sender: senderId,
-            content: messageType === "text" ? content : "",
+            content: content, // Storing encrypted string (nonce:box)
             messageType,
             mediaUrl,
             readBy: [senderId],
@@ -149,7 +155,7 @@ router.post("/:chatId/messages", protectRoute, async (req, res) => {
             updatedAt: new Date(),
         });
 
-        const populatedMessage = await message.populate("sender", "username profileImage");
+        const populatedMessage = await message.populate("sender", "username profileImage publicKey");
         res.json(populatedMessage);
     } catch (error) {
         console.error("Send message error:", error);

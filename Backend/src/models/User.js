@@ -78,6 +78,18 @@ const userSchema = new mongoose.Schema(
             type: Date,
             default: Date.now,
         },
+        publicKey: {
+            type: String,
+            default: "", // For E2EE
+        },
+        encryptedPrivateKey: {
+            type: String,
+            default: "", // Encrypted with recovery password
+        },
+        keyBackupSalt: {
+            type: String,
+            default: "", // Salt used for PBKDF2
+        },
     },
     { timestamps: true }
 );
