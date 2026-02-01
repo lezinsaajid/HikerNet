@@ -92,8 +92,16 @@ export default function ChatDashboard() {
                         </Text>
                     </View>
                     <View style={styles.chatFooter}>
-                        <Text style={styles.lastMessage} numberOfLines={1}>
-                            {item.lastMessage?.content || "No messages yet"}
+                        <Text
+                            style={[
+                                styles.lastMessage,
+                                (item.lastMessage?.messageType === 'image' || item.lastMessage?.messageType === 'sticker') && styles.mediaPreviewText
+                            ]}
+                            numberOfLines={1}
+                        >
+                            {item.lastMessage?.messageType === 'image' ? "📷 Photo" :
+                                item.lastMessage?.messageType === 'sticker' ? "✨ Sticker" :
+                                    item.lastMessage?.content || "No messages yet"}
                         </Text>
                     </View>
                 </View>
@@ -251,6 +259,10 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#666',
         flex: 1,
+    },
+    mediaPreviewText: {
+        color: '#28a745',
+        fontWeight: '600',
     },
     chatFooter: {
         flexDirection: 'row',
