@@ -55,7 +55,7 @@ export default function Settings() {
                         <Ionicons name="chevron-forward" size={20} color="#ccc" />
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.row}>
+                    <TouchableOpacity style={styles.row} onPress={() => router.push('/settings/security')}>
                         <Ionicons name="lock-closed-outline" size={24} color="black" />
                         <Text style={styles.rowText}>Privacy & Security</Text>
                         <Ionicons name="chevron-forward" size={20} color="#ccc" />

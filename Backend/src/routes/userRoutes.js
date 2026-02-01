@@ -376,4 +376,39 @@ router.get("/following/:id", async (req, res) => {
     }
 });
 
+// Update public key (E2EE)
+router.put("/keys", protectRoute, async (req, res) => {
+    try {
+        const { publicKey } = req.body;
+        if (!publicKey) return res.status(400).json({ message: "Public key is required" });
+
+        await User.findByIdAndUpdate(req.user._id, { publicKey });
+        res.json({ message: "Public key updated successfully" });
+    } catch (error) {
+        console.error("Error updating public key:", error);
+        res.status(500).json({ message: "Error updating public key" });
+    }
+});
+
+// Backup Private Key
+router.put("/keys/backup", protectRoute, async (req, res) => {
+    try {
+        const { encryptedPrivateKey, keyBackupSalt } = req.body;
+
+        if (!encryptedPrivateKey || !keyBackupSalt) {
+            return res.status(400).json({ message: "Encrypted key and salt are required" });
+        }
+
+        await User.findByIdAndUpdate(req.user._id, {
+            encryptedPrivateKey,
+            keyBackupSalt
+        });
+
+        res.json({ message: "Key backup successful" });
+    } catch (error) {
+        console.error("Error backing up keys:", error);
+        res.status(500).json({ message: "Error backing up keys" });
+    }
+});
+
 export default router;

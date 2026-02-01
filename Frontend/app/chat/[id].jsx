@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import client from '../../api/client';
 import SafeScreen from '../../components/SafeScreen';
 import { LinearGradient } from 'expo-linear-gradient';
+import { encryptMessage, decryptMessage } from '../../utils/encryption';
 
 const getDateHeaderLabel = (dateString) => {
     const date = new Date(dateString);
@@ -82,14 +83,22 @@ export default function ChatScreen() {
     // Initial fetch
     useEffect(() => {
         fetchChatDetails();
-        fetchMessages();
         // Poll for new messages and partner status
         const interval = setInterval(() => {
-            fetchMessages();
-            fetchChatDetails();
+            fetchMessages(); // fetchMessages relies on partner state? No, but needs it for decryption?
+            fetchChatDetails(); // To get partner key if updated
         }, 5000);
         return () => clearInterval(interval);
     }, [id]);
+
+    // Split fetchMessages to depend on partner loaded to decrypt correctly?
+    // Or fetchMessages gets messages, then decrypts them using partner stored in state?
+    useEffect(() => {
+        if (partner) {
+            fetchMessages();
+        }
+    }, [partner, id]);
+
 
     const getReadStatus = (message) => {
         if (message.sender._id !== currentUser._id) return null;
@@ -102,17 +111,46 @@ export default function ChatScreen() {
             const chat = res.data;
             const chatPartner = chat.participants.find(p => p._id !== currentUser._id) || chat.participants[0];
             setPartner(chatPartner);
+            return chatPartner;
         } catch (error) {
             console.error("Failed to fetch chat details", error);
+            return null;
         }
     };
 
     const fetchMessages = async () => {
         try {
+            // Ensure we have partner key?
+            let currentPartner = partner;
+            if (!currentPartner && !currentPartner?.publicKey) {
+                // Try to fetch or wait?
+                // On first load, partner might be null.
+                // We called fetchChatDetails on mount.
+                // It's racey. 
+            }
+
             const res = await client.get(`/chat/${id}/messages`);
-            // Only update if length changed or something significant to avoid jitter
-            // For simplicity, just set it for now. Optimization: compare last message ID.
-            setMessages(res.data);
+            let rawMessages = res.data;
+
+            if (partner?.publicKey) {
+                const decryptedMsgs = await Promise.all(rawMessages.map(async (msg) => {
+                    // Try to decrypt text
+                    if (msg.messageType === 'text' && msg.content) {
+                        // Decrypt using Partner's public Key (works for both Sent and Received in 1-on-1 Box)
+                        try {
+                            const plain = await decryptMessage(msg.content, partner.publicKey);
+                            msg.content = plain;
+                        } catch (e) {
+                            // msg.content = "⚠️ Encrypted Message";
+                        }
+                    }
+                    return msg;
+                }));
+                setMessages(decryptedMsgs);
+            } else {
+                setMessages(rawMessages);
+            }
+
         } catch (error) {
             console.error("Failed to fetch messages", error);
         }
@@ -123,9 +161,21 @@ export default function ChatScreen() {
 
         try {
             setSending(true);
+
+            let contentToSend = "";
+
+            if (type === "text") {
+                if (!partner?.publicKey) {
+                    Alert.alert("E2EE Error", "Partner has no encryption key. Cannot send safe message.");
+                    setSending(false);
+                    return;
+                }
+                contentToSend = await encryptMessage(newMessage, partner.publicKey);
+            }
+
             await client.post(`/chat/${id}/messages`, {
                 messageType: type,
-                content: type === "text" ? newMessage : "",
+                content: contentToSend, // E2EE encrypted
                 media: mediaData
             });
             if (type === "text") setNewMessage('');

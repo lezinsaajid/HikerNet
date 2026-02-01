@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useContext, useCallback } fr
 import { getItem, setItem, deleteItem } from '../utils/platformStorage';
 import client from '../api/client';
 import { useRouter, useSegments } from 'expo-router';
+import { generateAndSaveKeys, getKeys, encryptPrivateKey, decryptPrivateKey, saveKeys } from '../utils/encryption';
 
 const AuthContext = createContext();
 
@@ -87,7 +88,7 @@ export const AuthProvider = ({ children }) => {
             const res = await client.post('/auth/login', { email, password });
             const { token, user: newUser } = res.data;
 
-            await handleAuthSuccess(newUser, token);
+            await handleAuthSuccess(newUser, token, password);
             return { success: true };
         } catch (error) {
             return { success: false, msg: error.response?.data?.message || "Login failed" };
@@ -99,20 +100,77 @@ export const AuthProvider = ({ children }) => {
             const res = await client.post('/auth/register', { username, email, password });
             const { token, user: newUser } = res.data;
 
-            await handleAuthSuccess(newUser, token);
+            await handleAuthSuccess(newUser, token, password);
             return { success: true };
         } catch (error) {
             return { success: false, msg: error.response?.data?.message || "Registration failed" };
         }
     };
 
-    const handleAuthSuccess = async (newUser, token) => {
+    const handleAuthSuccess = async (newUser, token, password) => {
         try {
             if (!token || typeof token !== 'string') {
                 console.error("Invalid token format:", token);
                 if (token) token = String(token);
                 else throw new Error("Invalid token received from server");
             }
+
+            // --- E2EE KEY MANAGEMENT ---
+            // 1. Check if we have keys locally
+            let keys = await getKeys();
+            let needsRestore = false;
+
+            if (!keys.publicKey || !keys.secretKey) {
+                // No Local Keys. 
+
+                // AUTO-RESTORE CHECK
+                if (newUser.encryptedPrivateKey && newUser.keyBackupSalt && password) {
+                    console.log("[E2EE] Backup found. Attempting Auto-Restore...");
+                    try {
+                        const restoredSecretKey = await decryptPrivateKey(newUser.encryptedPrivateKey, newUser.keyBackupSalt, password);
+                        keys = {
+                            publicKey: newUser.publicKey,
+                            secretKey: restoredSecretKey
+                        }
+                        await saveKeys(keys);
+                        console.log("[E2EE] Auto-Restore SUCCESS!");
+                    } catch (restoreErr) {
+                        console.warn("[E2EE] Auto-Restore Failed (Wrong Password?):", restoreErr);
+                        needsRestore = true; // Fallback to manual
+                    }
+                } else if (newUser.encryptedPrivateKey && newUser.keyBackupSalt) {
+                    console.log("[E2EE] Backup found but no password provided for auto-restore.");
+                    needsRestore = true;
+                } else {
+                    console.log("[E2EE] No keys, no backup. Generating new keys...");
+                    keys = await generateAndSaveKeys();
+
+                    // AUTO-BACKUP CHECK
+                    if (password) {
+                        try {
+                            console.log("[E2EE] Performing Auto-Backup...");
+                            const { encryptedPrivateKey, salt } = await encryptPrivateKey(keys.secretKey, password);
+
+                            // We need to upload this. But we need 'token' first?
+                            // Token is not set in storage yet, but we have it.
+                            // We can use a direct axios call or use client with manual header if needed, 
+                            // but simpler to do it after token storage or just call API.
+                            // Let's do it later in the function? 
+                            // Or calculate it here and attach to user object to save locally, then upload.
+
+                            // Attach to newUser object so it gets saved to local accounts
+                            newUser.encryptedPrivateKey = encryptedPrivateKey;
+                            newUser.keyBackupSalt = salt;
+                        } catch (backupErr) {
+                            console.error("Auto-Backup Failed:", backupErr);
+                        }
+                    }
+                }
+            } else {
+                console.log("[E2EE] Existing keys found.");
+            }
+
+            // ... (rest of function) ...
 
             // Safe array check
             const currentAccounts = Array.isArray(accounts) ? accounts : [];
@@ -128,10 +186,54 @@ export const AuthProvider = ({ children }) => {
             }));
 
             const sanitizedUser = newUser?._id ? { ...newUser, _id: String(newUser._id) } : newUser;
-            setUser(sanitizedUser);
-            await setItem('token', token); // Set active token for client
+
+            // Set Storage (This sets the active token for `client` interceptor if we reload, but for now `client` reads from file? No `client` reads from storage on request)
+            await setItem('token', token);
             await saveAccounts(sanitizedNewAccounts, sanitizedUser);
+
+            // POST-LOGIN SYNC: Upload Public Key & Auto-Backup
+            if (!needsRestore) {
+                // 1. Upload Public Key if missing/changed
+                if (!newUser.publicKey || newUser.publicKey !== keys.publicKey) {
+                    try {
+                        console.log("[E2EE] Uploading public key to server...");
+                        await client.put('/users/keys', { publicKey: keys.publicKey });
+                        sanitizedUser.publicKey = keys.publicKey;
+                    } catch (keyErr) { console.error("Pubkey Upload Failed", keyErr); }
+                }
+
+                // 2. Upload Backup if we have it locally (from Auto-Backup step above) but server doesn't match?
+                // Or if we just generated it.
+                if (newUser.encryptedPrivateKey && newUser.keyBackupSalt && (!newUser.createdAt || newUser.encryptedPrivateKey !== "" /* check if it was just added */)) {
+                    // How do we know if we need to upload backup? 
+                    // If we just generated keys and auto-encrypted, `newUser` has the fields but server might not.
+                    // Actually `newUser` came from server response. We modified it above locally. 
+                    // So we should upload.
+                    try {
+                        console.log("[E2EE] Uploading Auto-Backup...");
+                        await client.put('/users/keys/backup', {
+                            encryptedPrivateKey: newUser.encryptedPrivateKey,
+                            keyBackupSalt: newUser.keyBackupSalt
+                        });
+                    } catch (upErr) { console.error("Backup Upload Failed", upErr); }
+                }
+
+                // Save updated user again to be sure
+                const finalAccounts = newAccounts.map(acc =>
+                    String(acc.user._id) === String(sanitizedUser._id) ? { ...acc, user: sanitizedUser } : acc
+                );
+                await saveAccounts(finalAccounts, sanitizedUser);
+            }
+
+            setUser(sanitizedUser);
             setIsAddingAccount(false); // Reset flag
+
+            // Redirect based on restore need
+            if (needsRestore) {
+                setTimeout(() => {
+                    router.replace('/settings/restore-keys');
+                }, 100);
+            }
         } catch (error) {
             console.error("handleAuthSuccess error:", error);
             throw error; // Re-throw to let login() catch it

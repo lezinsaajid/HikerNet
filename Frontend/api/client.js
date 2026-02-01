@@ -11,16 +11,39 @@ const client = axios.create({
     timeout: 10000,
 });
 
+// Debug logging
+console.log('API Client Configured:', {
+    baseURL: BASE_URL,
+    isDevice: !__DEV__,
+});
+
 client.interceptors.request.use(async (config) => {
     try {
         const token = await getItem('token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
+        // console.log(`[Request] ${config.method.toUpperCase()} ${config.url}`);
     } catch (error) {
         console.error("Error reading token", error);
     }
     return config;
 });
+
+client.interceptors.response.use(
+    response => response,
+    error => {
+        if (error.response) {
+            // Server responded with a status code outside 2xx
+            console.error(`[API Error] ${error.config?.url}:`, error.response.status, error.response.data);
+        } else if (error.request) {
+            // Request was made but no response received
+            console.error(`[Network Error] ${error.config?.url}: No response received`, error.message);
+        } else {
+            console.error(`[Error] ${error.message}`);
+        }
+        return Promise.reject(error);
+    }
+);
 
 export default client;
