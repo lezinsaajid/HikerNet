@@ -1,23 +1,27 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, Alert, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, Alert, Dimensions, StatusBar } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../../api/client';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInUp, Layout } from 'react-native-reanimated';
 import UserListModal from '../../components/UserListModal';
 import SafeScreen from '../../components/SafeScreen';
 
 const { width } = Dimensions.get('window');
 
-const getTierColor = (tier) => {
-    switch (tier) {
-        case 'Trail Master': return '#ff922b'; // Orange
-        case 'Pathfinder': return '#5c7cfa'; // Blue
-        case 'Explorer': return '#28a745'; // Green
-        case 'Wanderer': return '#94d82d'; // Lime
-        default: return '#adb5bd'; // Gray
-    }
+const TIER_STYLING = {
+    'Trail Master': { color: '#28a745', icon: 'flame', glow: 'rgba(40, 167, 69, 0.4)' },
+    'Pathfinder': { color: '#007AFF', icon: 'map', glow: 'rgba(0, 122, 255, 0.4)' },
+    'Explorer': { color: '#34C759', icon: 'compass', glow: 'rgba(52, 199, 89, 0.4)' },
+    'Wanderer': { color: '#28a745', icon: 'walk', glow: 'rgba(255, 214, 10, 0.4)' },
+    'Newbie': { color: '#8E8E93', icon: 'footsteps', glow: 'rgba(142, 142, 147, 0.4)' }
 };
+
+const getTierColor = (tier) => TIER_STYLING[tier]?.color || '#adb5bd';
+const getTierGlow = (tier) => TIER_STYLING[tier]?.glow || 'rgba(173, 181, 189, 0.2)';
 
 
 export default function UserProfile() {
@@ -81,10 +85,22 @@ export default function UserProfile() {
 
     const fetchUserAdventures = useCallback(async () => {
         try {
-            const res = await client.get(`/treks/user/${id}`);
-            setUserAdventures(res.data || []);
+            // Fetch both Treks and Adventure Remarks
+            const [treksRes, remarksRes] = await Promise.all([
+                client.get(`/treks/user/${id}`),
+                client.get(`/adventures/user/${id}`)
+            ]);
+
+            // Combine and sort by date
+            const combined = [
+                ...(treksRes.data || []).map(t => ({ ...t, displayType: 'trek' })),
+                ...(remarksRes.data || []).map(r => ({ ...r, displayType: 'remark' }))
+            ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+            setUserAdventures(combined);
         } catch (error) {
-            console.error("Error fetching treks:", error);
+            console.error("Error fetching adventures:", error);
+            setUserAdventures([]);
         }
     }, [id]);
 
@@ -211,18 +227,26 @@ export default function UserProfile() {
 
     const renderGridItem = ({ item }) => {
         if (activeTab === 'trails') {
+            const isRemark = item.displayType === 'remark';
             return (
                 <View style={styles.adventureCard}>
                     <View style={styles.adventureHeader}>
                         <View style={styles.adventureUserGroup}>
-                            <Ionicons name="map-outline" size={24} color="#4A7C44" style={{ marginRight: 10 }} />
+                            <Ionicons
+                                name={isRemark ? "chatbubble-ellipses-outline" : "map-outline"}
+                                size={24}
+                                color={isRemark ? "#28a745" : "#4A7C44"}
+                                style={{ marginRight: 10 }}
+                            />
                             <View>
-                                <Text style={styles.adventureUsername}>{item.name}</Text>
+                                <Text style={styles.adventureUsername}>{isRemark ? "Adventure Remark" : item.name}</Text>
                                 <Text style={styles.adventureDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
                             </View>
                         </View>
                     </View>
-                    {item.location && (
+                    {isRemark ? (
+                        <Text style={styles.adventureContent}>{item.content}</Text>
+                    ) : item.location && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
                             <Ionicons name="location" size={14} color="#666" />
                             <Text style={[styles.adventureContent, { marginLeft: 4 }]}>{item.location}</Text>
@@ -272,20 +296,36 @@ export default function UserProfile() {
     if (loading && !userData) {
         return (
             <SafeScreen style={{ justifyContent: 'center', alignItems: 'center' }}>
-                <ActivityIndicator size="large" color="#4A7C44" />
+                <ActivityIndicator size="large" color="#28a745" />
             </SafeScreen>
         );
     }
 
     return (
-        <SafeScreen>
+        <SafeScreen backgroundColor="#F8F9FA" statusBarStyle="dark-content">
             <View style={styles.topBar}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="chevron-back" size={28} color="#000" />
+                <LinearGradient
+                    colors={['#F8F9FA', '#FBFBFB']}
+                    style={StyleSheet.absoluteFill}
+                />
+                <TouchableOpacity
+                    onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        router.back();
+                    }}
+                    style={styles.backButton}
+                >
+                    <Ionicons name="chevron-back" size={28} color="#1a1a1b" />
                 </TouchableOpacity>
                 <Text style={styles.headerUsername}>{userData?.username}</Text>
-                <TouchableOpacity onPress={handleMenuPress} style={styles.menuButton}>
-                    <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
+                <TouchableOpacity
+                    onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        handleMenuPress();
+                    }}
+                    style={styles.menuButton}
+                >
+                    <Ionicons name="ellipsis-horizontal" size={24} color="#1a1a1b" />
                 </TouchableOpacity>
             </View>
 
@@ -295,43 +335,96 @@ export default function UserProfile() {
                 numColumns={activeTab === 'trails' ? 1 : 3}
                 keyExtractor={(item) => item._id}
                 ListHeaderComponent={
-                    <View style={styles.headerContainer}>
-                        <View style={styles.profileMainInfo}>
-                            <View style={styles.avatarContainer}>
-                                <Image
-                                    source={{ uri: userData?.profileImage || 'https://via.placeholder.com/150' }}
-                                    style={styles.avatar}
-                                />
-                            </View>
-                            <View style={styles.titleInfo}>
-                                <Text style={styles.displayName}>{userData?.username}</Text>
-                                <View style={styles.locationRow}>
-                                    <Ionicons name="location-outline" size={14} color="#666" />
-                                    <Text style={styles.locationText}>{userData?.location || "Mountain Peak, CO"}</Text>
-                                    <View style={[styles.tierBadge, { backgroundColor: getTierColor(userData?.tier) }]}>
-                                        <Text style={styles.tierBadgeText}>{userData?.tier || "Newbie"}</Text>
-                                    </View>
+                    <Animated.View entering={FadeInUp.duration(600)} style={styles.headerContainer}>
+                        <LinearGradient
+                            colors={['#E8F5E9', '#FFFFFF']}
+                            style={styles.headerGradient}
+                        />
+                        <View style={styles.profileRow}>
+                            <View style={styles.avatarWrapper}>
+                                <View style={[styles.avatarGlow, { backgroundColor: getTierGlow(userData?.tier || 'Wanderer') }]} />
+                                <View style={styles.avatarContainer}>
+                                    <Image
+                                        source={{ uri: userData?.profileImage || 'https://via.placeholder.com/150' }}
+                                        style={styles.avatar}
+                                    />
                                 </View>
+                            </View>
+
+                            <View style={styles.infoColumn}>
+                                <Text style={styles.displayName}>{userData?.username || 'Hiker'}</Text>
+
+                                {userData?.location && (
+                                    <View style={styles.locationRow}>
+                                        <Ionicons name="location-sharp" size={14} color="#A0A0A0" />
+                                        <Text style={styles.locationText}>{userData.location}</Text>
+                                    </View>
+                                )}
+
+                                <View style={[styles.tierBadge, { backgroundColor: getTierColor(userData?.tier || 'Wanderer') + '20', borderColor: getTierColor(userData?.tier || 'Wanderer') }]}>
+                                    <Ionicons name={TIER_STYLING[userData?.tier || 'Wanderer']?.icon || 'walk'} size={12} color={getTierColor(userData?.tier || 'Wanderer')} style={{ marginRight: 4 }} />
+                                    <Text style={[styles.tierBadgeText, { color: getTierColor(userData?.tier || 'Wanderer') }]}>{userData?.tier || 'Wanderer'}</Text>
+                                </View>
+
+                                {userData?.bio && (
+                                    <Text style={styles.bioText} numberOfLines={3}>{userData.bio}</Text>
+                                )}
                             </View>
                         </View>
 
-                        {userData?.bio ? (
-                            <Text style={styles.bioText} numberOfLines={3}>
-                                {userData.bio}
-                            </Text>
-                        ) : null}
+                        <View style={styles.statsBar}>
+                            <TouchableOpacity
+                                style={styles.statItem}
+                                onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    setActiveTab('trails');
+                                }}
+                            >
+                                <Text style={styles.statValue}>{userData?.treksCount || userAdventures.length}</Text>
+                                <Text style={styles.statLabel}>Trails</Text>
+                            </TouchableOpacity>
+                            <View style={styles.statDivider} />
+                            <TouchableOpacity
+                                style={styles.statItem}
+                                onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    openUserList('followers');
+                                }}
+                            >
+                                <Text style={styles.statValue}>{userData?.followers?.length || 0}</Text>
+                                <Text style={styles.statLabel}>Friends</Text>
+                            </TouchableOpacity>
+                            <View style={styles.statDivider} />
+                            <TouchableOpacity
+                                style={styles.statItem}
+                                onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    router.push('/leaderboard');
+                                }}
+                            >
+                                <Text style={styles.statValue}>
+                                    {(userData?.treksCount || userAdventures.length) > 0 && userData?.rank ? `#${userData.rank}` : '#-'}
+                                </Text>
+                                <Text style={styles.statLabel}>Rank</Text>
+                            </TouchableOpacity>
+                        </View>
 
-                        {/* Action Buttons: Chat & Connect ONLY */}
                         <View style={styles.actionRow}>
                             <TouchableOpacity
                                 style={[styles.actionBtn, styles.chatBtn]}
-                                onPress={() => Alert.alert("Chat", "Coming soon!")}
+                                onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    Alert.alert("Chat", "Coming soon!");
+                                }}
                             >
                                 <Text style={styles.chatBtnText}>Chat</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={[styles.actionBtn, isFollowing ? styles.followingBtn : styles.connectBtn]}
-                                onPress={handleConnect}
+                                onPress={() => {
+                                    Haptics.impactAsync(isFollowing ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium);
+                                    handleConnect();
+                                }}
                             >
                                 <Text style={[styles.connectBtnText, isFollowing && styles.followingBtnText]}>
                                     {isFollowing ? "Following" : "Connect"}
@@ -339,63 +432,53 @@ export default function UserProfile() {
                             </TouchableOpacity>
                         </View>
 
-                        <View style={styles.statsContainer}>
-                            <View style={styles.statItem}>
-                                <Text style={styles.statValue}>{userAdventures.length}</Text>
-                                <Text style={styles.statLabel}>Trails</Text>
-                            </View>
-                            <View style={styles.statsDivider} />
-                            <TouchableOpacity style={styles.statItem} onPress={() => openUserList('following')}>
-                                <Text style={styles.statValue}>
-                                    {userData?._id && user?._id && String(userData._id) === String(user._id) ? (user.following?.length || 0) : (userData?.following?.length || 0)}
-                                </Text>
-                                <Text style={styles.statLabel}>Friends</Text>
-                            </TouchableOpacity>
-                            <View style={styles.statsDivider} />
-                            <View style={styles.statItem}>
-                                <Text style={styles.statValue}>
-                                    {userAdventures.length > 0 && userData?.rank ? `#${userData.rank}` : '#-'}
-                                </Text>
-                                <Text style={styles.statLabel}>Rank</Text>
+                        <View style={styles.tabSectionContainer}>
+                            <View style={styles.tabsSection}>
+                                <TouchableOpacity
+                                    style={[styles.tabItem, activeTab === 'posts' && styles.activeTabItem]}
+                                    onPress={() => {
+                                        Haptics.selectionAsync();
+                                        setActiveTab('posts');
+                                    }}
+                                >
+                                    <Ionicons
+                                        name={activeTab === 'posts' ? "grid" : "grid-outline"}
+                                        size={22}
+                                        color={activeTab === 'posts' ? "#28a745" : "#A0A0A0"}
+                                    />
+                                    {activeTab === 'posts' && <Animated.View layout={Layout} style={styles.activeIndicator} />}
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.tabItem, activeTab === 'trails' && styles.activeTabItem]}
+                                    onPress={() => {
+                                        Haptics.selectionAsync();
+                                        setActiveTab('trails');
+                                    }}
+                                >
+                                    <Ionicons
+                                        name={activeTab === 'trails' ? "map" : "map-outline"}
+                                        size={22}
+                                        color={activeTab === 'trails' ? "#28a745" : "#A0A0A0"}
+                                    />
+                                    {activeTab === 'trails' && <Animated.View layout={Layout} style={styles.activeIndicator} />}
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.tabItem, activeTab === 'tagged' && styles.activeTabItem]}
+                                    onPress={() => {
+                                        Haptics.selectionAsync();
+                                        setActiveTab('tagged');
+                                    }}
+                                >
+                                    <Ionicons
+                                        name={activeTab === 'tagged' ? "person" : "person-outline"}
+                                        size={22}
+                                        color={activeTab === 'tagged' ? "#28a745" : "#A0A0A0"}
+                                    />
+                                    {activeTab === 'tagged' && <Animated.View layout={Layout} style={styles.activeIndicator} />}
+                                </TouchableOpacity>
                             </View>
                         </View>
-
-                        <View style={styles.tabsSection}>
-                            <TouchableOpacity
-                                style={[styles.tabItem, activeTab === 'posts' && styles.activeTabItem]}
-                                onPress={() => setActiveTab('posts')}
-                            >
-                                <Ionicons
-                                    name={activeTab === 'posts' ? "grid" : "grid-outline"}
-                                    size={24}
-                                    color={activeTab === 'posts' ? "#2D2D2D" : "#A0A0A0"}
-                                />
-                                {activeTab === 'posts' && <View style={styles.activeIndicator} />}
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.tabItem, activeTab === 'trails' && styles.activeTabItem]}
-                                onPress={() => setActiveTab('trails')}
-                            >
-                                <Ionicons
-                                    name={activeTab === 'trails' ? "map" : "map-outline"}
-                                    size={24}
-                                    color={activeTab === 'trails' ? "#2D2D2D" : "#A0A0A0"}
-                                />
-                                {activeTab === 'trails' && <View style={styles.activeIndicator} />}
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.tabItem, activeTab === 'tagged' && styles.activeTabItem]}
-                                onPress={() => setActiveTab('tagged')}
-                            >
-                                <Ionicons
-                                    name={activeTab === 'tagged' ? "person" : "person-outline"}
-                                    size={24}
-                                    color={activeTab === 'tagged' ? "#2D2D2D" : "#A0A0A0"}
-                                />
-                                {activeTab === 'tagged' && <View style={styles.activeIndicator} />}
-                            </TouchableOpacity>
-                        </View>
-                    </View>
+                    </Animated.View>
                 }
                 renderItem={renderGridItem}
                 contentContainerStyle={styles.listContent}
@@ -428,91 +511,177 @@ export default function UserProfile() {
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
-        backgroundColor: '#FFF',
+        backgroundColor: '#F8F9FA',
     },
     topBar: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 15,
-        paddingVertical: 10,
-        backgroundColor: '#FFF',
+        paddingHorizontal: 20,
+        height: 60,
+        backgroundColor: '#F8F9FA',
+        zIndex: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(0,0,0,0.05)',
     },
     headerUsername: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#000',
+        fontSize: 18,
+        fontWeight: '800',
+        color: '#1a1a1b',
+        letterSpacing: -0.5,
     },
     backButton: {
         padding: 5,
     },
-    listContent: {
-        paddingBottom: 20,
+    menuButton: {
+        padding: 5,
     },
-    headerContainer: {
-        paddingHorizontal: 20,
-        paddingTop: 15,
+    listContent: {
+        paddingBottom: 40,
         backgroundColor: '#FBFBFB',
     },
-    profileMainInfo: {
-        flexDirection: 'column',
+    headerContainer: {
+        backgroundColor: '#FFF',
+        paddingBottom: 25,
+        borderBottomLeftRadius: 30,
+        borderBottomRightRadius: 30,
+        overflow: 'visible',
+        elevation: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 15,
+        zIndex: 5,
+    },
+    headerGradient: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    profileRow: {
+        flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 20,
+        paddingHorizontal: 25,
+        paddingTop: 10,
+        marginBottom: 35,
+    },
+    avatarWrapper: {
+        marginRight: 20,
+        position: 'relative',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    avatarGlow: {
+        position: 'absolute',
+        width: 110,
+        height: 110,
+        borderRadius: 55,
+        opacity: 0.6,
     },
     avatarContainer: {
-        marginBottom: 15,
+        width: 90,
+        height: 90,
+        borderRadius: 45,
+        padding: 3,
+        backgroundColor: '#FFF',
+        elevation: 15,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.2,
+        shadowRadius: 15,
     },
     avatar: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
-        backgroundColor: '#F0F0F0',
-        borderWidth: 3,
-        borderColor: '#FFF',
+        width: '100%',
+        height: '100%',
+        borderRadius: 42,
+        backgroundColor: '#F2F2F7',
     },
-    titleInfo: {
-        alignItems: 'center',
+    infoColumn: {
+        flex: 1,
     },
     displayName: {
-        fontSize: 26,
-        fontWeight: 'bold',
-        color: '#2D2D2D',
-        letterSpacing: 0.5,
-        marginBottom: 4,
+        fontSize: 24,
+        fontWeight: '900',
+        color: '#1a1a1b',
+        letterSpacing: -1,
+        marginBottom: 2,
     },
     locationRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        marginBottom: 8,
     },
     locationText: {
-        fontSize: 14,
-        color: '#6F6F6F',
+        fontSize: 13,
+        color: '#8e8e93',
         marginLeft: 4,
+        fontWeight: '500',
     },
     tierBadge: {
-        backgroundColor: '#e8f5e9',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
-        marginLeft: 8,
+        flexDirection: 'row',
+        alignSelf: 'flex-start',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 20,
+        borderWidth: 1,
+        alignItems: 'center',
+        marginBottom: 10,
     },
     tierBadgeText: {
         fontSize: 11,
-        color: '#fff',
-        fontWeight: 'bold',
+        fontWeight: '800',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
     bioText: {
         fontSize: 14,
-        color: '#262626',
         lineHeight: 20,
-        marginBottom: 25,
-        paddingHorizontal: 20,
-        textAlign: 'center',
+        color: '#444',
+        paddingHorizontal: 25,
+        marginBottom: 15,
+        fontWeight: '500',
+    },
+    statsBar: {
+        flexDirection: 'row',
+        backgroundColor: '#FFF',
+        marginHorizontal: 20,
+        borderRadius: 20,
+        paddingVertical: 18,
+        marginBottom: 35,
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.05)',
+        elevation: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+    },
+    statItem: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    statValue: {
+        fontSize: 20,
+        fontWeight: '900',
+        color: '#1a1a1b',
+        marginBottom: 2,
+    },
+    statLabel: {
+        fontSize: 11,
+        color: '#8e8e93',
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+    },
+    statDivider: {
+        width: 1,
+        height: '60%',
+        backgroundColor: 'rgba(0,0,0,0.08)',
+        alignSelf: 'center',
     },
     actionRow: {
         flexDirection: 'row',
-        marginBottom: 30,
         paddingHorizontal: 15,
+        marginBottom: 30,
     },
     actionBtn: {
         flex: 1,
@@ -523,153 +692,114 @@ const styles = StyleSheet.create({
         marginHorizontal: 5,
     },
     chatBtn: {
-        backgroundColor: '#403A36',
+        backgroundColor: '#FFF',
     },
     chatBtnText: {
-        color: '#FFF',
-        fontSize: 15,
-        fontWeight: '600',
+        color: '#1a1a1b',
+        fontSize: 14,
+        fontWeight: '700',
     },
     connectBtn: {
-        backgroundColor: '#7A4B3A',
+        backgroundColor: '#28a745',
     },
     connectBtnText: {
         color: '#FFF',
-        fontSize: 15,
-        fontWeight: '600',
+        fontSize: 14,
+        fontWeight: '700',
     },
     followingBtn: {
-        backgroundColor: '#FFF',
+        backgroundColor: '#F0F2F5',
         borderWidth: 1,
-        borderColor: '#7A4B3A',
+        borderColor: 'rgba(0,0,0,0.05)',
     },
     followingBtnText: {
-        color: '#7A4B3A',
+        color: '#1a1a1b',
+        fontWeight: '700',
     },
-    statsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        paddingVertical: 10,
-        marginBottom: 20,
-        backgroundColor: 'transparent',
-    },
-    statItem: {
-        alignItems: 'center',
-        marginHorizontal: 20,
-    },
-    statValue: {
-        fontSize: 20,
-        fontWeight: '800',
-        color: '#2D2D2D',
-        marginBottom: 2,
-    },
-    statLabel: {
-        fontSize: 11,
-        color: '#999',
-        fontWeight: '600',
-        textTransform: 'uppercase',
-        letterSpacing: 1.2,
-    },
-    statsDivider: {
-        width: 1,
-        height: '40%',
-        backgroundColor: '#DDD',
-        alignSelf: 'center',
+    tabSectionContainer: {
+        backgroundColor: '#FBFBFB',
+        marginTop: 35,
+        borderTopLeftRadius: 30,
+        borderTopRightRadius: 30,
+        paddingTop: 15,
     },
     tabsSection: {
         flexDirection: 'row',
-        marginBottom: 10,
         justifyContent: 'space-around',
-        borderTopWidth: 1,
-        borderTopColor: '#F0F0F0',
-        paddingTop: 10,
+        paddingHorizontal: 10,
     },
     tabItem: {
-        flex: 1,
+        paddingVertical: 10,
+        paddingHorizontal: 20,
         alignItems: 'center',
-        paddingBottom: 12,
         position: 'relative',
-    },
-    tabLabel: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#A0A0A0',
-    },
-    activeTabLabel: {
-        color: '#2D2D2D',
     },
     activeIndicator: {
         position: 'absolute',
         bottom: 0,
-        left: 0,
-        right: 0,
-        height: 2,
-        backgroundColor: '#2D2D2D',
-        borderRadius: 1,
+        width: 25,
+        height: 3,
+        backgroundColor: '#28a745',
+        borderRadius: 2,
     },
     postGridItem: {
         width: width / 3,
         height: width / 3,
-        padding: 4,
+        padding: 2,
     },
     gridImage: {
         width: '100%',
         height: '100%',
-        borderRadius: 12,
+        borderRadius: 8,
         backgroundColor: '#EEE',
-    },
-    emptyContainer: {
-        alignItems: 'center',
-        paddingVertical: 50,
-    },
-    emptyText: {
-        color: '#AAA',
-        marginTop: 10,
-        fontSize: 16,
     },
     adventureCard: {
         backgroundColor: '#FFF',
         marginHorizontal: 20,
-        marginBottom: 15,
-        borderRadius: 15,
+        marginVertical: 8,
         padding: 15,
-        borderWidth: 1,
-        borderColor: '#F0F0F0',
-        elevation: 2,
+        borderRadius: 15,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 2,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
     },
     adventureHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 12,
+        marginBottom: 8,
     },
     adventureUserGroup: {
         flexDirection: 'row',
         alignItems: 'center',
     },
-    adventureAvatar: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        marginRight: 10,
-        backgroundColor: '#F0F0F0',
-    },
     adventureUsername: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#2D2D2D',
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#333',
     },
     adventureDate: {
         fontSize: 12,
         color: '#999',
     },
     adventureContent: {
-        fontSize: 15,
-        color: '#444',
-        lineHeight: 22,
+        fontSize: 14,
+        color: '#666',
+        fontWeight: '500',
+    },
+    emptyContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 100,
+    },
+    emptyText: {
+        color: '#CCC',
+        marginTop: 15,
+        fontSize: 16,
+        fontWeight: '600',
     },
 });

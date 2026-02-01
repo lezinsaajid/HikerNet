@@ -192,7 +192,7 @@ export default function UserListModal({ visible, onClose, userId, type, mode = '
 
                     {loading ? (
                         <View style={styles.center}>
-                            <ActivityIndicator color="#4A7C44" />
+                            <ActivityIndicator color="#28a745" />
                         </View>
                     ) : (
                         <FlatList
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
         borderColor: '#dee2e6',
     },
     followButton: {
-        backgroundColor: '#0095f6',
+        backgroundColor: '#28a745',
         paddingHorizontal: 20,
         paddingVertical: 8,
         borderRadius: 5,
