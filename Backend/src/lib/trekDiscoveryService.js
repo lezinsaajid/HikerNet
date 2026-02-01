@@ -10,8 +10,8 @@ export const discoverTreks = async (query, limit = 30) => {
         let overpassQuery;
 
         if (query.lat && query.lon) {
-            // Search by radius (e.g., 200km)
-            const radius = query.radius || 200000;
+            // Search by radius (e.g., 50km default for stability)
+            const radius = query.radius || 50000;
             overpassQuery = `
                 [out:json][timeout:30];
                 (
@@ -24,7 +24,7 @@ export const discoverTreks = async (query, limit = 30) => {
         } else if (typeof query === 'string' || (query.q && typeof query.q === 'string')) {
             // Search by name, optionally around a location
             const searchTerm = typeof query === 'string' ? query : query.q;
-            const aroundClause = (query.lat && query.lon) ? `(around:${query.radius || 200000},${query.lat},${query.lon})` : '';
+            const aroundClause = (query.lat && query.lon) ? `(around:${query.radius || 50000},${query.lat},${query.lon})` : '';
 
             overpassQuery = `
                 [out:json][timeout:30];
@@ -50,6 +50,10 @@ export const discoverTreks = async (query, limit = 30) => {
         });
 
         if (!response.ok) {
+            if (response.status === 504 || response.status === 429) {
+                console.warn(`Overpass API Busy/Timeout (${response.status}). Returning empty results.`);
+                return [];
+            }
             const errorText = await response.text();
             console.error("Overpass Response Error text:", errorText);
             throw new Error(`Overpass API Error: ${response.status}`);

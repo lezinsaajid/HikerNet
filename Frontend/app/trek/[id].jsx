@@ -52,7 +52,7 @@ export default function TrailDetailsScreen() {
 
     const handleStart = (mode) => {
         router.push({
-            pathname: '/trek/active',
+            pathname: '/trek/active-trek',
             params: {
                 trailId: id,
                 mode

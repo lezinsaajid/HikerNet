@@ -1,35 +1,64 @@
 import React from 'react';
-import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, Polyline, UrlTile, PROVIDER_DEFAULT } from 'react-native-maps';
 import { View, StyleSheet } from 'react-native';
+import { MAP_STYLE_WHITE } from '../styles/mapStyles';
 
-const NativeMap = ({
+const OSM_URL_TEMPLATE = "https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png";
+
+const NativeMap = React.forwardRef(({
     initialRegion,
+    region,
     onPress,
+    onPanDrag,
+    onRegionChange,
     showsUserLocation = true,
     followsUserLocation = false,
     mapType = 'standard',
     children,
     style
-}) => {
-    return (
-        <MapView
-            style={[styles.map, style]}
-            provider={PROVIDER_DEFAULT}
-            initialRegion={initialRegion}
-            mapType={mapType}
-            onPress={onPress}
-            showsUserLocation={showsUserLocation}
-            followsUserLocation={followsUserLocation}
-        >
-            {children}
-        </MapView>
-    );
-};
+}, ref) => {
+    // If standard mode, we use custom white tiles to ensure it works without API keys
+    const isStandard = mapType === 'standard';
 
-// Re-export Marker and Polyline so screens can use them without importing from react-native-maps directly
-export { Marker, Polyline };
+    return (
+        <View style={[styles.container, style]}>
+            <MapView
+                ref={ref}
+                style={styles.map}
+                provider={PROVIDER_DEFAULT}
+                initialRegion={initialRegion}
+                region={region}
+                mapType={isStandard ? 'none' : mapType}
+                customMapStyle={isStandard ? MAP_STYLE_WHITE : undefined}
+                onPress={onPress}
+                onPanDrag={onPanDrag}
+                onRegionChange={onRegionChange}
+                showsUserLocation={showsUserLocation}
+                followsUserLocation={followsUserLocation}
+                loadingEnabled={true}
+            >
+                {isStandard && (
+                    <UrlTile
+                        urlTemplate={OSM_URL_TEMPLATE}
+                        maximumZ={19}
+                        flipY={false}
+                        zIndex={-1} // Ensure tiles are below markers/polylines
+                    />
+                )}
+                {children}
+            </MapView>
+        </View>
+    );
+});
+
+// Re-export Marker, Polyline, UrlTile
+export { Marker, Polyline, UrlTile };
 
 const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#ffffff',
+    },
     map: {
         flex: 1,
     }

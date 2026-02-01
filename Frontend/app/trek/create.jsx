@@ -67,7 +67,7 @@ export default function CreateTrailScreen() {
         }
 
         router.push({
-            pathname: '/trek/active',
+            pathname: '/trek/active-trek',
             params: {
                 name,
                 description,

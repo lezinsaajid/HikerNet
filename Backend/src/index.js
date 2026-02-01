@@ -22,8 +22,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 console.log("Hikernet Backend Starting...");
-console.log(`Weather API Key exists: ${!!process.env.API_KEY}`);
-console.log(`Weather API Base: ${process.env.API_BASE}`);
 
 job.start();
 
@@ -44,7 +42,7 @@ app.use("/api/adventures", adventureRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/chat", chatRoutes);
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     connectDB();
 });

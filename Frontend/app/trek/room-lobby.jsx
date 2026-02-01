@@ -85,10 +85,11 @@ export default function RoomLobby() {
             if (data.trekId) {
                 if (pollingRef.current) clearInterval(pollingRef.current);
                 router.replace({
-                    pathname: '/trek/active',
+                    pathname: '/trek/active-trek',
                     params: {
-                        trailId: data.trekId,
-                        role: role
+                        trailId: roomId,
+                        mode: 'group',
+                        role: 'member' // or logic for leader
                     }
                 });
             }
