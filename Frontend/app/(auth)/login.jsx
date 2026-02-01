@@ -1,9 +1,21 @@
-// ... imports
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Dimensions, Image, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Link, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../../context/AuthContext';
+
+const { width } = Dimensions.get('window');
 
 export default function Login() {
     const insets = useSafeAreaInsets();
-    // ...
+    const router = useRouter();
+    const { login, user, cancelAddAccount } = useAuth();
+
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [loggingIn, setLoggingIn] = useState(false);
 
     // In JSX:
     {/* Show back/close button if adding an account */ }

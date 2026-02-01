@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, FlatList, Image, TextInput, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, TextInput, FlatList, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
-import WeatherWidget from '../../components/WeatherWidget';
 import NativeMap, { Polyline, Marker } from '../../components/NativeMap';
+import client from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
+import WeatherWidget from '../../components/WeatherWidget';
 // icon map
 const MARKER_ICONS = [
     { name: 'water', icon: 'water', color: '#007bff', label: 'Water', tags: ['river', 'lake', 'drink', 'stream', 'wet'] },
@@ -26,9 +28,10 @@ const MARKER_ICONS = [
     { name: 'star', icon: 'star', color: '#fbc02d', label: 'Special', tags: ['favorite', 'good', 'gold', 'best', 'star'] },
 ];
 
-export default function ActiveTrailScreen() {
+export default function ActiveTrek() {
     const router = useRouter();
     const params = useLocalSearchParams();
+    useKeepAwake(); // Prevent screen from sleeping while tracking
     const { name, description, location: initialLocation, mode, trailId: paramTrailId, role = 'leader' } = params;
 
     const [location, setLocation] = useState(null);
@@ -44,7 +47,9 @@ export default function ActiveTrailScreen() {
     const [backtrackCoordinates, setBacktrackCoordinates] = useState([]);
     const [markers, setMarkers] = useState([]); // [{latitude, longitude, icon, type}]
     const [distanceToTrail, setDistanceToTrail] = useState(0);
+    const [offTrackWarning, setOffTrackWarning] = useState(false);
     const [mapType, setMapType] = useState('standard'); // 'standard', 'satellite', 'hybrid'
+    const [isFollowingUser, setIsFollowingUser] = useState(true);
 
     // Modal State
     const [showMarkerModal, setShowMarkerModal] = useState(false);
@@ -54,8 +59,10 @@ export default function ActiveTrailScreen() {
 
     // Timer Ref
     const timerRef = useRef(null);
+    const autoFollowTimerRef = useRef(null);
     const pausedRef = useRef(false);
     const locationSubscription = useRef(null);
+    const mapRef = useRef(null);
     const trailIdRef = useRef(trailId);
     const routeRef = useRef([]);
     const lastLocationRef = useRef(null); // For EMA smoothing filter
@@ -164,34 +171,37 @@ export default function ActiveTrailScreen() {
         locationSubscription.current = await Location.watchPositionAsync(
             {
                 accuracy: Location.Accuracy.BestForNavigation,
-                timeInterval: 500,
-                distanceInterval: 1,
+                timeInterval: 500, // Update every 0.5 second
+                distanceInterval: 0, // Update on ANY movement (inches)
             },
             (newLocation) => {
-                if (pausedRef.current && !isTrailingBack) return;
+                const { latitude, longitude, altitude, accuracy } = newLocation.coords;
 
-                const { latitude, longitude, altitude } = newLocation.coords;
+                // Accuracy filter: Skip points with poor precision (> 20m)
+                if (accuracy > 20) return;
 
-                // --- EMA Smoothing Filter ---
-                let smoothedLat = latitude;
-                let smoothedLon = longitude;
+                // --- RAW TRACKING (Every Inch) ---
+                // No filters, no smoothing, no minimum distance.
+                // Records every single GPS signal processed.
+                const newPoint = { latitude, longitude };
 
-                const alpha = 0.6; // Smoothing factor
+                lastLocationRef.current = newPoint;
+                setLocation(newPoint);
 
-                if (lastLocationRef.current) {
-                    smoothedLat = alpha * latitude + (1 - alpha) * lastLocationRef.current.latitude;
-                    smoothedLon = alpha * longitude + (1 - alpha) * lastLocationRef.current.longitude;
+                // Quick Animation (200ms) for high-frequency updates
+                // Using animateCamera to preserve user's zoom level
+                // Only follow if user is not manually interacting
+                if (mapRef.current && isFollowingUser) {
+                    mapRef.current.animateCamera({
+                        center: { latitude, longitude }
+                    }, { duration: 200 });
                 }
 
-                const smoothedPoint = { latitude: smoothedLat, longitude: smoothedLon };
-                lastLocationRef.current = smoothedPoint;
-                setLocation(smoothedPoint);
-
                 if (isTrailingBack) {
-                    setBacktrackCoordinates(prev => [...prev, smoothedPoint]);
-                    checkOffTrack(smoothedLat, smoothedLon);
+                    setBacktrackCoordinates(prev => [...prev, newPoint]);
+                    checkOffTrack(latitude, longitude);
                 } else if (!trailFinished) {
-                    // Manual 1m Distance Threshold Check
+                    // Manual Distance Threshold Check
                     const path = routeRef.current;
                     let shouldRecord = false;
                     let dist = 0;
@@ -199,18 +209,25 @@ export default function ActiveTrailScreen() {
                     if (path.length === 0) {
                         shouldRecord = true;
                     } else {
-                        const last = path[path.length - 1];
-                        dist = calculateDistance(last.latitude, last.longitude, smoothedLat, smoothedLon);
-                        if (dist >= 1) {
+                        // Calculate distance from last point
+                        const lastPoint = path[path.length - 1];
+                        dist = calculateDistance(latitude, longitude, lastPoint.latitude, lastPoint.longitude);
+
+                        // --- MICRO-JITTER FILTER ---
+                        // Only record if moved at least 0.3 meters (approx 1 foot). 
+                        // This allows "every inch" tracking while preventing "ghost" marking when stationary.
+                        if (dist >= 0.3) {
                             shouldRecord = true;
                         }
                     }
 
                     if (shouldRecord) {
-                        const newPoint = { latitude: smoothedLat, longitude: smoothedLon };
-
                         // Update UI Path
-                        setRouteCoordinates(prev => [...prev, newPoint]);
+                        setRouteCoordinates(prev => {
+                            const updated = [...prev, newPoint];
+                            routeRef.current = updated; // Sync Ref for distance checks
+                            return updated;
+                        });
 
                         // Update Stats
                         setStats(prev => ({
@@ -221,7 +238,7 @@ export default function ActiveTrailScreen() {
                         // Sync to Backend
                         if (trailIdRef.current) {
                             client.put(`/treks/update/${trailIdRef.current}`, {
-                                coordinates: [{ latitude: smoothedLat, longitude: smoothedLon, altitude }]
+                                coordinates: [{ latitude, longitude, altitude }]
                             }).catch(console.error);
                         }
                     }
@@ -261,8 +278,6 @@ export default function ActiveTrailScreen() {
             hasAlertedOffTrack.current = false; // Reset when back on track
         }
     };
-
-    const [offTrackWarning, setOffTrackWarning] = useState(false);
 
     const stopLocationTracking = () => {
         if (locationSubscription.current) {
@@ -440,46 +455,68 @@ export default function ActiveTrailScreen() {
             {location ? (
                 <View style={styles.mapContainer}>
                     <NativeMap
+                        ref={mapRef}
                         initialRegion={{
                             latitude: location.latitude,
                             longitude: location.longitude,
-                            latitudeDelta: 0.0002,
-                            longitudeDelta: 0.0002,
+                            latitudeDelta: 0.005, // Slightly wider initial zoom
+                            longitudeDelta: 0.005,
                         }}
                         mapType={mapType}
                         showsUserLocation={true}
-                        followsUserLocation={true}
+                        followsUserLocation={false}
+                        onPanDrag={() => {
+                            setIsFollowingUser(false);
+                            if (autoFollowTimerRef.current) clearTimeout(autoFollowTimerRef.current);
+                            autoFollowTimerRef.current = setTimeout(() => {
+                                setIsFollowingUser(true);
+                            }, 10000); // Resume following after 10 seconds of no panning
+                        }}
+                        onRegionChange={(region, isGesture) => {
+                            if (isGesture?.isGesture) {
+                                setIsFollowingUser(false);
+                                if (autoFollowTimerRef.current) clearTimeout(autoFollowTimerRef.current);
+                                autoFollowTimerRef.current = setTimeout(() => {
+                                    setIsFollowingUser(true);
+                                }, 10000);
+                            }
+                        }}
                     >
                         {routeCoordinates.length > 0 && (
                             <Polyline
                                 coordinates={routeCoordinates}
-                                strokeWidth={5}
-                                strokeColor={trailFinished ? "#007bff" : "#28a745"} // Blue when finished, Green when recording
+                                strokeWidth={6} // Thicker for visibility
+                                strokeColor="#fc4c02" // Strava Orange
                                 lineCap="round"
                                 lineJoin="round"
                                 geodesic={true}
+                                zIndex={100} // Force on top of tiles
                             />
                         )}
-                        {backtrackCoordinates.length > 0 && (
-                            <Polyline
-                                coordinates={backtrackCoordinates}
-                                strokeWidth={5}
-                                strokeColor="#28a745" // Always green for backtrack progress
-                                lineCap="round"
-                                lineJoin="round"
-                                geodesic={true}
-                            />
-                        )}
-                        {markers.map((m, i) => (
-                            <Marker
-                                key={i}
-                                coordinate={{ latitude: m.latitude, longitude: m.longitude }}
-                                title={m.type}
-                                description={m.description}
-                                pinColor={MARKER_ICONS.find(ic => ic.name === m.icon)?.color || 'red'}
-                            />
-                        ))}
-                    </NativeMap>
+                        {
+                            backtrackCoordinates.length > 0 && (
+                                <Polyline
+                                    coordinates={backtrackCoordinates}
+                                    strokeWidth={6}
+                                    strokeColor="#28a745" // Always green for backtrack progress
+                                    lineCap="round"
+                                    lineJoin="round"
+                                    geodesic={true}
+                                />
+                            )
+                        }
+                        {
+                            markers.map((m, i) => (
+                                <Marker
+                                    key={i}
+                                    coordinate={{ latitude: m.latitude, longitude: m.longitude }}
+                                    title={m.type}
+                                    description={m.description}
+                                    pinColor={MARKER_ICONS.find(ic => ic.name === m.icon)?.color || 'red'}
+                                />
+                            ))
+                        }
+                    </NativeMap >
 
                     {isTrailingBack && (
                         <View style={[styles.statusOverlay, { top: offTrackWarning ? 120 : 80 }]}>
@@ -511,21 +548,23 @@ export default function ActiveTrailScreen() {
             )}
 
             {/* Top Left Add Icon Button */}
-            {!trailFinished && role === 'leader' && (
-                <View style={styles.topButtonsContainer}>
-                    <TouchableOpacity style={styles.mapIconButton} onPress={() => setShowMarkerModal(true)}>
-                        <Ionicons name="add-circle" size={32} color="#28a745" />
-                    </TouchableOpacity>
+            {
+                !trailFinished && role === 'leader' && (
+                    <View style={styles.topButtonsContainer}>
+                        <TouchableOpacity style={styles.mapIconButton} onPress={() => setShowMarkerModal(true)}>
+                            <Ionicons name="add-circle" size={32} color="#28a745" />
+                        </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.mapIconButton} onPress={toggleMapType}>
-                        <Ionicons
-                            name={mapType === 'standard' ? 'map' : mapType === 'satellite' ? 'image' : 'layers'}
-                            size={28}
-                            color="#28a745"
-                        />
-                    </TouchableOpacity>
-                </View>
-            )}
+                        <TouchableOpacity style={styles.mapIconButton} onPress={toggleMapType}>
+                            <Ionicons
+                                name={mapType === 'standard' ? 'map' : mapType === 'satellite' ? 'image' : 'layers'}
+                                size={28}
+                                color="#28a745"
+                            />
+                        </TouchableOpacity>
+                    </View>
+                )
+            }
 
             {/* Controls Overlay */}
             <View style={styles.controls}>
@@ -699,20 +738,22 @@ export default function ActiveTrailScreen() {
             </Modal>
 
             {/* Start Trail Overlay */}
-            {!hasStarted && role === 'leader' && (
-                <View style={styles.startOverlay}>
-                    <View style={styles.startCard}>
-                        <Ionicons name="location" size={60} color="#28a745" />
-                        <Text style={styles.startTitle}>Ready to Trail?</Text>
-                        <Text style={styles.startSub}>Position yourself and click below to begin recording.</Text>
-                        <TouchableOpacity style={styles.startBigBtn} onPress={startTrail}>
-                            <Text style={styles.startBigBtnText}>Start Trail Now</Text>
-                        </TouchableOpacity>
+            {
+                !hasStarted && role === 'leader' && (
+                    <View style={styles.startOverlay}>
+                        <View style={styles.startCard}>
+                            <Ionicons name="location" size={60} color="#28a745" />
+                            <Text style={styles.startTitle}>Ready to Trail?</Text>
+                            <Text style={styles.startSub}>Position yourself and click below to begin recording.</Text>
+                            <TouchableOpacity style={styles.startBigBtn} onPress={startTrail}>
+                                <Text style={styles.startBigBtnText}>Start Trail Now</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                </View>
-            )}
+                )
+            }
 
-        </View>
+        </View >
     );
 }
 

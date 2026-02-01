@@ -37,7 +37,7 @@ export default function TrailExploreScreen() {
 
     const loadNearbyDiscovery = async () => {
         try {
-            const res = await client.get(`/treks/discover?lat=${location.latitude}&lon=${location.longitude}&radius=200000`);
+            const res = await client.get(`/treks/discover?lat=${location.latitude}&lon=${location.longitude}&radius=50000`);
 
             let sorted = res.data.map(t => {
                 if (t.coordinates) {
@@ -82,7 +82,7 @@ export default function TrailExploreScreen() {
         try {
             let url = `/treks/discover?q=${encodeURIComponent(searchQuery)}`;
             if (location) {
-                url += `&lat=${location.latitude}&lon=${location.longitude}&radius=200000`; // 200km
+                url += `&lat=${location.latitude}&lon=${location.longitude}&radius=50000`; // 50km
             }
             const res = await client.get(url);
 
