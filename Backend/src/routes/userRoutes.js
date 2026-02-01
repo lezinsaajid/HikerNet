@@ -179,6 +179,18 @@ router.post("/invitations/clear", protectRoute, async (req, res) => {
 
 router.get("/leaderboard", async (req, res) => {
     try {
+        const { timeframe = 'all' } = req.query;
+        let dateFilter = {};
+
+        const now = new Date();
+        if (timeframe === 'week') {
+            const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            dateFilter = { createdAt: { $gte: lastWeek } };
+        } else if (timeframe === 'month') {
+            const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+            dateFilter = { createdAt: { $gte: lastMonth } };
+        }
+
         const leaderboard = await User.aggregate([
             {
                 $match: { email: { $ne: "system@hikernet.com" } }
@@ -186,26 +198,27 @@ router.get("/leaderboard", async (req, res) => {
             {
                 $lookup: {
                     from: "treks",
-                    localField: "_id",
-                    foreignField: "user",
-                    as: "userTreks"
-                }
-            },
-            {
-                $addFields: {
-                    completedTreks: {
-                        $filter: {
-                            input: "$userTreks",
-                            as: "trek",
-                            cond: { $eq: ["$$trek.status", "completed"] }
+                    let: { userId: "$_id" },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ["$user", "$$userId"] },
+                                        { $eq: ["$status", "completed"] },
+                                        ...(timeframe !== 'all' ? [{ $gte: ["$createdAt", timeframe === 'week' ? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) : new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())] }] : [])
+                                    ]
+                                }
+                            }
                         }
-                    }
+                    ],
+                    as: "filteredTreks"
                 }
             },
             {
                 $addFields: {
-                    treksCount: { $size: "$completedTreks" },
-                    totalDistance: { $sum: "$completedTreks.stats.distance" }
+                    treksCount: { $size: "$filteredTreks" },
+                    totalDistance: { $sum: "$filteredTreks.stats.distance" }
                 }
             },
             { $sort: { treksCount: -1, totalDistance: -1 } },
