@@ -2,28 +2,31 @@ import cron from "cron";
 import https from "https";
 import http from "http";
 
-const job = new cron.CronJob("*/14 * * * *", function () {
+import User from "../models/User.js";
+
+const job = new cron.CronJob("*/2 * * * *", async function () {
+    // 1. Keep-Alive Ping
     const url = process.env.API_URL;
-    if (!url) {
-        // console.log("Cron: No API_URL defined, skipping keep-alive ping.");
-        return;
+    if (url) {
+        const client = url.startsWith("https") ? https : http;
+        client.get(url, (res) => {
+            // Keep alive logic
+        }).on("error", (e) => { });
     }
 
-    const client = url.startsWith("https") ? https : http;
-
-    client
-        .get(url, (res) => {
-            if (res.statusCode === 200) console.log("Cron: Keep-alive ping successful");
-            else console.log("Cron: Keep-alive ping failed", res.statusCode);
-        })
-        .on("error", (e) => {
-            // Silently log in dev to avoid noise, or log specifically
-            if (process.env.NODE_ENV !== "production") {
-                console.log("Cron: Ping failed (expected in dev if URL is incorrect or HTTPS is used on local)");
-            } else {
-                console.error("Cron: Error while sending request", e.message);
-            }
-        });
+    // 2. Cleanup Offline Users (Inactive > 2 mins)
+    try {
+        const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+        const result = await User.updateMany(
+            { isOnline: true, lastSeen: { $lt: twoMinutesAgo } },
+            { $set: { isOnline: false } }
+        );
+        if (result.modifiedCount > 0) {
+            console.log(`Cron: Marked ${result.modifiedCount} users as offline.`);
+        }
+    } catch (error) {
+        console.error("Cron: Error cleaning up offline users", error);
+    }
 });
 
 export default job;

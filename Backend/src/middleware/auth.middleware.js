@@ -28,6 +28,12 @@ const protectRoute = async (req, res, next) => {
 
         req.user = user;
 
+        // Update online status
+        await User.findByIdAndUpdate(user._id, {
+            lastSeen: new Date(),
+            isOnline: true
+        });
+
         next();
     } catch (error) {
         console.error("Authentication error:", error.message);

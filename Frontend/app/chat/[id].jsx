@@ -80,30 +80,43 @@ export default function ChatScreen() {
         { id: 's12', url: 'https://cdn-icons-png.flaticon.com/512/2311/2311818.png', label: 'Bear' }
     ];
 
-    // Initial fetch
+    // Initial fetch & Mark Read
     useEffect(() => {
         fetchChatDetails();
+        markAsRead();
+
         // Poll for new messages and partner status
         const interval = setInterval(() => {
-            fetchMessages(); // fetchMessages relies on partner state? No, but needs it for decryption?
-            fetchChatDetails(); // To get partner key if updated
-        }, 5000);
+            fetchMessages();
+            fetchChatDetails();
+        }, 3000); // Faster polling for real-time feel
         return () => clearInterval(interval);
     }, [id]);
 
-    // Split fetchMessages to depend on partner loaded to decrypt correctly?
-    // Or fetchMessages gets messages, then decrypts them using partner stored in state?
-    useEffect(() => {
-        if (partner) {
-            fetchMessages();
-        }
-    }, [partner, id]);
-
-
-    const getReadStatus = (message) => {
-        if (message.sender._id !== currentUser._id) return null;
-        return message.readBy?.length > 1 ? "Read" : "Sent";
+    const markAsRead = async () => {
+        try {
+            await client.put(`/chat/${id}/read`);
+        } catch (e) { console.warn("Failed to mark read", e); }
     };
+
+    // ... (rest of code)
+
+    const renderReadStatus = (message) => {
+        if (message.sender._id !== currentUser._id) return null;
+        // Check if readBy includes anyone other than sender (me)
+        // message.readBy is array of IDs.
+        const isRead = message.readBy && message.readBy.some(id => id !== currentUser._id);
+
+        return (
+            <Ionicons
+                name={isRead ? "checkmark-done-outline" : "checkmark-outline"}
+                size={14}
+                color={isRead ? "#fff" : "rgba(255,255,255,0.7)"}
+                style={{ marginLeft: 2 }}
+            />
+        );
+    };
+
 
     const fetchChatDetails = async () => {
         try {
@@ -265,37 +278,53 @@ export default function ChatScreen() {
                             />
                         </TouchableOpacity>
                     )}
+
                     <TouchableOpacity
                         onPress={() => item.sender._id === currentUser._id && handleDeleteMessage(item._id)}
                         onLongPress={() => isMe && handleDeleteMessage(item._id)}
                         activeOpacity={0.9}
-                        style={[
-                            styles.messageBubble,
-                            isMe ? styles.myMessage : styles.theirMessage,
-                            isSticker && styles.stickerBubble,
-                            isImage && styles.imageBubble
-                        ]}
+                        style={{ maxWidth: '75%' }}
                     >
-                        {isSticker ? (
-                            <Image source={{ uri: item.mediaUrl }} style={styles.stickerImage} />
-                        ) : isImage ? (
-                            <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} />
-                        ) : (
-                            <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
-                                {item.content}
-                            </Text>
-                        )}
+                        {isMe ? (
+                            <LinearGradient
+                                colors={['#00c6ff', '#0072ff']} // Blue Gradient
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={[styles.messageBubble, styles.myMessageGradient, isImage && styles.imageBubble, isSticker && styles.stickerBubble]}
+                            >
+                                {isSticker ? (
+                                    <Image source={{ uri: item.mediaUrl }} style={styles.stickerImage} />
+                                ) : isImage ? (
+                                    <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} />
+                                ) : (
+                                    <Text style={styles.myMessageText}>{item.content}</Text>
+                                )}
 
-                        <View style={[styles.messageFooter, (isSticker || isImage) && styles.mediaFooter]}>
-                            <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText, (isSticker || isImage) && styles.mediaTimeText]}>
-                                {formatTime(item.createdAt)}
-                            </Text>
-                            {isMe && (
-                                <Text style={[styles.readStatusText, (isSticker || isImage) && styles.mediaTimeText]}>
-                                    {getReadStatus(item)}
-                                </Text>
-                            )}
-                        </View>
+                                <View style={[styles.messageFooter, (isSticker || isImage) && styles.mediaFooter]}>
+                                    <Text style={[styles.myTimeText, (isSticker || isImage) && styles.mediaTimeText]}>
+                                        {formatTime(item.createdAt)}
+                                    </Text>
+                                    <View style={{ marginLeft: 4 }}>
+                                        {renderReadStatus(item)}
+                                    </View>
+                                </View>
+                            </LinearGradient>
+                        ) : (
+                            <View style={[styles.messageBubble, styles.theirMessage, isImage && styles.imageBubble, isSticker && styles.stickerBubble]}>
+                                {isSticker ? (
+                                    <Image source={{ uri: item.mediaUrl }} style={styles.stickerImage} />
+                                ) : isImage ? (
+                                    <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} />
+                                ) : (
+                                    <Text style={styles.theirMessageText}>{item.content}</Text>
+                                )}
+                                <View style={[styles.messageFooter, (isSticker || isImage) && styles.mediaFooter]}>
+                                    <Text style={[styles.theirTimeText, (isSticker || isImage) && styles.mediaTimeText]}>
+                                        {formatTime(item.createdAt)}
+                                    </Text>
+                                </View>
+                            </View>
+                        )}
                     </TouchableOpacity>
                 </View>
             </View>
@@ -303,7 +332,7 @@ export default function ChatScreen() {
     };
 
     return (
-        <SafeScreen backgroundColor="#f5f5f5">
+        <SafeScreen backgroundColor="#f0f2f5">
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#333" />
@@ -320,15 +349,25 @@ export default function ChatScreen() {
                         <View>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                 <Text style={styles.headerPartnerName}>{partner.username}</Text>
-                                <View style={[styles.chatTierBadge, { backgroundColor: getTierColor(partner?.tier) }]}>
+                                <View style={[styles.chatTierBadge, { backgroundColor: getTierColor(partner?.tier), opacity: 0.9 }]}>
                                     <Text style={styles.chatTierBadgeText}>{partner.tier || "Newbie"}</Text>
                                 </View>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: partner.isOnline ? '#2ecc71' : '#ff4444', marginRight: 6 }} />
+                                <Text style={[styles.headerStatus, { color: partner.isOnline ? '#2ecc71' : '#999' }]}>
+                                    {partner.isOnline ? "Online" : `Last seen ${partner.lastSeen ? formatTime(partner.lastSeen) : 'recently'}`}
+                                </Text>
                             </View>
                         </View>
                     </TouchableOpacity>
                 ) : (
                     <Text style={styles.headerTitle}>Chat</Text>
                 )}
+                {/* Optional: Options Button */}
+                <TouchableOpacity style={{ padding: 5 }}>
+                    <Ionicons name="ellipsis-vertical" size={20} color="#333" />
+                </TouchableOpacity>
             </View>
 
             <FlatList
@@ -342,10 +381,11 @@ export default function ChatScreen() {
             />
 
             <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "padding" : null}
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
                 keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-                style={styles.bottomSection}
+                style={styles.keyboardView}
             >
+                {/* Sticker Tray */}
                 {showStickers && (
                     <View style={styles.stickerTray}>
                         <FlatList
@@ -365,54 +405,44 @@ export default function ChatScreen() {
                     </View>
                 )}
 
-                <View style={styles.inputContainer}>
-                    <TouchableOpacity
-                        style={styles.attachButton}
-                        onPress={pickImage}
-                        disabled={sending}
-                    >
-                        <Ionicons name="image-outline" size={24} color="#666" />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={styles.attachButton}
-                        onPress={() => setShowStickers(!showStickers)}
-                        disabled={sending}
-                    >
-                        <MaterialCommunityIcons
-                            name={showStickers ? "sticker-off-outline" : "sticker-emoji"}
-                            size={24}
-                            color={showStickers ? "#28a745" : "#666"}
-                        />
-                    </TouchableOpacity>
-
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Type a message..."
-                        value={newMessage}
-                        onChangeText={setNewMessage}
-                        multiline
-                        maxLength={500}
-                    />
-
-                    {newMessage.trim() ? (
-                        <TouchableOpacity
-                            style={styles.sendButton}
-                            onPress={() => handleSend("text")}
-                            disabled={sending}
-                        >
-                            <LinearGradient
-                                colors={['#28a745', '#1e7e34']}
-                                style={styles.sendGradient}
-                            >
-                                <Ionicons name="send" size={20} color="#fff" />
-                            </LinearGradient>
+                <View style={styles.inputWrapper}>
+                    <View style={styles.inputContainer}>
+                        <TouchableOpacity style={styles.attachButton} onPress={() => setShowStickers(!showStickers)}>
+                            <MaterialCommunityIcons name="sticker-emoji" size={24} color={showStickers ? "#0072ff" : "#888"} />
                         </TouchableOpacity>
-                    ) : (
-                        <View style={[styles.sendButton, { backgroundColor: '#eee' }]}>
-                            <Ionicons name="mic-outline" size={20} color="#999" />
-                        </View>
-                    )}
+
+                        <TouchableOpacity style={styles.attachButton} onPress={pickImage}>
+                            <Ionicons name="image-outline" size={24} color="#888" />
+                        </TouchableOpacity>
+
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Type a message..."
+                            value={newMessage}
+                            onChangeText={setNewMessage}
+                            multiline
+                            maxLength={500}
+                        />
+
+                        {newMessage.trim() ? (
+                            <TouchableOpacity
+                                style={styles.sendButton}
+                                onPress={() => handleSend("text")}
+                                disabled={sending}
+                            >
+                                <LinearGradient
+                                    colors={['#00c6ff', '#0072ff']}
+                                    style={styles.sendGradient}
+                                >
+                                    <Ionicons name="send" size={18} color="#fff" style={{ marginLeft: 2 }} />
+                                </LinearGradient>
+                            </TouchableOpacity>
+                        ) : (
+                            <TouchableOpacity style={styles.micButton}>
+                                <Ionicons name="mic" size={22} color="#fff" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
                 </View>
             </KeyboardAvoidingView>
         </SafeScreen>
@@ -420,20 +450,19 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#f5f5f5',
-    },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 15,
-        backgroundColor: '#fff',
+        paddingHorizontal: 15,
+        paddingVertical: 12,
+        backgroundColor: 'rgba(255,255,255,0.9)',
         borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        borderBottomColor: 'rgba(0,0,0,0.05)',
+        zIndex: 10,
     },
     backButton: {
-        marginRight: 15,
+        marginRight: 10,
+        padding: 5,
     },
     headerTitle: {
         fontSize: 18,
@@ -446,48 +475,43 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     headerAvatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 42,
+        height: 42,
+        borderRadius: 21,
         marginRight: 12,
-        backgroundColor: '#eee',
+        borderWidth: 2,
+        borderColor: '#fff',
     },
     headerPartnerName: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#333',
+        fontSize: 17,
+        fontWeight: '700',
+        color: '#222',
+        letterSpacing: 0.3,
     },
-    messageFooter: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        marginTop: 4,
-    },
-    readStatusText: {
-        fontSize: 10,
-        color: 'rgba(255,255,255,0.7)',
-        marginLeft: 5,
-        fontStyle: 'italic',
+    headerStatus: {
+        fontSize: 12,
+        color: '#2ecc71', // Green for online
+        fontWeight: '500',
     },
     chatTierBadge: {
-        backgroundColor: '#e8f5e9',
         paddingHorizontal: 6,
-        paddingVertical: 1,
-        borderRadius: 8,
-        marginLeft: 6,
+        paddingVertical: 2,
+        borderRadius: 6,
+        marginLeft: 8,
     },
     chatTierBadgeText: {
-        fontSize: 10,
+        fontSize: 9,
         color: '#fff',
         fontWeight: 'bold',
+        textTransform: 'uppercase',
     },
     listContent: {
         padding: 15,
-        paddingBottom: 80,
+        paddingBottom: 20,
     },
     messageContainer: {
         flexDirection: 'row',
-        marginBottom: 15,
+        marginBottom: 16,
         alignItems: 'flex-end',
     },
     myMessageContainer: {
@@ -497,82 +521,124 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-start',
     },
     avatar: {
-        width: 30,
-        height: 30,
-        borderRadius: 15,
+        width: 32,
+        height: 32,
+        borderRadius: 16,
         marginRight: 8,
-        backgroundColor: '#ddd',
+        backgroundColor: '#e1e1e1',
     },
     messageBubble: {
-        maxWidth: '75%',
-        padding: 12,
-        borderRadius: 20,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 22,
         elevation: 1,
     },
-    myMessage: {
-        backgroundColor: '#28a745',
+    myMessageGradient: {
         borderBottomRightRadius: 4,
+        shadowColor: "#0072ff",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 5,
     },
     theirMessage: {
         backgroundColor: '#fff',
         borderBottomLeftRadius: 4,
-    },
-    messageText: {
-        fontSize: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 5,
+        elevation: 2,
     },
     myMessageText: {
         color: '#fff',
+        fontSize: 16,
+        lineHeight: 22,
     },
     theirMessageText: {
         color: '#333',
+        fontSize: 16,
+        lineHeight: 22,
     },
-    timeText: {
-        fontSize: 10,
+    messageFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
         marginTop: 4,
-        alignSelf: 'flex-end',
     },
-    myTimeText: {
-        color: 'rgba(255,255,255,0.7)',
+    timeText: { fontSize: 10 },
+    myTimeText: { color: 'rgba(255,255,255,0.8)', fontSize: 10 },
+    theirTimeText: { color: '#adb5bd', fontSize: 10 },
+    readStatusText: {
+        fontSize: 10,
+        color: 'rgba(255,255,255,0.9)',
+        marginLeft: 5,
     },
-    theirTimeText: {
-        color: '#999',
+    dateHeaderContainer: {
+        alignItems: 'center',
+        marginVertical: 20,
+    },
+    dateHeaderBadge: {
+        backgroundColor: 'rgba(0,0,0,0.05)',
+        paddingHorizontal: 12,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    dateHeaderText: {
+        fontSize: 12,
+        color: '#666',
+        fontWeight: '600',
+    },
+    keyboardView: {
+        width: '100%',
+    },
+    inputWrapper: {
+        padding: 10,
+        backgroundColor: 'transparent',
     },
     inputContainer: {
         flexDirection: 'row',
-        padding: 10,
-        backgroundColor: '#fff',
         alignItems: 'center',
-        paddingBottom: Platform.OS === 'ios' ? 25 : 10,
-    },
-    bottomSection: {
         backgroundColor: '#fff',
-        borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
-    },
-    attachButton: {
-        padding: 5,
-        marginRight: 5,
+        borderRadius: 30,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+        elevation: 5,
+        marginHorizontal: 10,
+        marginBottom: 5,
     },
     input: {
         flex: 1,
-        backgroundColor: '#f8f9fa',
-        borderRadius: 24,
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        maxHeight: 100,
-        marginRight: 8,
         fontSize: 16,
-        color: '#1a1a1b',
-        borderWidth: 1,
-        borderColor: '#e9ecef',
+        maxHeight: 100,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        color: '#333',
+    },
+    attachButton: {
+        padding: 8,
     },
     sendButton: {
         width: 40,
         height: 40,
         borderRadius: 20,
+        backgroundColor: '#0072ff',
+        overflow: 'hidden',
+        marginLeft: 5,
+        elevation: 2,
+    },
+    micButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#00c6ff',
         justifyContent: 'center',
         alignItems: 'center',
-        overflow: 'hidden',
+        marginLeft: 5,
     },
     sendGradient: {
         width: '100%',
@@ -581,68 +647,51 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     stickerTray: {
-        backgroundColor: '#fff',
+        backgroundColor: '#f8f9fa',
         paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
         paddingHorizontal: 10,
     },
     stickerItem: {
-        marginHorizontal: 10,
-        padding: 5,
+        marginHorizontal: 8,
     },
     stickerPreview: {
-        width: 50,
-        height: 50,
-        resizeMode: 'contain',
+        width: 60,
+        height: 60,
     },
     stickerBubble: {
         backgroundColor: 'transparent',
         padding: 0,
         elevation: 0,
+        shadowOpacity: 0,
     },
     stickerImage: {
-        width: 120,
-        height: 120,
+        width: 140,
+        height: 140,
         resizeMode: 'contain',
     },
     imageBubble: {
         padding: 4,
+        borderRadius: 12,
         overflow: 'hidden',
     },
     messageImage: {
-        width: 200,
-        height: 150,
-        borderRadius: 16,
+        width: 220,
+        height: 160,
+        borderRadius: 8,
         backgroundColor: '#eee',
     },
     mediaFooter: {
         position: 'absolute',
         bottom: 8,
         right: 8,
-        backgroundColor: 'rgba(0,0,0,0.4)',
+        backgroundColor: 'rgba(0,0,0,0.5)',
         paddingHorizontal: 6,
         paddingVertical: 2,
-        borderRadius: 8,
-        marginTop: 0,
+        borderRadius: 10,
     },
     mediaTimeText: {
         color: '#fff',
-        fontSize: 9,
-    },
-    dateHeaderContainer: {
-        alignItems: 'center',
-        marginVertical: 15,
-    },
-    dateHeaderBadge: {
-        backgroundColor: '#e9ecef',
-        paddingHorizontal: 16,
-        paddingVertical: 4,
-        borderRadius: 20,
-    },
-    dateHeaderText: {
-        fontSize: 12,
-        color: '#8e8e93',
-        fontWeight: '700',
+        fontSize: 10,
+        fontWeight: 'bold',
     },
 });

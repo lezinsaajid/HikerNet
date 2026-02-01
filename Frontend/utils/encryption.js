@@ -6,12 +6,14 @@ import CryptoJS from 'crypto-js';
 import * as Crypto from 'expo-crypto';
 
 // Polyfill for tweetnacl PRNG
-nacl.setPRNG((x, n) => {
-    const randomBytes = Crypto.getRandomBytes(n);
-    for (let i = 0; i < n; i++) {
-        x[i] = randomBytes[i];
-    }
-});
+try {
+    nacl.setPRNG((x, n) => {
+        const randomBytes = Crypto.getRandomBytes(n);
+        for (let i = 0; i < n; i++) {
+            x[i] = randomBytes[i];
+        }
+    });
+} catch (e) { console.log("PRNG likely already set", e); }
 
 // Keys storage keys
 const KEY_PAIR_STORAGE_KEY = 'user_keys_v1';

@@ -2,7 +2,19 @@ import express from "express";
 import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 
+import protectRoute from "../middleware/auth.middleware.js";
+
 const router = express.Router();
+
+router.post("/logout", protectRoute, async (req, res) => {
+    try {
+        await User.findByIdAndUpdate(req.user._id, { isOnline: false, lastSeen: new Date() });
+        res.status(200).json({ message: "Logged out successfully" });
+    } catch (error) {
+        console.log("Error in logout route", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
 
 const generateToken = (userId) => {
     return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "15d" });

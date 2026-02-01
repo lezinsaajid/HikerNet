@@ -69,7 +69,7 @@ router.get("/user/:userId", protectRoute, async (req, res) => {
         const chats = await Chat.find({
             participants: { $in: [userId] },
         })
-            .populate("participants", "username profileImage email publicKey")
+            .populate("participants", "username profileImage email publicKey lastSeen isOnline")
             .populate("lastMessage")
             .sort({ updatedAt: -1 });
 
@@ -87,7 +87,7 @@ router.get("/user/:userId", protectRoute, async (req, res) => {
 router.get("/:chatId", protectRoute, async (req, res) => {
     try {
         const { chatId } = req.params;
-        const chat = await Chat.findById(chatId).populate("participants", "username profileImage email lastSeen publicKey");
+        const chat = await Chat.findById(chatId).populate("participants", "username profileImage email lastSeen isOnline publicKey");
         if (!chat) return res.status(404).json({ message: "Chat not found" });
         res.json(chat);
     } catch (error) {
@@ -115,6 +115,23 @@ router.get("/:chatId/messages", protectRoute, async (req, res) => {
         res.json(messages);
     } catch (error) {
         console.error("Get messages error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// MARK MESSAGES AS READ
+router.put("/:chatId/read", protectRoute, async (req, res) => {
+    try {
+        const { chatId } = req.params;
+        const userId = req.user._id;
+
+        await Message.updateMany(
+            { chatId, sender: { $ne: userId } },
+            { $addToSet: { readBy: userId } }
+        );
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Mark read error:", error);
         res.status(500).json({ message: "Server error" });
     }
 });
