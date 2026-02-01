@@ -31,7 +31,7 @@ export default function LeaderboardWidget() {
         <View style={styles.container}>
             <View style={styles.header}>
                 <View style={styles.titleRow}>
-                    <Ionicons name="trophy" size={20} color="#FF4D00" style={{ marginRight: 6 }} />
+                    <Ionicons name="trophy" size={20} color="#28a745" style={{ marginRight: 6 }} />
                     <Text style={styles.title}>Top Hikers</Text>
                 </View>
                 <TouchableOpacity onPress={() => router.push('/leaderboard')}>
@@ -63,7 +63,7 @@ export default function LeaderboardWidget() {
                                         </View>
                                     </View>
                                     <Text style={styles.username} numberOfLines={1}>{user.username}</Text>
-                                    <Text style={styles.score}>{user.treksCount} Treks</Text>
+                                    <Text style={styles.score}>{user.treksCount} Trails</Text>
                                 </View>
                             );
                         })}
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
         letterSpacing: 0.5,
     },
     seeAll: {
-        color: '#FF4D00',
+        color: '#28a745',
         fontWeight: '700',
         fontSize: 13,
     },

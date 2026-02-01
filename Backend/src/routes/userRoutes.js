@@ -2,6 +2,7 @@ import express from "express";
 import User from "../models/User.js";
 import Trek from "../models/Trek.js";
 import Post from "../models/Post.js";
+import Adventure from "../models/Adventure.js";
 import protectRoute from "../middleware/auth.middleware.js";
 import cloudinary from "../lib/cloudinary.js";
 import mongoose from "mongoose";
@@ -26,25 +27,48 @@ router.get("/profile/:id", async (req, res) => {
         const user = await User.findById(req.params.id).select("-password");
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        // Calculate rank
-        const leaderboard = await Trek.aggregate([
-            { $match: { status: "completed", user: { $exists: true, $ne: null } } },
+        // Calculate rank consistent with leaderboard
+        const leaderboard = await User.aggregate([
+            { $match: { email: { $ne: "system@hikernet.com" } } },
             {
-                $group: {
-                    _id: "$user",
-                    treksCount: { $sum: 1 },
-                },
+                $lookup: {
+                    from: "treks",
+                    localField: "_id",
+                    foreignField: "user",
+                    as: "userTreks"
+                }
             },
-            { $sort: { treksCount: -1 } },
+            {
+                $lookup: {
+                    from: "adventures",
+                    localField: "_id",
+                    foreignField: "user",
+                    as: "userAdventures"
+                }
+            },
+            {
+                $addFields: {
+                    treksCount: { $size: "$userTreks" },
+                    adventuresCount: { $size: "$userAdventures" },
+                    totalDistance: { $sum: "$userTreks.stats.distance" }
+                }
+            },
+            {
+                $addFields: {
+                    totalActivity: { $add: ["$treksCount", "$adventuresCount"] }
+                }
+            },
+            { $sort: { totalActivity: -1, totalDistance: -1 } }
         ]);
 
         const rank = leaderboard.findIndex(item => item && item._id && item._id.toString() === req.params.id) + 1;
+        const userStats = leaderboard.find(item => item && item._id && item._id.toString() === req.params.id);
 
         res.json({
             ...user.toObject(),
             rank: rank || 0,
-            treksCount: leaderboard.find(item => item && item._id && item._id.toString() === req.params.id)?.treksCount || 0,
-            tier: getHikerTier(leaderboard.find(item => item && item._id && item._id.toString() === req.params.id)?.treksCount || 0),
+            treksCount: userStats?.totalActivity || 0, // Using total activity for display
+            tier: getHikerTier(userStats?.totalActivity || 0),
         });
     } catch (error) {
         console.error("Error fetching user profile:", error);
@@ -205,7 +229,6 @@ router.get("/leaderboard", async (req, res) => {
                                 $expr: {
                                     $and: [
                                         { $eq: ["$user", "$$userId"] },
-                                        { $eq: ["$status", "completed"] },
                                         ...(timeframe !== 'all' ? [{ $gte: ["$createdAt", timeframe === 'week' ? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) : new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())] }] : [])
                                     ]
                                 }
@@ -216,12 +239,26 @@ router.get("/leaderboard", async (req, res) => {
                 }
             },
             {
+                $lookup: {
+                    from: "adventures",
+                    localField: "_id",
+                    foreignField: "user",
+                    as: "filteredAdventures"
+                }
+            },
+            {
                 $addFields: {
                     treksCount: { $size: "$filteredTreks" },
+                    adventuresCount: { $size: "$filteredAdventures" },
                     totalDistance: { $sum: "$filteredTreks.stats.distance" }
                 }
             },
-            { $sort: { treksCount: -1, totalDistance: -1 } },
+            {
+                $addFields: {
+                    totalActivity: { $add: ["$treksCount", "$adventuresCount"] }
+                }
+            },
+            { $sort: { totalActivity: -1, totalDistance: -1 } },
             { $limit: 20 },
             {
                 $project: {
@@ -229,15 +266,15 @@ router.get("/leaderboard", async (req, res) => {
                     username: 1,
                     profileImage: 1,
                     location: 1,
-                    treksCount: 1,
+                    treksCount: "$totalActivity", // Return combined activity as treksCount for UI compatibility
                     totalDistance: 1,
                     tier: {
                         $switch: {
                             branches: [
-                                { case: { $gte: ["$treksCount", 30] }, then: "Trail Master" },
-                                { case: { $gte: ["$treksCount", 15] }, then: "Pathfinder" },
-                                { case: { $gte: ["$treksCount", 5] }, then: "Explorer" },
-                                { case: { $gte: ["$treksCount", 1] }, then: "Wanderer" }
+                                { case: { $gte: ["$totalActivity", 30] }, then: "Trail Master" },
+                                { case: { $gte: ["$totalActivity", 15] }, then: "Pathfinder" },
+                                { case: { $gte: ["$totalActivity", 5] }, then: "Explorer" },
+                                { case: { $gte: ["$totalActivity", 1] }, then: "Wanderer" }
                             ],
                             default: "Newbie"
                         }

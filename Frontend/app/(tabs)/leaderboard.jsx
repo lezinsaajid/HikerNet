@@ -17,7 +17,7 @@ const TIMEFRAMES = [
 ];
 
 const TIER_STYLING = {
-    'Trail Master': { color: '#FF4D00', icon: 'flame' },
+    'Trail Master': { color: '#28a745', icon: 'flame' },
     'Pathfinder': { color: '#007AFF', icon: 'map' },
     'Explorer': { color: '#34C759', icon: 'compass' },
     'Wanderer': { color: '#FFD60A', icon: 'walk' },
@@ -81,7 +81,7 @@ export default function Leaderboard() {
                             {isFirst && <Ionicons name="ribbon" size={24} color="#FFD700" style={styles.crownIcon} />}
                         </View>
                         <Text style={styles.podiumName} numberOfLines={1}>{user.username}</Text>
-                        <Text style={styles.podiumStats}>{user.treksCount} Treks</Text>
+                        <Text style={styles.podiumStats}>{user.treksCount} Trails</Text>
                     </TouchableOpacity>
                 ) : <View style={{ height: 100 }} />}
 
@@ -102,7 +102,7 @@ export default function Leaderboard() {
             <LinearGradient colors={['#1a1a1b', '#2d2d2e']} style={styles.topGradient}>
                 <View style={styles.topTitleRow}>
                     <Text style={styles.headerMainTitle}>Hiker Leaderboard</Text>
-                    <Ionicons name="medal" size={24} color="#FF4D00" />
+                    <Ionicons name="medal" size={24} color="#28a745" />
                 </View>
 
                 <View style={styles.podiumContainer}>
@@ -155,7 +155,7 @@ export default function Leaderboard() {
                         </View>
                         <View style={styles.cardStats}>
                             <Text style={styles.cardStatValue}>{item.treksCount}</Text>
-                            <Text style={styles.cardStatLabel}>Treks</Text>
+                            <Text style={styles.cardStatLabel}>Trails</Text>
                         </View>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color="#E0E0E0" />
@@ -175,10 +175,10 @@ export default function Leaderboard() {
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={styles.listContent}
                     refreshControl={
-                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF4D00" />
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#28a745" />
                     }
                     ListEmptyComponent={loading ? (
-                        <ActivityIndicator size="large" color="#FF4D00" style={{ marginTop: 50 }} />
+                        <ActivityIndicator size="large" color="#28a745" style={{ marginTop: 50 }} />
                     ) : (
                         <Text style={styles.emptyText}>No rankings found for this timeframe.</Text>
                     )}
@@ -255,7 +255,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     podiumStats: {
-        color: '#FF4D00',
+        color: '#28a745',
         fontSize: 11,
         fontWeight: '800',
         marginBottom: 5,
@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
         borderRadius: 22,
     },
     tfPillActive: {
-        backgroundColor: '#FF4D00',
+        backgroundColor: '#28a745',
     },
     tfPillText: {
         fontSize: 13,

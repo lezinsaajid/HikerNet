@@ -94,7 +94,7 @@ router.get("/user/:userId", async (req, res) => {
     try {
         const treks = await Trek.find({
             user: req.params.userId,
-            "stats.distance": { $gt: 10 } // Filter out aborted/empty treks
+            // Removed distance filter to show all "added" trails in profile
         }).sort({ createdAt: -1 });
         res.json(treks);
     } catch (error) {
@@ -263,5 +263,27 @@ router.post("/sync", protectRoute, async (req, res) => {
 });
 
 
+
+// Delete a trek
+router.delete("/:id", protectRoute, async (req, res) => {
+    try {
+        const trek = await Trek.findById(req.params.id);
+
+        if (!trek) {
+            return res.status(404).json({ message: "Trek not found" });
+        }
+
+        // Only owner can delete
+        if (trek.user.toString() !== req.user._id.toString()) {
+            return res.status(401).json({ message: "Unauthorized to delete this trek" });
+        }
+
+        await Trek.findByIdAndDelete(req.params.id);
+        res.json({ message: "Trek deleted successfully" });
+    } catch (error) {
+        console.error("Error deleting trek:", error);
+        res.status(500).json({ message: "Error deleting trek" });
+    }
+});
 
 export default router;
