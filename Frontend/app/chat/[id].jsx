@@ -80,9 +80,14 @@ export default function ChatScreen() {
         { id: 's12', url: 'https://cdn-icons-png.flaticon.com/512/2311/2311818.png', label: 'Bear' }
     ];
 
+    const partnerRef = useRef(null);
+
     // Initial fetch & Mark Read
     useEffect(() => {
-        fetchChatDetails();
+        fetchChatDetails().then((p) => {
+            // Fetch messages immediate after getting partner to ensure decryption works on first load
+            if (p) fetchMessages();
+        });
         markAsRead();
 
         // Poll for new messages and partner status
@@ -99,12 +104,8 @@ export default function ChatScreen() {
         } catch (e) { console.warn("Failed to mark read", e); }
     };
 
-    // ... (rest of code)
-
     const renderReadStatus = (message) => {
         if (message.sender._id !== currentUser._id) return null;
-        // Check if readBy includes anyone other than sender (me)
-        // message.readBy is array of IDs.
         const isRead = message.readBy && message.readBy.some(id => id !== currentUser._id);
 
         return (
@@ -117,13 +118,13 @@ export default function ChatScreen() {
         );
     };
 
-
     const fetchChatDetails = async () => {
         try {
             const res = await client.get(`/chat/${id}`);
             const chat = res.data;
             const chatPartner = chat.participants.find(p => p._id !== currentUser._id) || chat.participants[0];
             setPartner(chatPartner);
+            partnerRef.current = chatPartner; // Update Ref
             return chatPartner;
         } catch (error) {
             console.error("Failed to fetch chat details", error);
@@ -133,25 +134,19 @@ export default function ChatScreen() {
 
     const fetchMessages = async () => {
         try {
-            // Ensure we have partner key?
-            let currentPartner = partner;
-            if (!currentPartner && !currentPartner?.publicKey) {
-                // Try to fetch or wait?
-                // On first load, partner might be null.
-                // We called fetchChatDetails on mount.
-                // It's racey. 
-            }
+            // Use REF to get latest partner in interval closure
+            let currentPartner = partnerRef.current;
 
             const res = await client.get(`/chat/${id}/messages`);
             let rawMessages = res.data;
 
-            if (partner?.publicKey) {
+            if (currentPartner?.publicKey) {
                 const decryptedMsgs = await Promise.all(rawMessages.map(async (msg) => {
                     // Try to decrypt text
                     if (msg.messageType === 'text' && msg.content) {
-                        // Decrypt using Partner's public Key (works for both Sent and Received in 1-on-1 Box)
+                        // Decrypt using Partner's public Key
                         try {
-                            const plain = await decryptMessage(msg.content, partner.publicKey);
+                            const plain = await decryptMessage(msg.content, currentPartner.publicKey);
                             msg.content = plain;
                         } catch (e) {
                             // msg.content = "⚠️ Encrypted Message";
@@ -159,11 +154,11 @@ export default function ChatScreen() {
                     }
                     return msg;
                 }));
+                // Only update if different? (Optional optimization, but for now just set)
                 setMessages(decryptedMsgs);
             } else {
                 setMessages(rawMessages);
             }
-
         } catch (error) {
             console.error("Failed to fetch messages", error);
         }
