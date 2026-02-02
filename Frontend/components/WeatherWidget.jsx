@@ -20,20 +20,38 @@ export default function WeatherWidget({ compact = false }) {
         try {
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
-                setError('Location access denied');
+                setError('Permission denied');
                 setLoading(false);
                 return;
             }
 
-            const location = await Location.getCurrentPositionAsync({});
-            const { latitude, longitude } = location.coords;
-            setCoords({ latitude, longitude });
+            // Check if location services are enabled
+            const enabled = await Location.hasServicesEnabledAsync();
+            if (!enabled) {
+                setError('Location off');
+                setLoading(false);
+                return;
+            }
 
-            const res = await client.get(`/weather/current?lat=${latitude}&lon=${longitude}`);
-            setWeather(res.data);
+            // Try to get last known position first (faster)
+            let location = await Location.getLastKnownPositionAsync({});
+
+            // If no last known position, request current position
+            if (!location) {
+                location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            }
+
+            if (location) {
+                const { latitude, longitude } = location.coords;
+                setCoords({ latitude, longitude });
+                const res = await client.get(`/weather/current?lat=${latitude}&lon=${longitude}`);
+                setWeather(res.data);
+            } else {
+                setError('Location unavailable');
+            }
         } catch (err) {
-            console.error('Weather Fetch Error:', err);
-            setError('Weather unavailable');
+            console.log('Weather Fetch Error (Handled):', err.message);
+            setError('Weather error');
         } finally {
             setLoading(false);
         }
