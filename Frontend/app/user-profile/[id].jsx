@@ -229,30 +229,40 @@ export default function UserProfile() {
         if (activeTab === 'trails') {
             const isRemark = item.displayType === 'remark';
             return (
-                <View style={styles.adventureCard}>
-                    <View style={styles.adventureHeader}>
-                        <View style={styles.adventureUserGroup}>
-                            <Ionicons
-                                name={isRemark ? "chatbubble-ellipses-outline" : "map-outline"}
-                                size={24}
-                                color={isRemark ? "#28a745" : "#4A7C44"}
-                                style={{ marginRight: 10 }}
-                            />
-                            <View>
-                                <Text style={styles.adventureUsername}>{isRemark ? "Adventure Remark" : item.name}</Text>
-                                <Text style={styles.adventureDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                <TouchableOpacity
+                    activeOpacity={isRemark ? 1 : 0.7}
+                    onPress={() => {
+                        if (!isRemark) {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            router.push(`/trek/${item._id}`);
+                        }
+                    }}
+                >
+                    <View style={styles.adventureCard}>
+                        <View style={styles.adventureHeader}>
+                            <View style={styles.adventureUserGroup}>
+                                <Ionicons
+                                    name={isRemark ? "chatbubble-ellipses-outline" : "map-outline"}
+                                    size={24}
+                                    color={isRemark ? "#28a745" : "#4A7C44"}
+                                    style={{ marginRight: 10 }}
+                                />
+                                <View>
+                                    <Text style={styles.adventureUsername}>{isRemark ? "Adventure Remark" : item.name}</Text>
+                                    <Text style={styles.adventureDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                                </View>
                             </View>
                         </View>
+                        {isRemark ? (
+                            <Text style={styles.adventureContent}>{item.content}</Text>
+                        ) : item.location && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                                <Ionicons name="location" size={14} color="#666" />
+                                <Text style={[styles.adventureContent, { marginLeft: 4 }]}>{item.location}</Text>
+                            </View>
+                        )}
                     </View>
-                    {isRemark ? (
-                        <Text style={styles.adventureContent}>{item.content}</Text>
-                    ) : item.location && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                            <Ionicons name="location" size={14} color="#666" />
-                            <Text style={[styles.adventureContent, { marginLeft: 4 }]}>{item.location}</Text>
-                        </View>
-                    )}
-                </View>
+                </TouchableOpacity>
             );
         }
 

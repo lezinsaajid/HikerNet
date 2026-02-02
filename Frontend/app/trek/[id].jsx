@@ -5,6 +5,26 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import client from '../../api/client';
 import { getTrailImage } from '../../utils/imageUtils';
+import NativeMap, { Polyline, Marker } from '../../components/NativeMap';
+
+const MARKER_ICONS = [
+    { name: 'water', icon: 'water', color: '#007bff', label: 'Water' },
+    { name: 'camera', icon: 'camera', color: '#6610f2', label: 'Viewpoint' },
+    { name: 'danger', icon: 'warning', color: '#dc3545', label: 'Danger' },
+    { name: 'camp', icon: 'bonfire', color: '#fd7e14', label: 'Camp' },
+    { name: 'rest', icon: 'cafe', color: '#6f42c1', label: 'Rest' },
+    { name: 'mountain', icon: 'mountain', color: '#6d4c41', label: 'Peak' },
+    { name: 'tree', icon: 'leaf', color: '#2e7d32', label: 'Forest' },
+    { name: 'animal', icon: 'paw', color: '#ef6c00', label: 'Wildlife' },
+    { name: 'flag', icon: 'flag', color: '#c62828', label: 'Goal' },
+    { name: 'info', icon: 'information-circle', color: '#00838f', label: 'Info' },
+    { name: 'trail', icon: 'trail-sign', color: '#455a64', label: 'Trail' },
+    { name: 'rain', icon: 'rainy', color: '#0288d1', label: 'Rain' },
+    { name: 'bicycle', icon: 'bicycle', color: '#311b92', label: 'Cycle' },
+    { name: 'fish', icon: 'fish', color: '#03a9f4', label: 'Fishing' },
+    { name: 'home', icon: 'home', color: '#546e7a', label: 'Shelter' },
+    { name: 'star', icon: 'star', color: '#fbc02d', label: 'Special' },
+];
 
 export default function TrailDetailsScreen() {
     const router = useRouter();
@@ -119,6 +139,57 @@ export default function TrailDetailsScreen() {
                     )}
                 </View>
 
+                {trail.coordinates && trail.coordinates.length > 0 && (
+                    <View style={styles.mapPreviewContainer}>
+                        <Text style={styles.sectionTitle}>Recorded Path</Text>
+                        <View style={styles.mapWrapper}>
+                            <NativeMap
+                                initialRegion={{
+                                    latitude: trail.coordinates[0].latitude,
+                                    longitude: trail.coordinates[0].longitude,
+                                    latitudeDelta: 0.01,
+                                    longitudeDelta: 0.01,
+                                }}
+                                scrollEnabled={true}
+                                zoomEnabled={true}
+                                showsUserLocation={false}
+                            >
+                                <Polyline
+                                    coordinates={trail.coordinates}
+                                    strokeWidth={4}
+                                    strokeColor="#fc4c02"
+                                />
+                                {/* Start Point Marker */}
+                                <Marker
+                                    coordinate={trail.coordinates[0]}
+                                    title="Start Point"
+                                    pinColor="#28a745"
+                                />
+
+                                {/* End Point Marker (if completed) */}
+                                {trail.status === 'completed' && trail.coordinates.length > 1 && (
+                                    <Marker
+                                        coordinate={trail.coordinates[trail.coordinates.length - 1]}
+                                        title="Finish Point"
+                                        pinColor="#c62828"
+                                    />
+                                )}
+
+                                {/* Waypoints/Checkpoints */}
+                                {trail.waypoints && trail.waypoints.map((m, i) => (
+                                    <Marker
+                                        key={`waypoint-${i}`}
+                                        coordinate={{ latitude: m.latitude, longitude: m.longitude }}
+                                        title={m.title || m.type}
+                                        description={m.description}
+                                        pinColor={MARKER_ICONS.find(ic => ic.name === m.icon)?.color || '#00838f'}
+                                    />
+                                ))}
+                            </NativeMap>
+                        </View>
+                    </View>
+                )}
+
                 <View style={styles.statsGrid}>
                     <View style={styles.statBox}>
                         <Ionicons name="resize" size={20} color="#4A7C44" />
@@ -188,7 +259,9 @@ export default function TrailDetailsScreen() {
                         onPress={() => handleStart('solo')}
                     >
                         <Ionicons name="navigate" size={22} color="white" />
-                        <Text style={styles.mainBtnText}>Start Solo Trek</Text>
+                        <Text style={styles.mainBtnText}>
+                            {trail.status === 'completed' ? 'Re-run Solo' : 'Start Solo Trek'}
+                        </Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -196,7 +269,9 @@ export default function TrailDetailsScreen() {
                         onPress={() => handleStart('group')}
                     >
                         <Ionicons name="people-circle" size={24} color="white" />
-                        <Text style={styles.mainBtnText}>Start Group Trek</Text>
+                        <Text style={styles.mainBtnText}>
+                            {trail.status === 'completed' ? 'Re-run Group' : 'Start Group Trek'}
+                        </Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -431,5 +506,20 @@ const styles = StyleSheet.create({
         color: '#4A7C44',
         fontWeight: '700',
         fontSize: 16,
-    }
+    },
+    mapPreviewContainer: {
+        marginBottom: 30,
+    },
+    mapWrapper: {
+        height: 250,
+        borderRadius: 25,
+        overflow: 'hidden',
+        marginTop: 10,
+        backgroundColor: '#FFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 5 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 3,
+    },
 });

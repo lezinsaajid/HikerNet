@@ -15,7 +15,8 @@ const NativeMap = React.forwardRef(({
     followsUserLocation = false,
     mapType = 'standard',
     children,
-    style
+    style,
+    ...props
 }, ref) => {
     // If standard mode, we use custom white tiles to ensure it works without API keys
     const isStandard = mapType === 'standard';
@@ -36,6 +37,7 @@ const NativeMap = React.forwardRef(({
                 showsUserLocation={showsUserLocation}
                 followsUserLocation={followsUserLocation}
                 loadingEnabled={true}
+                {...props}
             >
                 {isStandard && (
                     <UrlTile
