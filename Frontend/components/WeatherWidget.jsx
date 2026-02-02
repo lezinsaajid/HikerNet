@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../api/client';
 import * as Location from 'expo-location';
+import WeatherAnalysisModal from './WeatherAnalysisModal';
 
 export default function WeatherWidget({ compact = false }) {
     const [weather, setWeather] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [modalVisible, setModalVisible] = useState(false);
+    const [coords, setCoords] = useState(null);
 
     useEffect(() => {
         fetchWeather();
@@ -24,6 +27,7 @@ export default function WeatherWidget({ compact = false }) {
 
             const location = await Location.getCurrentPositionAsync({});
             const { latitude, longitude } = location.coords;
+            setCoords({ latitude, longitude });
 
             const res = await client.get(`/weather/current?lat=${latitude}&lon=${longitude}`);
             setWeather(res.data);
@@ -46,6 +50,16 @@ export default function WeatherWidget({ compact = false }) {
         return 'partly-sunny';
     };
 
+    const getWeatherEmoji = (condition) => {
+        const cond = condition?.toLowerCase() || '';
+        if (cond.includes('clear')) return '☀️';
+        if (cond.includes('cloud')) return '☁️';
+        if (cond.includes('rain')) return '🌧️';
+        if (cond.includes('thunder')) return '⛈️';
+        if (cond.includes('snow')) return '❄️';
+        return '⛅';
+    };
+
     if (loading) return (
         <View style={[styles.container, compact && styles.compactContainer]}>
             <ActivityIndicator size="small" color="#28a745" />
@@ -55,35 +69,46 @@ export default function WeatherWidget({ compact = false }) {
     if (error || !weather) return null;
 
     return (
-        <View style={[styles.container, compact && styles.compactContainer]}>
-            <View style={styles.mainRow}>
-                <Ionicons
-                    name={getWeatherIcon(weather.condition)}
-                    size={compact ? 22 : 36}
-                    color="#28a745"
-                />
-                <View style={styles.info}>
-                    <Text style={[styles.temp, compact && styles.compactTemp]}>
-                        {Math.round(weather.temp)}°C
+        <>
+            <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setModalVisible(true)}
+                style={[styles.container, compact && styles.compactContainer]}
+            >
+                <View style={styles.mainRow}>
+                    <Text style={{ fontSize: compact ? 22 : 32, marginRight: 8 }}>
+                        {getWeatherEmoji(weather.condition)}
                     </Text>
-                    <Text style={styles.condition}>{weather.condition}</Text>
+                    <View style={styles.info}>
+                        <Text style={[styles.temp, compact && styles.compactTemp]}>
+                            {Math.round(weather.temp)}°C
+                        </Text>
+                        {!compact && <Text style={styles.condition}>{weather.condition}</Text>}
+                    </View>
                 </View>
-            </View>
 
-            {!compact && (
-                <View style={styles.detailsRow}>
-                    <View style={styles.detailItem}>
-                        <Ionicons name="water-outline" size={14} color="#6c757d" />
-                        <Text style={styles.detailText}>{weather.humidity}%</Text>
+                {!compact && (
+                    <View style={styles.detailsRow}>
+                        <View style={styles.detailItem}>
+                            <Ionicons name="water-outline" size={14} color="#6c757d" />
+                            <Text style={styles.detailText}>{weather.humidity}%</Text>
+                        </View>
+                        <View style={styles.detailItem}>
+                            <Ionicons name="speedometer-outline" size={14} color="#6c757d" />
+                            <Text style={styles.detailText}>{weather.wind}m/s</Text>
+                        </View>
+                        <Text style={styles.location}>{weather.city || 'Trailhead'}</Text>
                     </View>
-                    <View style={styles.detailItem}>
-                        <Ionicons name="speedometer-outline" size={14} color="#6c757d" />
-                        <Text style={styles.detailText}>{weather.wind}m/s</Text>
-                    </View>
-                    <Text style={styles.location}>{weather.city || 'Trailhead'}</Text>
-                </View>
-            )}
-        </View>
+                )}
+            </TouchableOpacity>
+
+            <WeatherAnalysisModal
+                visible={modalVisible}
+                onClose={() => setModalVisible(false)}
+                lat={coords?.latitude}
+                lon={coords?.longitude}
+            />
+        </>
     );
 }
 
@@ -100,17 +125,20 @@ const styles = StyleSheet.create({
         minWidth: 120,
     },
     compactContainer: {
-        padding: 10,
-        backgroundColor: 'rgba(255,255,255,0.92)',
-        borderRadius: 12,
-        minWidth: 80,
+        padding: 8,
+        paddingHorizontal: 12,
+        backgroundColor: 'rgba(255,255,255,0.95)',
+        borderRadius: 15,
+        minWidth: 70,
+        borderWidth: 1,
+        borderColor: '#f0f0f0',
     },
     mainRow: {
         flexDirection: 'row',
         alignItems: 'center',
     },
     info: {
-        marginLeft: 12,
+        marginLeft: 4,
     },
     temp: {
         fontSize: 24,

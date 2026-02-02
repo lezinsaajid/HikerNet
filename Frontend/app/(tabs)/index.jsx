@@ -13,6 +13,7 @@ import UpcomingTreks from '../../components/UpcomingTreks';
 import TopTrekkers from '../../components/TopTrekkers';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import WeatherWidget from '../../components/WeatherWidget';
 
 export default function HomeFeed() {
     const insets = useSafeAreaInsets();
@@ -87,9 +88,7 @@ export default function HomeFeed() {
         <View style={[styles.topHeader, { paddingTop: insets.top + 10 }]}>
             <Text style={styles.logoText}>HikerNet</Text>
             <View style={styles.headerIcons}>
-                <View style={styles.iconButton}>
-                    {/* Placeholder for notifications/messages */}
-                </View>
+                <WeatherWidget compact={true} />
             </View>
         </View>
     );
