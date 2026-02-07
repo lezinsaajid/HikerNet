@@ -8,6 +8,7 @@ import NativeMap, { Polyline, Marker } from '../../components/NativeMap';
 import client from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import WeatherWidget from '../../components/WeatherWidget';
+import { useSmartLocation } from '../../hooks/useSmartLocation';
 // icon map
 const MARKER_ICONS = [
     { name: 'water', icon: 'water', color: '#007bff', label: 'Water', tags: ['river', 'lake', 'drink', 'stream', 'wet'] },
@@ -61,12 +62,82 @@ export default function ActiveTrek() {
     const timerRef = useRef(null);
     const autoFollowTimerRef = useRef(null);
     const pausedRef = useRef(false);
-    const locationSubscription = useRef(null);
+
     const mapRef = useRef(null);
     const trailIdRef = useRef(trailId);
     const routeRef = useRef([]);
     const lastLocationRef = useRef(null); // For EMA smoothing filter
     const hasAlertedOffTrack = useRef(false); // To prevent alert spam
+
+    const { location: smartLocation } = useSmartLocation(isTracking || isTrailingBack);
+
+    // React to smart location updates
+    useEffect(() => {
+        if (!smartLocation) return;
+
+        const { latitude, longitude, altitude } = smartLocation;
+
+        // Update current location state for UI
+        const newPoint = { latitude, longitude };
+        lastLocationRef.current = newPoint;
+        setLocation(newPoint);
+
+        // Animate Camera
+        if (mapRef.current && isFollowingUser) {
+            mapRef.current.animateCamera({
+                center: { latitude, longitude }
+            }, { duration: 500 });
+        }
+
+        // Logic for Backtracking
+        if (isTrailingBack) {
+            setBacktrackCoordinates(prev => [...prev, newPoint]);
+            checkOffTrack(latitude, longitude);
+        }
+        // Logic for Recording
+        else if (!trailFinished && !isPaused) {
+            // Manual Distance Threshold Check for RECORDING
+            const path = routeRef.current;
+            let shouldRecord = false;
+            let dist = 0;
+
+            if (path.length === 0) {
+                shouldRecord = true;
+                console.log("[ActiveTrek] First point recorded");
+            } else {
+                const lastPoint = path[path.length - 1];
+                dist = calculateDistance(latitude, longitude, lastPoint.latitude, lastPoint.longitude);
+                console.log(`[ActiveTrek] Dist from last: ${dist.toFixed(2)}m`);
+
+                // --- RECORDING FILTER ---
+                // Relaxed to 0.5m for detailed indoor mapping
+                if (dist >= 0.5) {
+                    shouldRecord = true;
+                } else {
+                    console.log("[ActiveTrek] REJECT: < 0.5m movement");
+                }
+            }
+
+            if (shouldRecord) {
+                setRouteCoordinates(prev => {
+                    const updated = [...prev, newPoint];
+                    routeRef.current = updated;
+                    return updated;
+                });
+
+                setStats(prev => ({
+                    ...prev,
+                    distance: prev.distance + dist
+                }));
+
+                if (trailIdRef.current) {
+                    client.put(`/treks/update/${trailIdRef.current}`, {
+                        coordinates: [{ latitude, longitude, altitude }]
+                    }).catch(console.error);
+                }
+            }
+        }
+    }, [smartLocation]);
 
     useEffect(() => {
         (async () => {
@@ -95,7 +166,6 @@ export default function ActiveTrek() {
         })();
 
         return () => {
-            stopTracking();
             if (memberPollRef.current) clearInterval(memberPollRef.current);
         };
     }, []);
@@ -163,89 +233,7 @@ export default function ActiveTrek() {
         return d;
     };
 
-    const startLocationTracking = async () => {
-        if (locationSubscription.current) {
-            locationSubscription.current.remove();
-        }
 
-        locationSubscription.current = await Location.watchPositionAsync(
-            {
-                accuracy: Location.Accuracy.BestForNavigation,
-                timeInterval: 500, // Update every 0.5 second
-                distanceInterval: 0, // Update on ANY movement (inches)
-            },
-            (newLocation) => {
-                const { latitude, longitude, altitude, accuracy } = newLocation.coords;
-
-                // Accuracy filter: Skip points with poor precision (> 20m)
-                if (accuracy > 20) return;
-
-                // --- RAW TRACKING (Every Inch) ---
-                // No filters, no smoothing, no minimum distance.
-                // Records every single GPS signal processed.
-                const newPoint = { latitude, longitude };
-
-                lastLocationRef.current = newPoint;
-                setLocation(newPoint);
-
-                // Quick Animation (200ms) for high-frequency updates
-                // Using animateCamera to preserve user's zoom level
-                // Only follow if user is not manually interacting
-                if (mapRef.current && isFollowingUser) {
-                    mapRef.current.animateCamera({
-                        center: { latitude, longitude }
-                    }, { duration: 200 });
-                }
-
-                if (isTrailingBack) {
-                    setBacktrackCoordinates(prev => [...prev, newPoint]);
-                    checkOffTrack(latitude, longitude);
-                } else if (!trailFinished) {
-                    // Manual Distance Threshold Check
-                    const path = routeRef.current;
-                    let shouldRecord = false;
-                    let dist = 0;
-
-                    if (path.length === 0) {
-                        shouldRecord = true;
-                    } else {
-                        // Calculate distance from last point
-                        const lastPoint = path[path.length - 1];
-                        dist = calculateDistance(latitude, longitude, lastPoint.latitude, lastPoint.longitude);
-
-                        // --- MICRO-JITTER FILTER ---
-                        // Only record if moved at least 0.3 meters (approx 1 foot). 
-                        // This allows "every inch" tracking while preventing "ghost" marking when stationary.
-                        if (dist >= 0.3) {
-                            shouldRecord = true;
-                        }
-                    }
-
-                    if (shouldRecord) {
-                        // Update UI Path
-                        setRouteCoordinates(prev => {
-                            const updated = [...prev, newPoint];
-                            routeRef.current = updated; // Sync Ref for distance checks
-                            return updated;
-                        });
-
-                        // Update Stats
-                        setStats(prev => ({
-                            ...prev,
-                            distance: prev.distance + dist
-                        }));
-
-                        // Sync to Backend
-                        if (trailIdRef.current) {
-                            client.put(`/treks/update/${trailIdRef.current}`, {
-                                coordinates: [{ latitude, longitude, altitude }]
-                            }).catch(console.error);
-                        }
-                    }
-                }
-            }
-        );
-    };
 
     const checkOffTrack = (lat, lon) => {
         // Find minimum distance to any point in the recorded path
@@ -279,17 +267,10 @@ export default function ActiveTrek() {
         }
     };
 
-    const stopLocationTracking = () => {
-        if (locationSubscription.current) {
-            locationSubscription.current.remove();
-            locationSubscription.current = null;
-        }
-    };
 
-    const stopTracking = () => {
-        if (timerRef.current) clearInterval(timerRef.current);
-        stopLocationTracking();
-    };
+
+
+
 
     const startTrail = async () => {
         try {
@@ -319,7 +300,7 @@ export default function ActiveTrek() {
                 setStats(prev => ({ ...prev, startName: res.data.name }));
             }
 
-            await startLocationTracking();
+            // await startLocationTracking(); // Handled by hook
 
         } catch (error) {
             console.error("Failed to start trail", error);
@@ -388,9 +369,7 @@ export default function ActiveTrek() {
         // But we need to listen to location updates for off-track logic
         // re-enable listener if it was stopped (it wasn't strictly stopped in handleStopTrail, just state changed)
         // Check if subscription exists
-        if (!locationSubscription.current) {
-            startLocationTracking();
-        }
+
     };
 
     const handleExit = () => {

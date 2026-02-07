@@ -7,6 +7,19 @@ const pointSchema = new mongoose.Schema({
     timestamp: { type: Date, default: Date.now },
 }, { _id: false });
 
+const pathSchema = new mongoose.Schema({
+    type: {
+        type: String,
+        enum: ['LineString'],
+        required: true,
+        default: 'LineString'
+    },
+    coordinates: {
+        type: [[Number]], // Array of [longitude, latitude]
+        default: undefined // Ensure no empty array is created by default
+    }
+}, { _id: false });
+
 const trekSchema = new mongoose.Schema(
     {
         user: {
@@ -26,7 +39,10 @@ const trekSchema = new mongoose.Schema(
         location: {
             type: String, // Human readable location name
         },
-        coordinates: [pointSchema], // Array of GPS points for the path
+        path: {
+            type: pathSchema,
+            // No default, so it remains undefined until populated
+        },
         waypoints: [
             {
                 latitude: { type: Number, required: true },
@@ -64,8 +80,7 @@ const trekSchema = new mongoose.Schema(
         },
         privacy: {
             type: String,
-            enum: ["public", "private", "followers"],
-            default: "public",
+            default: 'public'
         },
         startTime: {
             type: Date,
@@ -77,6 +92,8 @@ const trekSchema = new mongoose.Schema(
     },
     { timestamps: true }
 );
+
+trekSchema.index({ path: '2dsphere' });
 
 const Trek = mongoose.model("Trek", trekSchema);
 

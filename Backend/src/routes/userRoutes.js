@@ -27,48 +27,29 @@ router.get("/profile/:id", async (req, res) => {
         const user = await User.findById(req.params.id).select("-password");
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        // Calculate rank consistent with leaderboard
-        const leaderboard = await User.aggregate([
-            { $match: { email: { $ne: "system@hikernet.com" } } },
-            {
-                $lookup: {
-                    from: "treks",
-                    localField: "_id",
-                    foreignField: "user",
-                    as: "userTreks"
-                }
-            },
-            {
-                $lookup: {
-                    from: "adventures",
-                    localField: "_id",
-                    foreignField: "user",
-                    as: "userAdventures"
-                }
-            },
-            {
-                $addFields: {
-                    treksCount: { $size: "$userTreks" },
-                    adventuresCount: { $size: "$userAdventures" },
-                    totalDistance: { $sum: "$userTreks.stats.distance" }
-                }
-            },
-            {
-                $addFields: {
-                    totalActivity: { $add: ["$treksCount", "$adventuresCount"] }
-                }
-            },
-            { $sort: { totalActivity: -1, totalDistance: -1 } }
-        ]);
+        // Direct counts for accuracy and performance
+        const treksCount = await Trek.countDocuments({ user: req.params.id });
+        const adventuresCount = await Adventure.countDocuments({ user: req.params.id });
 
-        const rank = leaderboard.findIndex(item => item && item._id && item._id.toString() === req.params.id) + 1;
-        const userStats = leaderboard.find(item => item && item._id && item._id.toString() === req.params.id);
+        // Calculate total distance properly
+        const distanceAgg = await Trek.aggregate([
+            { $match: { user: new mongoose.Types.ObjectId(req.params.id) } },
+            { $group: { _id: null, total: { $sum: "$stats.distance" } } }
+        ]);
+        const totalDistance = distanceAgg.length > 0 ? distanceAgg[0].total : 0;
+
+        const totalActivity = treksCount + adventuresCount;
+
+        // Rank calculation (optional/expensive - omitted for performance optimization)
+        // To restore rank, we would need a proper stored score field.
+        const rank = 0;
 
         res.json({
             ...user.toObject(),
-            rank: rank || 0,
-            treksCount: userStats?.totalActivity || 0, // Using total activity for display
-            tier: getHikerTier(userStats?.totalActivity || 0),
+            rank: rank,
+            treksCount: totalActivity,
+            totalDistance: totalDistance,
+            tier: getHikerTier(totalActivity),
         });
     } catch (error) {
         console.error("Error fetching user profile:", error);

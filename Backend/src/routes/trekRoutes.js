@@ -9,14 +9,14 @@ const router = express.Router();
 // Start a new trek
 router.post("/start", protectRoute, async (req, res) => {
     try {
-        const { name, description, location, privacy } = req.body;
+        const { name, description, location } = req.body;
 
         const trek = new Trek({
             user: req.user._id,
             name: name || "Untitled Trek",
             description,
             location,
-            privacy,
+            privacy: "public",
             status: "ongoing",
             startTime: new Date()
         });
@@ -76,7 +76,6 @@ router.get("/discover/:osmId", async (req, res) => {
 router.get("/feed/public", async (req, res) => {
     try {
         const treks = await Trek.find({
-            privacy: "public",
             "stats.distance": { $gt: 10 } // Only legit trails (at least 10m walk)
         })
             .sort({ createdAt: -1 })
@@ -136,20 +135,17 @@ router.get("/nearby", async (req, res) => {
 
         // Fetch all public treks with coordinates
         // Optimization: In real app, use MongoDB $near or 2dsphere index.
-        // Since we don't have 2dsphere index on specific start point yet, we do in-memory filter.
-        // It's fine for < 5000 treks.
         const allTreks = await Trek.find({
-            privacy: "public",
-            coordinates: { $exists: true, $not: { $size: 0 } }
-        }).select("name location coordinates stats user images description");
+            "path.coordinates": { $exists: true, $not: { $size: 0 } }
+        }).select("name location path stats user images description");
 
         const nearbyTreks = allTreks.filter(trek => {
-            if (!trek.coordinates || trek.coordinates.length === 0) return false;
-            const startNode = trek.coordinates[0];
+            if (!trek.path || !trek.path.coordinates || trek.path.coordinates.length === 0) return false;
+            const startNode = { latitude: trek.path.coordinates[0][1], longitude: trek.path.coordinates[0][0] }; // GeoJSON is [lng, lat]
             const dist = getDistanceFromLatLonInKm(userLat, userLon, startNode.latitude, startNode.longitude);
             return dist <= maxDist;
         }).map(trek => {
-            const startNode = trek.coordinates[0];
+            const startNode = { latitude: trek.path.coordinates[0][1], longitude: trek.path.coordinates[0][0] };
             const dist = getDistanceFromLatLonInKm(userLat, userLon, startNode.latitude, startNode.longitude);
             return { ...trek.toObject(), distanceConfig: dist }; // Enrich with distance from user
         }).sort((a, b) => a.distanceConfig - b.distanceConfig);
@@ -165,7 +161,7 @@ router.get("/nearby", async (req, res) => {
 // Update trek (add points, update stats, finish)
 router.put("/update/:id", protectRoute, async (req, res) => {
     try {
-        const { coordinates, stats, status, images } = req.body;
+        const { coordinates, stats, status, images } = req.body; // Client still sends 'coordinates' or 'path'
         const trekId = req.params.id;
 
         if (!mongoose.Types.ObjectId.isValid(trekId)) {
@@ -179,7 +175,29 @@ router.put("/update/:id", protectRoute, async (req, res) => {
         }
 
         if (coordinates && Array.isArray(coordinates)) {
-            trek.coordinates.push(...coordinates);
+            // If API sends objects {latitude, longitude}, convert to [lng, lat]
+            const newPoints = coordinates.map(p => {
+                if (Array.isArray(p)) return p;
+                if (p.latitude && p.longitude) return [p.longitude, p.latitude];
+                return null;
+            }).filter(p => p !== null);
+
+            if (!trek.path || !trek.path.coordinates || trek.path.coordinates.length === 0) {
+                // Initialize path
+                // GeoJSON LineString requires at least 2 points.
+                // If we only have 1 point, duplicate it to satisfy validation [A, A]
+                if (newPoints.length === 1) {
+                    // MongoDB collapses identical adjacent points, so [A, A] becomes [A], which is invalid.
+                    // We must add a tiny offset to make them distinct.
+                    const p1 = newPoints[0];
+                    const p2 = [p1[0] + 0.000001, p1[1]];
+                    trek.path = { type: 'LineString', coordinates: [p1, p2] };
+                } else {
+                    trek.path = { type: 'LineString', coordinates: newPoints };
+                }
+            } else {
+                trek.path.coordinates.push(...newPoints);
+            }
         }
 
         if (stats) {
