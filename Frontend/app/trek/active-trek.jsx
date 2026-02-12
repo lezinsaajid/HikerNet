@@ -124,12 +124,11 @@ export default function ActiveTrek() {
                 console.log(`[ActiveTrek] Dist from last: ${dist.toFixed(2)}m`);
 
                 // --- RECORDING FILTER ---
-                // Relaxed to 0.5m for detailed movement. 
-                // However, with EMA, we might want slightly higher threshold to avoid drifting while stationary.
-                if (dist >= 1.0) {
+                // Relaxed to 0.5m (100cm) for extremely detailed movement as requested. 
+                if (dist >= 0.5) {
                     shouldRecord = true;
                 } else {
-                    console.log("[ActiveTrek] REJECT: < 1.0m movement after smoothing");
+                    console.log("[ActiveTrek] REJECT: < 0.5m movement after smoothing");
                 }
             }
 

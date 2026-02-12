@@ -68,9 +68,9 @@ export const useSmartLocation = (isTracking) => {
                             // Log distance check
                             console.log(`[SmartLocation] Stationary Check: dist=${dist.toFixed(2)}m`);
 
-                            // If moved < 2 meters while "Stationary", ignore it (lowered to 2m)
-                            if (dist < 2) {
-                                console.log(`[SmartLocation] REJECT: Stationary Drift (< 2m)`);
+                            // If moved < 0.5 meters while "Stationary", ignore it (lowered to 0.5m for extreme precision)
+                            if (dist < 0.5) {
+                                console.log(`[SmartLocation] REJECT: Stationary Drift (< 0.5m)`);
                                 return;
                             }
                         }
