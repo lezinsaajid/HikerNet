@@ -68,9 +68,9 @@ export const useSmartLocation = (isTracking) => {
                             // Log distance check
                             console.log(`[SmartLocation] Stationary Check: dist=${dist.toFixed(2)}m`);
 
-                            // If moved < 2 meters while "Stationary", ignore it (lowered to 2m)
-                            if (dist < 2) {
-                                console.log(`[SmartLocation] REJECT: Stationary Drift (< 2m)`);
+                            // If moved < 0.5 meters while "Stationary", ignore it (lowered to 0.5m for extreme precision)
+                            if (dist < 0.5) {
+                                console.log(`[SmartLocation] REJECT: Stationary Drift (< 0.5m)`);
                                 return;
                             }
                         }
@@ -101,7 +101,7 @@ export const useSmartLocation = (isTracking) => {
             if (pedometerSub) pedometerSub.remove();
             if (walkTimer) clearTimeout(walkTimer);
         };
-    }, [isTracking, isWalking]); // Re-run if walking state changes? No, controlled inside.
+    }, [isTracking]); // Only restart if tracking status changes, not walking status
 
     return { location, isWalking, gpsAccuracy };
 };

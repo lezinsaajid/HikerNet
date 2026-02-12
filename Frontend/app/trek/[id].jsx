@@ -57,11 +57,23 @@ export default function TrailDetailsScreen() {
                         elevationGain: elev?.elevationGain || 0,
                         maxElev: elev?.maxElevation || 0,
                         difficulty: res.data.difficulty || "Easy"
-                    }
+                    },
+                    // Map OSM coordinates to the format expected by the app
+                    coordinates: res.data.coordinates || []
                 });
             } else {
                 const res = await client.get(`/treks/${id}`);
-                setTrail(res.data);
+                const data = res.data;
+
+                // Map path.coordinates ([lng, lat]) to [{latitude, longitude}]
+                if (data.path && data.path.coordinates) {
+                    data.coordinates = data.path.coordinates.map(c => ({
+                        latitude: c[1],
+                        longitude: c[0]
+                    }));
+                }
+
+                setTrail(data);
             }
         } catch (error) {
             console.error(`Failed to load trail details for id: ${id}`, error);

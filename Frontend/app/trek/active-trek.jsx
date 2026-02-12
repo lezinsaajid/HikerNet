@@ -42,7 +42,13 @@ export default function ActiveTrek() {
     const [isTrailingBack, setIsTrailingBack] = useState(false);
     const [hasStarted, setHasStarted] = useState(false);
 
-    const [stats, setStats] = useState({ distance: 0, duration: 0 });
+    const [stats, setStats] = useState({
+        distance: 0,
+        duration: 0,
+        elevationGain: 0,
+        avgSpeed: 0,
+        maxAltitude: -Infinity
+    });
     const [trailId, setTrailId] = useState(paramTrailId || null);
     const [routeCoordinates, setRouteCoordinates] = useState([]);
     const [backtrackCoordinates, setBacktrackCoordinates] = useState([]);
@@ -75,7 +81,15 @@ export default function ActiveTrek() {
     useEffect(() => {
         if (!smartLocation) return;
 
-        const { latitude, longitude, altitude } = smartLocation;
+        let { latitude, longitude, altitude } = smartLocation;
+
+        // --- EMA SMOOTHING FILTER ---
+        // Only smooth if we already have a point
+        if (lastLocationRef.current) {
+            const alpha = 0.5; // Smoothing factor (0.1 to 0.9). 0.5 is a good balance for trails.
+            latitude = alpha * latitude + (1 - alpha) * lastLocationRef.current.latitude;
+            longitude = alpha * longitude + (1 - alpha) * lastLocationRef.current.longitude;
+        }
 
         // Update current location state for UI
         const newPoint = { latitude, longitude };
@@ -95,7 +109,7 @@ export default function ActiveTrek() {
             checkOffTrack(latitude, longitude);
         }
         // Logic for Recording
-        else if (!trailFinished && !isPaused) {
+        else if (!trailFinished && !isPaused && role === 'leader') {
             // Manual Distance Threshold Check for RECORDING
             const path = routeRef.current;
             let shouldRecord = false;
@@ -110,11 +124,11 @@ export default function ActiveTrek() {
                 console.log(`[ActiveTrek] Dist from last: ${dist.toFixed(2)}m`);
 
                 // --- RECORDING FILTER ---
-                // Relaxed to 0.5m for detailed indoor mapping
+                // Relaxed to 0.5m (100cm) for extremely detailed movement as requested. 
                 if (dist >= 0.5) {
                     shouldRecord = true;
                 } else {
-                    console.log("[ActiveTrek] REJECT: < 0.5m movement");
+                    console.log("[ActiveTrek] REJECT: < 0.5m movement after smoothing");
                 }
             }
 
@@ -125,19 +139,49 @@ export default function ActiveTrek() {
                     return updated;
                 });
 
-                setStats(prev => ({
-                    ...prev,
-                    distance: prev.distance + dist
-                }));
+                setStats(prev => {
+                    const newDistance = prev.distance + dist;
+                    const newDuration = prev.duration; // Timer handles duration
 
-                if (trailIdRef.current) {
-                    client.put(`/treks/update/${trailIdRef.current}`, {
-                        coordinates: [{ latitude, longitude, altitude }]
-                    }).catch(console.error);
-                }
+                    // Elevation Calculation
+                    let newElevationGain = prev.elevationGain;
+                    let newMaxAltitude = prev.maxAltitude;
+
+                    if (altitude !== undefined) {
+                        if (altitude > newMaxAltitude && newMaxAltitude !== -Infinity) {
+                            const gain = altitude - newMaxAltitude;
+                            if (gain > 0.5) { // Sensitivity threshold
+                                newElevationGain += gain;
+                            }
+                        }
+                        newMaxAltitude = Math.max(newMaxAltitude, altitude);
+                    }
+
+                    // Average Speed (km/h)
+                    // duration is in seconds
+                    const speed = newDuration > 0 ? (newDistance / 1000) / (newDuration / 3600) : 0;
+
+                    const updatedStats = {
+                        ...prev,
+                        distance: newDistance,
+                        elevationGain: newElevationGain,
+                        maxAltitude: newMaxAltitude,
+                        avgSpeed: parseFloat(speed.toFixed(1))
+                    };
+
+                    // Sync to backend
+                    if (trailIdRef.current) {
+                        client.put(`/treks/update/${trailIdRef.current}`, {
+                            coordinates: [{ latitude, longitude, altitude }],
+                            stats: updatedStats
+                        }).catch(console.error);
+                    }
+
+                    return updatedStats;
+                });
             }
         }
-    }, [smartLocation]);
+    }, [smartLocation, isTrailingBack, trailFinished, isPaused, role, isFollowingUser]); // Added missing dependencies to avoid stale closures
 
     useEffect(() => {
         (async () => {
@@ -150,13 +194,41 @@ export default function ActiveTrek() {
             let loc = await Location.getCurrentPositionAsync({});
             setLocation(loc.coords);
 
+            // Fetch existing trek if trailId provided (resuming or leader joining)
+            if (paramTrailId) {
+                try {
+                    const res = await client.get(`/treks/${paramTrailId}`);
+                    const data = res.data;
+
+                    if (data.path && data.path.coordinates) {
+                        // GeoJSON is [lng, lat], our state is [{latitude, longitude}]
+                        const mappedRoute = data.path.coordinates.map(p => ({
+                            latitude: p[1],
+                            longitude: p[0]
+                        }));
+                        setRouteCoordinates(mappedRoute);
+                        routeRef.current = mappedRoute;
+                    }
+
+                    if (data.waypoints) setMarkers(data.waypoints);
+                    if (data.stats) setStats(prev => ({ ...prev, ...data.stats }));
+
+                    if (data.status === 'ongoing') {
+                        setIsTracking(true);
+                        setHasStarted(true);
+                    } else if (data.status === 'completed') {
+                        setTrailFinished(true);
+                        setHasStarted(true);
+                    }
+                } catch (e) {
+                    console.error("Failed to load existing trek data", e);
+                }
+            }
+
             // If we have a trailId (resuming) OR a name (new trail), start tracking
             if (paramTrailId || name) {
                 if (role === 'leader') {
-                    // Manual start required unless resuming with a specific trailId from direct navigation?
-                    // Actually, even resuming should probably wait for a "Continue" or "Start" if user requested manual.
-                    // Let's keep it simple: manual start for everyone on first load of this screen.
-                    // startTrail(); 
+                    // Manual start required unless resuming with a specific trailId
                 } else {
                     // Member Mode: Start polling
                     setHasStarted(true); // Members don't "start", they just join
@@ -189,23 +261,30 @@ export default function ActiveTrek() {
                         clearInterval(memberPollRef.current);
                     }
 
-                    // Route sync (assuming backend returns full route or we use a diff endpoint)
-                    // For now, simpler sync: Markers
-                    // Note: Coordinates usually heavy to poll. Ideally sockets.
-                    // For simplicity, we just sync Markers and Status here.
-                    // If we want route sync, we need an endpoint returning coordinates.
+                    // Path synchronization for members
+                    if (data.path && data.path.coordinates) {
+                        const mappedRoute = data.path.coordinates.map(p => ({
+                            latitude: p[1],
+                            longitude: p[0]
+                        }));
+                        setRouteCoordinates(mappedRoute);
+                    }
 
                     // Sync Waypoints/Markers
                     if (data.waypoints) {
-                        // Transform if needed match local state
                         setMarkers(data.waypoints);
+                    }
+
+                    // Sync Stats
+                    if (data.stats) {
+                        setStats(prev => ({ ...prev, ...data.stats }));
                     }
 
                 } catch (e) {
                     console.error("Polling error", e);
                 }
             }
-        }, 3000);
+        }, 5000); // 5 seconds is safer for polling frequency
     };
 
     useEffect(() => {
@@ -257,7 +336,7 @@ export default function ActiveTrek() {
                 hasAlertedOffTrack.current = true;
                 Alert.alert(
                     "Wrong Path!",
-                    "You have strayed from the trail. Please return to the blue path.",
+                    "You have strayed from the trail. Please return to the orange path.",
                     [{ text: "OK" }]
                 );
             }
@@ -295,9 +374,28 @@ export default function ActiveTrek() {
                     location: initialLocation || '',
                     mode: mode || 'solo'
                 });
-                setTrailId(res.data._id);
-                trailIdRef.current = res.data._id;
+                const newId = res.data._id;
+                setTrailId(newId);
+                trailIdRef.current = newId;
                 setStats(prev => ({ ...prev, startName: res.data.name }));
+
+                // AUTOMATIC START POINT
+                if (location) {
+                    try {
+                        await client.put(`/treks/update/${newId}`, {
+                            waypoints: [{
+                                latitude: location.latitude,
+                                longitude: location.longitude,
+                                title: "Start Point",
+                                description: "Trek started here",
+                                icon: "play-circle"
+                            }]
+                        });
+                        console.log("[ActiveTrek] Automatic Start point marked");
+                    } catch (e) {
+                        console.error("Failed to mark start point", e);
+                    }
+                }
             }
 
             // await startLocationTracking(); // Handled by hook
@@ -322,6 +420,20 @@ export default function ActiveTrek() {
 
                     if (trailId) {
                         try {
+                            // AUTOMATIC END POINT
+                            if (location) {
+                                await client.put(`/treks/update/${trailId}`, {
+                                    waypoints: [{
+                                        latitude: location.latitude,
+                                        longitude: location.longitude,
+                                        title: "End Point",
+                                        description: "Trek finished here",
+                                        icon: "flag"
+                                    }]
+                                });
+                                console.log("[ActiveTrek] Automatic End point marked");
+                            }
+
                             await client.put(`/treks/update/${trailId}`, { status: 'completed' });
 
                             // Share Prompt
@@ -511,7 +623,7 @@ export default function ActiveTrek() {
                             <Ionicons name="warning" size={24} color="white" />
                             <View style={{ marginLeft: 10 }}>
                                 <Text style={styles.warningTitle}>OFF TRACK!</Text>
-                                <Text style={styles.warningSubtitle}>Return to the blue path ({distanceToTrail}m away)</Text>
+                                <Text style={styles.warningSubtitle}>Return to the orange path ({distanceToTrail}m away)</Text>
                             </View>
                         </View>
                     )}
@@ -550,9 +662,28 @@ export default function ActiveTrek() {
                 {!trailFinished ? (
                     <>
                         <View style={styles.statsCard}>
-                            <Text style={styles.statLabel}>Duration</Text>
-                            <Text style={styles.statValue}>{formatTime(stats.duration)}</Text>
-                            <Text style={styles.statLabel}>Distance: {(stats.distance / 1000).toFixed(2)} km</Text>
+                            <View style={styles.statsMainRow}>
+                                <View style={styles.statItem}>
+                                    <Text style={styles.statLabel}>Duration</Text>
+                                    <Text style={styles.statValue}>{formatTime(stats.duration)}</Text>
+                                </View>
+                                <View style={styles.statDivider} />
+                                <View style={styles.statItem}>
+                                    <Text style={styles.statLabel}>Distance</Text>
+                                    <Text style={styles.statValue}>{(stats.distance / 1000).toFixed(2)} <Text style={styles.unitText}>km</Text></Text>
+                                </View>
+                            </View>
+
+                            <View style={styles.statsSecondaryRow}>
+                                <View style={styles.statDetail}>
+                                    <Ionicons name="trending-up" size={16} color="#666" />
+                                    <Text style={styles.statDetailText}>{Math.round(stats.elevationGain || 0)}m Gain</Text>
+                                </View>
+                                <View style={styles.statDetail}>
+                                    <Ionicons name="speedometer" size={16} color="#666" />
+                                    <Text style={styles.statDetailText}>{stats.avgSpeed || 0} km/h</Text>
+                                </View>
+                            </View>
                         </View>
 
                         <View style={styles.row}>
@@ -837,22 +968,64 @@ const styles = StyleSheet.create({
     statsCard: {
         backgroundColor: 'rgba(255,255,255,0.95)',
         padding: 15,
-        borderRadius: 16,
+        borderRadius: 20,
         marginBottom: 20,
+        width: '100%',
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+    },
+    statsMainRow: {
+        flexDirection: 'row',
         alignItems: 'center',
-        minWidth: 150,
-        elevation: 3,
+        justifyContent: 'space-around',
+        paddingBottom: 15,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
+    },
+    statItem: {
+        alignItems: 'center',
+        flex: 1,
+    },
+    statDivider: {
+        width: 1,
+        height: '70%',
+        backgroundColor: '#e0e0e0',
+    },
+    statsSecondaryRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        paddingTop: 12,
+    },
+    statDetail: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    statDetailText: {
+        fontSize: 14,
+        color: '#444',
+        fontWeight: '600',
+        marginLeft: 6,
     },
     statLabel: {
         fontSize: 12,
-        color: '#666',
+        color: '#888',
+        fontWeight: 'bold',
         textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: 4,
     },
     statValue: {
-        fontSize: 32,
+        fontSize: 26,
         fontWeight: 'bold',
         color: '#28a745',
-        marginVertical: 4,
+    },
+    unitText: {
+        fontSize: 14,
+        color: '#666',
+        fontWeight: 'normal',
     },
     row: {
         flexDirection: 'row',
