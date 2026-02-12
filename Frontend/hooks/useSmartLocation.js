@@ -101,7 +101,7 @@ export const useSmartLocation = (isTracking) => {
             if (pedometerSub) pedometerSub.remove();
             if (walkTimer) clearTimeout(walkTimer);
         };
-    }, [isTracking, isWalking]); // Re-run if walking state changes? No, controlled inside.
+    }, [isTracking]); // Only restart if tracking status changes, not walking status
 
     return { location, isWalking, gpsAccuracy };
 };
