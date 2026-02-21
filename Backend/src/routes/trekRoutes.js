@@ -8,51 +8,41 @@ const router = express.Router();
 
 // Start a new trek
 router.post("/start", protectRoute, async (req, res) => {
-    try {
-        const { name, description, location } = req.body;
+    const { name, description, location } = req.body;
 
-        const trek = new Trek({
-            user: req.user._id,
-            name: name || "Untitled Trek",
-            description,
-            location,
-            privacy: "public",
-            status: "ongoing",
-            startTime: new Date()
-        });
+    const trek = new Trek({
+        user: req.user._id,
+        name: name || "Untitled Trek",
+        description,
+        location,
+        privacy: "public",
+        status: "ongoing",
+        startTime: new Date()
+    });
 
-        await trek.save();
-        res.status(201).json(trek);
-    } catch (error) {
-        console.error("Error starting trek:", error);
-        res.status(500).json({ message: "Error starting trek" });
-    }
+    await trek.save();
+    res.status(201).json(trek);
 });
 
 // Discover trails (External OSM)
 router.get("/discover", async (req, res) => {
     console.log("GET /discover:", req.query);
-    try {
-        const { q, lat, lon, radius } = req.query;
-        let query;
+    const { q, lat, lon, radius } = req.query;
+    let query;
 
-        if (q || (lat && lon)) {
-            query = {
-                q,
-                lat: lat ? parseFloat(lat) : null,
-                lon: lon ? parseFloat(lon) : null,
-                radius: radius ? parseInt(radius) : 50000
-            };
-        } else {
-            return res.status(400).json({ message: "Query or Lat/Lon required" });
-        }
-
-        const trails = await discoverTreks(query);
-        res.json(trails);
-    } catch (error) {
-        console.error("Error discovering treks:", error);
-        res.status(500).json({ message: "Error discovering treks" });
+    if (q || (lat && lon)) {
+        query = {
+            q,
+            lat: lat ? parseFloat(lat) : null,
+            lon: lon ? parseFloat(lon) : null,
+            radius: radius ? parseInt(radius) : 50000
+        };
+    } else {
+        return res.status(400).json({ message: "Query or Lat/Lon required" });
     }
+
+    const trails = await discoverTreks(query);
+    res.json(trails);
 });
 
 // Get OSM trail details
@@ -74,18 +64,13 @@ router.get("/discover/:osmId", async (req, res) => {
 
 // Get public feed (all public treks)
 router.get("/feed/public", async (req, res) => {
-    try {
-        const treks = await Trek.find({
-            "stats.distance": { $gt: 10 } // Only legit trails (at least 10m walk)
-        })
-            .sort({ createdAt: -1 })
-            .populate("user", "username profileImage")
-            .limit(20);
-        res.json(treks);
-    } catch (error) {
-        console.error("Error fetching public feed:", error);
-        res.status(500).json({ message: "Error fetching public feed" });
-    }
+    const treks = await Trek.find({
+        "stats.distance": { $gt: 10 } // Only legit trails (at least 10m walk)
+    })
+        .sort({ createdAt: -1 })
+        .populate("user", "username profileImage")
+        .limit(20);
+    res.json(treks);
 });
 
 // Get user's treks
