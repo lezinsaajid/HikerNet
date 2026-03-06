@@ -41,6 +41,8 @@ export default function ActiveTrek() {
     const [trailFinished, setTrailFinished] = useState(false); // New state for "Stop" -> "Trail Back"
     const [isTrailingBack, setIsTrailingBack] = useState(false);
     const [hasStarted, setHasStarted] = useState(false);
+    const [isLocating, setIsLocating] = useState(false); // For explicit GPS lock phase
+    const [gotPreciseLock, setGotPreciseLock] = useState(false);
 
     const [stats, setStats] = useState({
         distance: 0,
@@ -75,7 +77,7 @@ export default function ActiveTrek() {
     const lastLocationRef = useRef(null); // For EMA smoothing filter
     const hasAlertedOffTrack = useRef(false); // To prevent alert spam
 
-    const { location: smartLocation } = useSmartLocation(isTracking || isTrailingBack);
+    const { location: smartLocation, gpsAccuracy } = useSmartLocation(isTracking || isTrailingBack || isLocating);
 
     // React to smart location updates
     useEffect(() => {
@@ -191,7 +193,10 @@ export default function ActiveTrek() {
                 return;
             }
 
-            let loc = await Location.getCurrentPositionAsync({});
+            // Fetch initial position with HIGHEST accuracy to ensure correct starting point
+            let loc = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Highest
+            });
             setLocation(loc.coords);
 
             // Fetch existing trek if trailId provided (resuming or leader joining)
@@ -406,6 +411,44 @@ export default function ActiveTrek() {
             setIsTracking(false);
         }
     };
+
+    const handleFetchLocation = async () => {
+        try {
+            setIsLocating(true);
+            setGotPreciseLock(false);
+
+            // Explicit high-accuracy request
+            const loc = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Highest
+            });
+
+            const { latitude, longitude, accuracy } = loc.coords;
+            console.log(`[ActiveTrek] Manual lock acquired: acc=${accuracy.toFixed(1)}m`);
+
+            const newPoint = { latitude, longitude };
+            setLocation(newPoint);
+            lastLocationRef.current = newPoint;
+
+            if (accuracy <= 20) {
+                setGotPreciseLock(true);
+            } else {
+                // If still not precise enough, let the hook's continuous updates handle it
+                // but we keep isLocating = true to show the progress
+                console.log("[ActiveTrek] Lock not precise enough yet (<20m), waiting for update...");
+            }
+        } catch (error) {
+            console.error("Manual fetch error", error);
+            Alert.alert("GPS Error", "Could not fetch your exact location. Please ensure GPS is enabled.");
+            setIsLocating(false);
+        }
+    };
+
+    // Watch for precise lock via hook too
+    useEffect(() => {
+        if (isLocating && smartLocation && smartLocation.accuracy <= 20) {
+            setGotPreciseLock(true);
+        }
+    }, [smartLocation, isLocating]);
 
     const handleStopTrail = async () => {
         // Just pause/stop recording, verify completion
@@ -631,6 +674,21 @@ export default function ActiveTrek() {
                     <View style={styles.weatherOverlay}>
                         <WeatherWidget compact={true} />
                     </View>
+
+                    {/* Persistent Accuracy Badge */}
+                    {hasStarted && (
+                        <View style={styles.accuracyBadgeContainer}>
+                            <View style={[
+                                styles.accuracyBadge,
+                                { backgroundColor: gpsAccuracy > 50 ? '#dc3545' : (gpsAccuracy > 20 ? '#ffc107' : '#28a745') }
+                            ]}>
+                                <Ionicons name="wifi" size={12} color="white" />
+                                <Text style={styles.accuracyBadgeText}>
+                                    Accuracy: {gpsAccuracy?.toFixed(1) || '---'}m
+                                </Text>
+                            </View>
+                        </View>
+                    )}
                 </View>
             ) : (
                 <View style={styles.centered}>
@@ -852,12 +910,74 @@ export default function ActiveTrek() {
                 !hasStarted && role === 'leader' && (
                     <View style={styles.startOverlay}>
                         <View style={styles.startCard}>
-                            <Ionicons name="location" size={60} color="#28a745" />
-                            <Text style={styles.startTitle}>Ready to Trail?</Text>
-                            <Text style={styles.startSub}>Position yourself and click below to begin recording.</Text>
-                            <TouchableOpacity style={styles.startBigBtn} onPress={startTrail}>
-                                <Text style={styles.startBigBtnText}>Start Trail Now</Text>
-                            </TouchableOpacity>
+                            <Ionicons
+                                name={gotPreciseLock ? "checkmark-circle" : "location"}
+                                size={60}
+                                color={gotPreciseLock ? "#28a745" : (isLocating ? "#ffc107" : "#666")}
+                            />
+
+                            <Text style={styles.startTitle}>
+                                {gotPreciseLock ? "Location Locked!" : (isLocating ? "Locating..." : "Ready to Trail?")}
+                            </Text>
+
+                            <Text style={styles.startSub}>
+                                {gotPreciseLock
+                                    ? "We've got your exact position. You can start now."
+                                    : (isLocating
+                                        ? "Fetching your current location with high precision... please wait."
+                                        : "Position yourself and lock your location to begin.")}
+                            </Text>
+
+                            {!isLocating && !gotPreciseLock && (
+                                <TouchableOpacity style={styles.startBigBtn} onPress={handleFetchLocation}>
+                                    <Text style={styles.startBigBtnText}>Get My Location</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            {isLocating && (
+                                <View style={[
+                                    styles.fetchingBox,
+                                    { borderColor: gotPreciseLock ? '#28a745' : (gpsAccuracy > 50 ? '#dc3545' : '#ffc107') }
+                                ]}>
+                                    <View style={styles.accuracyHeader}>
+                                        <Text style={[
+                                            styles.fetchingText,
+                                            { color: gotPreciseLock ? '#28a745' : (gpsAccuracy > 50 ? '#dc3545' : '#856404') }
+                                        ]}>
+                                            {gotPreciseLock ? "Lock Achieved" : "Optimizing Signal..."}
+                                        </Text>
+                                        <Ionicons
+                                            name={gotPreciseLock ? "shield-checkmark" : "sync"}
+                                            size={18}
+                                            color={gotPreciseLock ? "#28a745" : "#666"}
+                                            style={!gotPreciseLock && { transform: [{ rotate: '0deg' }] }} // Note: In a real app we'd animate this
+                                        />
+                                    </View>
+
+                                    <View style={styles.meterContainer}>
+                                        <View style={[
+                                            styles.meterBar,
+                                            {
+                                                width: `${Math.max(10, Math.min(100, (100 - (gpsAccuracy || 100)) / 100 * 100))}%`,
+                                                backgroundColor: gotPreciseLock ? '#28a745' : (gpsAccuracy > 50 ? '#dc3545' : '#ffc107')
+                                            }
+                                        ]} />
+                                    </View>
+
+                                    <Text style={styles.accuracyValue}>
+                                        Current Accuracy: <Text style={{ fontWeight: 'bold' }}>{gpsAccuracy?.toFixed(1) || '---'} meters</Text>
+                                    </Text>
+                                    <Text style={styles.fetchingSub}>
+                                        {gotPreciseLock ? "High precision achieved!" : (gpsAccuracy <= 50 ? "Almost there... keep still." : "Searching for satellites...")}
+                                    </Text>
+                                </View>
+                            )}
+
+                            {gotPreciseLock && (
+                                <TouchableOpacity style={[styles.startBigBtn, { backgroundColor: '#28a745' }]} onPress={startTrail}>
+                                    <Text style={styles.startBigBtnText}>Start Trail Now</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     </View>
                 )
@@ -1226,5 +1346,71 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 18,
         fontWeight: 'bold',
+    },
+    fetchingBox: {
+        backgroundColor: '#f8f9fa',
+        padding: 20,
+        borderRadius: 18,
+        borderWidth: 2,
+        alignItems: 'center',
+        width: '100%',
+        marginVertical: 15,
+    },
+    accuracyHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        marginBottom: 12,
+    },
+    fetchingText: {
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    meterContainer: {
+        width: '100%',
+        height: 8,
+        backgroundColor: '#e9ecef',
+        borderRadius: 4,
+        overflow: 'hidden',
+        marginBottom: 12,
+    },
+    meterBar: {
+        height: '100%',
+        borderRadius: 4,
+    },
+    accuracyValue: {
+        fontSize: 15,
+        color: '#333',
+        marginBottom: 4,
+    },
+    fetchingSub: {
+        fontSize: 13,
+        color: '#666',
+        fontStyle: 'italic',
+    },
+    accuracyBadgeContainer: {
+        position: 'absolute',
+        top: 50,
+        left: 20,
+        zIndex: 10,
+    },
+    accuracyBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 12,
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+    },
+    accuracyBadgeText: {
+        color: 'white',
+        fontSize: 12,
+        fontWeight: 'bold',
+        marginLeft: 4,
     },
 });

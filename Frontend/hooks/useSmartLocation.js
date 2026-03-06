@@ -45,10 +45,15 @@ export const useSmartLocation = (isTracking) => {
                     console.log(`[SmartLocation] Raw update: acc=${accuracy.toFixed(1)}m, walking=${isWalking}, steps=${stepCount.current}`);
 
                     // --- SENSOR FUSION LOGIC ---
+                    const isFirstPoint = !lastLocation.current;
 
-                    // 1. Accuracy Filter (Relaxed for Indoors)
-                    if (accuracy > 100) { // Increased to 100m to allow indoor signals
-                        console.log(`[SmartLocation] REJECT: Poor Accuracy (${accuracy} > 100)`);
+                    // 1. Accuracy Filter
+                    // Tightened to 30m for general tracking.
+                    // First point is restricted to 20m to ensure a solid initial lock.
+                    const accuracyThreshold = isFirstPoint ? 20 : 30;
+
+                    if (accuracy > accuracyThreshold) {
+                        console.log(`[SmartLocation] REJECT: Low Accuracy (${accuracy.toFixed(1)}m > ${accuracyThreshold}m)`);
                         return;
                     }
 
