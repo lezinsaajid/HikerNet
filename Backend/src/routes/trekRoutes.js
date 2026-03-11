@@ -48,10 +48,11 @@ router.get("/discover", async (req, res) => {
         }
 
         const trails = await discoverTreks(query);
-        res.json(trails);
+        res.json(trails || []); // Return empty array if null/undefined
     } catch (error) {
         console.error("Error discovering treks:", error);
-        res.status(500).json({ message: "Error discovering treks" });
+        // Return empty array instead of error for better UX
+        res.json([]);
     }
 });
 

@@ -8,7 +8,7 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 const client = axios.create({
     baseURL: BASE_URL,
-    timeout: 10000,
+    timeout: 30000, // 30 seconds (increased from 10s)
 });
 
 // Debug logging
