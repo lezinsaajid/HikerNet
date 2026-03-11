@@ -17,6 +17,7 @@ import roomRoutes from "./routes/roomRoutes.js";
 import chatRoutes from "./routes/chat.js";
 
 import { connectDB } from "./lib/db.js";
+import errorMiddleware from "./middleware/error.middleware.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -41,6 +42,9 @@ app.use("/api/location", locationRoutes);
 app.use("/api/adventures", adventureRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/chat", chatRoutes);
+
+// Error Handling Middleware (must be last)
+app.use(errorMiddleware);
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
