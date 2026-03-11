@@ -56,7 +56,10 @@ export const AuthProvider = ({ children }) => {
             async (error) => {
                 const originalRequest = error.config;
                 // Ignore 401s from auth endpoints (login/register) to prevent logging out current user on failed attempts
-                const isAuthRequest = originalRequest.url?.includes('/auth/login') || originalRequest.url?.includes('/auth/register');
+                const isAuthRequest = 
+                    originalRequest.url?.includes('/auth/login') || 
+                    originalRequest.url?.includes('/auth/register') ||
+                    originalRequest.url?.includes('/auth/logout');
 
                 if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest) {
                     console.log("Session expired (401). Logging out current user...");
@@ -244,12 +247,10 @@ export const AuthProvider = ({ children }) => {
         try {
             console.log("[AuthContext] Logout initiated...");
 
-            // Notify server to set offline status
-            try {
-                await client.post('/auth/logout');
-            } catch (err) {
-                console.warn("[AuthContext] Server logout failed (ignoring):", err.message);
-            }
+            // Notify server to set offline status (fire and forget, don't block UI)
+            client.post('/auth/logout').catch(err => {
+                console.warn("[AuthContext] Server logout notification failed (expected if token expired or offline):", err.message);
+            });
 
             if (!user) {
                 console.warn("[AuthContext] Logout called but no user is active.");

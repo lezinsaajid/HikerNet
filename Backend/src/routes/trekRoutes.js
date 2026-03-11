@@ -30,19 +30,25 @@ router.get("/discover", async (req, res) => {
     const { q, lat, lon, radius } = req.query;
     let query;
 
-    if (q || (lat && lon)) {
-        query = {
-            q,
-            lat: lat ? parseFloat(lat) : null,
-            lon: lon ? parseFloat(lon) : null,
-            radius: radius ? parseInt(radius) : 50000
-        };
-    } else {
-        return res.status(400).json({ message: "Query or Lat/Lon required" });
-    }
+    try {
+        if (q || (lat && lon)) {
+            query = {
+                q,
+                lat: lat ? parseFloat(lat) : null,
+                lon: lon ? parseFloat(lon) : null,
+                radius: radius ? parseInt(radius) : 50000
+            };
+        } else {
+            return res.status(400).json({ message: "Query or Lat/Lon required" });
+        }
 
-    const trails = await discoverTreks(query);
-    res.json(trails);
+        const trails = await discoverTreks(query);
+        res.json(trails || []); // Return empty array if null/undefined
+    } catch (error) {
+        console.error("Error discovering treks:", error);
+        // Return empty array instead of error for better UX
+        res.json([]);
+    }
 });
 
 // Get OSM trail details
