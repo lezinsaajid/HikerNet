@@ -1,121 +1,134 @@
 import { useState, useEffect, useRef } from 'react';
 import * as Location from 'expo-location';
 import { Pedometer } from 'expo-sensors';
+import { getDistance } from '../utils/geoUtils';
 
 export const useSmartLocation = (isTracking) => {
-    const [location, setLocation] = useState(null);
+    const [location, setLocation] = useState(null); // Validated location for recording
+    const [smoothedLocation, setSmoothedLocation] = useState(null); // EMA smoothed for map display
     const [isWalking, setIsWalking] = useState(false);
     const [gpsAccuracy, setGpsAccuracy] = useState(0);
+    const [error, setError] = useState(null);
+
+    const getAccuracyStatus = (acc) => {
+        if (acc === 0) return 'locating';
+        if (acc < 0) return 'invalid';
+        if (acc <= 20) return 'high';
+        if (acc <= 50) return 'medium';
+        return 'low';
+    };
+
+    const accuracyStatus = getAccuracyStatus(gpsAccuracy);
 
     // Refs for logic
-    const lastLocation = useRef(null);
+    const lastValidatedLoc = useRef(null);
+    const lastRawLoc = useRef(null);
     const stepCount = useRef(0);
     const lastStepTime = useRef(0);
 
     useEffect(() => {
         let locationSub = null;
         let pedometerSub = null;
+        let walkTimer;
 
         const startTracking = async () => {
-            // 1. Pedometer Subscription
-            const isPedometerAvailable = await Pedometer.isAvailableAsync();
-            if (isPedometerAvailable) {
-                pedometerSub = Pedometer.watchStepCount(result => {
-                    stepCount.current = result.steps;
-                    lastStepTime.current = Date.now();
-                    setIsWalking(true);
+            try {
+                // 1. Permission Check
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    setError('Permission to access location was denied');
+                    return;
+                }
 
-                    // Auto-reset "walking" state if no steps for 3 seconds
-                    if (walkTimer) clearTimeout(walkTimer);
-                    walkTimer = setTimeout(() => setIsWalking(false), 3000);
-                });
-            }
+                // 2. Pedometer Subscription
+                const isPedometerAvailable = await Pedometer.isAvailableAsync();
+                if (isPedometerAvailable) {
+                    pedometerSub = Pedometer.watchStepCount(result => {
+                        stepCount.current = result.steps;
+                        lastStepTime.current = Date.now();
+                        setIsWalking(true);
 
-            // 2. Location Subscription
-            locationSub = await Location.watchPositionAsync(
-                {
-                    accuracy: Location.Accuracy.BestForNavigation,
-                    timeInterval: 1000, // 1 second
-                    distanceInterval: 0,
-                },
-                (newLoc) => {
-                    const { latitude, longitude, accuracy } = newLoc.coords;
-                    setGpsAccuracy(accuracy);
+                        // Auto-reset "walking" state if no steps for 3 seconds
+                        if (walkTimer) clearTimeout(walkTimer);
+                        walkTimer = setTimeout(() => setIsWalking(false), 3000);
+                    });
+                }
 
-                    console.log(`[SmartLocation] Raw update: acc=${accuracy.toFixed(1)}m, walking=${isWalking}, steps=${stepCount.current}`);
+                // 3. Location Subscription
+                locationSub = await Location.watchPositionAsync(
+                    {
+                        accuracy: Location.Accuracy.BestForNavigation,
+                        timeInterval: 1000, // 1 second
+                        distanceInterval: 0,
+                    },
+                    (newLoc) => {
+                        const { latitude, longitude, accuracy, altitude } = newLoc.coords;
+                        setGpsAccuracy(accuracy || 0);
 
-                    // --- SENSOR FUSION LOGIC ---
+                        // --- ADVANCED GEOLOCATION PIPELINE ---
 
-                    // 1. Accuracy Filter (Relaxed for Indoors)
-                    if (accuracy > 100) { // Increased to 100m to allow indoor signals
-                        console.log(`[SmartLocation] REJECT: Poor Accuracy (${accuracy} > 100)`);
-                        return;
-                    }
+                        // 1. Pre-Filter (Accuracy Gate)
+                        // If accuracy is too poor, don't even process movement logic
+                        if (accuracy > 30) return;
 
-                    // 2. Stationary Filter (Pedometer Gating)
-                    // If Pedometer is available but says "Not Walking", reject small movements
-                    // (Unless the movement is HUGE, implying a car/bike)
-                    if (isPedometerAvailable && !isWalking) {
-                        // Check distance from last point
-                        if (lastLocation.current) {
-                            const dist = getDistance(
-                                lastLocation.current.latitude,
-                                lastLocation.current.longitude,
-                                latitude,
-                                longitude
-                            );
+                        // 2. Dynamics Filter (Speed Spike Rejection)
+                        // Mountainous terrain can have multipath errors causing 100m jumps in 1s.
+                        if (lastRawLoc.current) {
+                            const timeDiff = (newLoc.timestamp - lastRawLoc.current.timestamp) / 1000;
+                            const dist = getDistance(lastRawLoc.current.latitude, lastRawLoc.current.longitude, latitude, longitude);
+                            const calcSpeed = dist / (timeDiff || 1);
 
-                            // Log distance check
-                            console.log(`[SmartLocation] Stationary Check: dist=${dist.toFixed(2)}m`);
-
-                            // If moved < 0.5 meters while "Stationary", ignore it (lowered to 0.5m for extreme precision)
-                            if (dist < 0.5) {
-                                console.log(`[SmartLocation] REJECT: Stationary Drift (< 0.5m)`);
+                            // 15m/s (54km/h) is the limit for a trekker. Reject spikes.
+                            if (calcSpeed > 15 && timeDiff > 0) {
+                                console.log(`[SmartLocation] SPIKE REJECT: ${calcSpeed.toFixed(1)}m/s`);
                                 return;
                             }
                         }
-                    }
+                        lastRawLoc.current = { latitude, longitude, timestamp: newLoc.timestamp };
 
-                    // 3. Acceptance
-                    const validPoint = { latitude, longitude, accuracy, timestamp: newLoc.timestamp };
+                        // 3. EMA Smoothing (For Visual Map Positioning)
+                        setSmoothedLocation(prev => {
+                            if (!prev) return { latitude, longitude, accuracy };
+                            const alpha = 0.5; // Smoothing factor
+                            return {
+                                latitude: alpha * latitude + (1 - alpha) * prev.latitude,
+                                longitude: alpha * longitude + (1 - alpha) * prev.longitude,
+                                accuracy
+                            };
+                        });
 
-                    // Only update state if it actually changed significantly or first point
-                    if (!lastLocation.current ||
-                        getDistance(lastLocation.current.latitude, lastLocation.current.longitude, latitude, longitude) > 0.5) {
-                        console.log(`[SmartLocation] ACCEPT: Valid Point`);
-                        lastLocation.current = validPoint;
-                        setLocation(validPoint);
+                        // 4. Movement Gating (Recording Logic)
+                        const distFromLast = lastValidatedLoc.current
+                            ? getDistance(lastValidatedLoc.current.latitude, lastValidatedLoc.current.longitude, latitude, longitude)
+                            : Infinity;
+
+                        // Initial lock requirement: accuracy <= 50m (Medium/High)
+                        const isInitialLock = !lastValidatedLoc.current && accuracy <= 50;
+
+                        if (isInitialLock || (lastValidatedLoc.current && distFromLast >= 3)) {
+                            const validPoint = { latitude, longitude, accuracy, altitude, timestamp: newLoc.timestamp };
+                            console.log(`[SmartLocation] VALIDATED: ${isInitialLock ? 'Start' : distFromLast.toFixed(1) + 'm'} move.`);
+                            lastValidatedLoc.current = validPoint;
+                            setLocation(validPoint);
+                        }
                     }
-                }
-            );
+                );
+            } catch (err) {
+                console.error('[SmartLocation] Error:', err);
+                setError(err.message);
+            }
         };
 
         if (isTracking) {
             startTracking();
         }
 
-        let walkTimer;
-
         return () => {
             if (locationSub) locationSub.remove();
             if (pedometerSub) pedometerSub.remove();
             if (walkTimer) clearTimeout(walkTimer);
         };
-    }, [isTracking]); // Only restart if tracking status changes, not walking status
+    }, [isTracking]); // Only restart if tracking status changes
 
-    return { location, isWalking, gpsAccuracy };
+    return { location, smoothedLocation, isWalking, gpsAccuracy, accuracyStatus, error };
 };
-
-// Simple Haversine for internal use
-function getDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371e3;
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-        Math.cos(φ1) * Math.cos(φ2) *
-        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-}

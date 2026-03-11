@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, TextInput, FlatList, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, TextInput, FlatList, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
@@ -9,6 +9,7 @@ import client from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import WeatherWidget from '../../components/WeatherWidget';
 import { useSmartLocation } from '../../hooks/useSmartLocation';
+import { getDistance, getPointToPathDistance, calculateHeading } from '../../utils/geoUtils';
 // icon map
 const MARKER_ICONS = [
     { name: 'water', icon: 'water', color: '#007bff', label: 'Water', tags: ['river', 'lake', 'drink', 'stream', 'wet'] },
@@ -55,6 +56,8 @@ export default function ActiveTrek() {
     const [markers, setMarkers] = useState([]); // [{latitude, longitude, icon, type}]
     const [distanceToTrail, setDistanceToTrail] = useState(0);
     const [offTrackWarning, setOffTrackWarning] = useState(false);
+    const [navGuidance, setNavGuidance] = useState("Following Trail");
+    const [targetBearing, setTargetBearing] = useState(0);
     const [mapType, setMapType] = useState('standard'); // 'standard', 'satellite', 'hybrid'
     const [isFollowingUser, setIsFollowingUser] = useState(true);
 
@@ -75,113 +78,97 @@ export default function ActiveTrek() {
     const lastLocationRef = useRef(null); // For EMA smoothing filter
     const hasAlertedOffTrack = useRef(false); // To prevent alert spam
 
-    const { location: smartLocation } = useSmartLocation(isTracking || isTrailingBack);
+    const {
+        location: validatedLocation,
+        smoothedLocation,
+        gpsAccuracy,
+        accuracyStatus,
+        error: locationError
+    } = useSmartLocation(isTracking || isTrailingBack || (!hasStarted && role === 'leader'));
 
     // React to smart location updates
     useEffect(() => {
-        if (!smartLocation) return;
+        if (!smoothedLocation) return;
 
-        let { latitude, longitude, altitude } = smartLocation;
+        const { latitude, longitude } = smoothedLocation;
+        const currentLoc = { latitude, longitude };
 
-        // --- EMA SMOOTHING FILTER ---
-        // Only smooth if we already have a point
-        if (lastLocationRef.current) {
-            const alpha = 0.5; // Smoothing factor (0.1 to 0.9). 0.5 is a good balance for trails.
-            latitude = alpha * latitude + (1 - alpha) * lastLocationRef.current.latitude;
-            longitude = alpha * longitude + (1 - alpha) * lastLocationRef.current.longitude;
-        }
-
-        // Update current location state for UI
-        const newPoint = { latitude, longitude };
-        lastLocationRef.current = newPoint;
-        setLocation(newPoint);
+        // Update current location state for UI (using smoothed coordinates for map)
+        setLocation(currentLoc);
 
         // Animate Camera
         if (mapRef.current && isFollowingUser) {
             mapRef.current.animateCamera({
-                center: { latitude, longitude }
+                center: currentLoc
             }, { duration: 500 });
         }
 
         // Logic for Backtracking
         if (isTrailingBack) {
-            setBacktrackCoordinates(prev => [...prev, newPoint]);
-            checkOffTrack(latitude, longitude);
-        }
-        // Logic for Recording
-        else if (!trailFinished && !isPaused && role === 'leader') {
-            // Manual Distance Threshold Check for RECORDING
-            const path = routeRef.current;
-            let shouldRecord = false;
-            let dist = 0;
+            // We use validatedLocation for trail back progress markers? 
+            // Or smoothed for UI polyline? Let's use smoothed for UI.
+            setBacktrackCoordinates(prev => [...prev, currentLoc]);
 
-            if (path.length === 0) {
-                shouldRecord = true;
-                console.log("[ActiveTrek] First point recorded");
-            } else {
-                const lastPoint = path[path.length - 1];
-                dist = calculateDistance(latitude, longitude, lastPoint.latitude, lastPoint.longitude);
-                console.log(`[ActiveTrek] Dist from last: ${dist.toFixed(2)}m`);
+            // Advanced Drift Detection using point-to-segment algorithm
+            const { distance, snappedPoint, segmentIndex } = getPointToPathDistance(currentLoc, routeCoordinates);
+            setDistanceToTrail(Math.round(distance));
 
-                // --- RECORDING FILTER ---
-                // Relaxed to 0.5m (100cm) for extremely detailed movement as requested. 
-                if (dist >= 0.5) {
-                    shouldRecord = true;
+            // Calculate heading to next point in reverse trail (since trekking back)
+            if (segmentIndex >= 0) {
+                const targetPoint = routeCoordinates[segmentIndex]; // Points backward
+                const bearing = calculateHeading(currentLoc, targetPoint);
+                setTargetBearing(bearing);
+
+                // Simplified guidance
+                if (distance > 5) {
+                    setNavGuidance("Return to Path");
                 } else {
-                    console.log("[ActiveTrek] REJECT: < 0.5m movement after smoothing");
+                    setNavGuidance("On Track");
                 }
             }
-
-            if (shouldRecord) {
-                setRouteCoordinates(prev => {
-                    const updated = [...prev, newPoint];
-                    routeRef.current = updated;
-                    return updated;
-                });
-
-                setStats(prev => {
-                    const newDistance = prev.distance + dist;
-                    const newDuration = prev.duration; // Timer handles duration
-
-                    // Elevation Calculation
-                    let newElevationGain = prev.elevationGain;
-                    let newMaxAltitude = prev.maxAltitude;
-
-                    if (altitude !== undefined) {
-                        if (altitude > newMaxAltitude && newMaxAltitude !== -Infinity) {
-                            const gain = altitude - newMaxAltitude;
-                            if (gain > 0.5) { // Sensitivity threshold
-                                newElevationGain += gain;
-                            }
-                        }
-                        newMaxAltitude = Math.max(newMaxAltitude, altitude);
-                    }
-
-                    // Average Speed (km/h)
-                    // duration is in seconds
-                    const speed = newDuration > 0 ? (newDistance / 1000) / (newDuration / 3600) : 0;
-
-                    const updatedStats = {
-                        ...prev,
-                        distance: newDistance,
-                        elevationGain: newElevationGain,
-                        maxAltitude: newMaxAltitude,
-                        avgSpeed: parseFloat(speed.toFixed(1))
-                    };
-
-                    // Sync to backend
-                    if (trailIdRef.current) {
-                        client.put(`/treks/update/${trailIdRef.current}`, {
-                            coordinates: [{ latitude, longitude, altitude }],
-                            stats: updatedStats
-                        }).catch(console.error);
-                    }
-
-                    return updatedStats;
-                });
-            }
         }
-    }, [smartLocation, isTrailingBack, trailFinished, isPaused, role, isFollowingUser]); // Added missing dependencies to avoid stale closures
+    }, [smoothedLocation, isFollowingUser, isTrailingBack, routeCoordinates]);
+
+    // React to validated location updates for RECORDING
+    useEffect(() => {
+        if (!validatedLocation || trailFinished || isPaused || role !== 'leader' || isTrailingBack) return;
+
+        const { latitude, longitude, altitude } = validatedLocation;
+        const newPoint = { latitude, longitude };
+        const path = routeRef.current;
+
+        let dist = 0;
+        if (path.length > 0) {
+            const lastPoint = path[path.length - 1];
+            dist = getDistance(latitude, longitude, lastPoint.latitude, lastPoint.longitude);
+        }
+
+        // Threshold 3m already enforced by hook, but we double check here if needed
+        setRouteCoordinates(prev => {
+            const updated = [...prev, newPoint];
+            routeRef.current = updated;
+            return updated;
+        });
+
+        setStats(prev => {
+            const newDistance = prev.distance + dist;
+            const updatedStats = {
+                ...prev,
+                distance: newDistance,
+                maxAltitude: (prev.maxAltitude === -Infinity) ? altitude : Math.max(prev.maxAltitude, altitude),
+                avgSpeed: prev.duration > 0 ? parseFloat(((newDistance / 1000) / (prev.duration / 3600)).toFixed(1)) : 0
+            };
+
+            if (trailIdRef.current) {
+                client.put(`/treks/update/${trailIdRef.current}`, {
+                    coordinates: [{ latitude, longitude, altitude }],
+                    stats: updatedStats
+                }).catch(console.error);
+            }
+            return updatedStats;
+        });
+
+    }, [validatedLocation, trailFinished, isPaused, role, isTrailingBack]);
 
     useEffect(() => {
         (async () => {
@@ -191,8 +178,8 @@ export default function ActiveTrek() {
                 return;
             }
 
-            let loc = await Location.getCurrentPositionAsync({});
-            setLocation(loc.coords);
+            // Removed stale getCurrentPositionAsync to avoid jumping from inaccurate initial fix.
+            // Map will center once useSmartLocation provides a high-accuracy point.
 
             // Fetch existing trek if trailId provided (resuming or leader joining)
             if (paramTrailId) {
@@ -296,55 +283,9 @@ export default function ActiveTrek() {
     }, [routeCoordinates]);
 
     // Helper to calculate distance
-    const calculateDistance = (lat1, lon1, lat2, lon2) => {
-        const R = 6371e3; // metres
-        const φ1 = lat1 * Math.PI / 180; // φ, λ in radians
-        const φ2 = lat2 * Math.PI / 180;
-        const Δφ = (lat2 - lat1) * Math.PI / 180;
-        const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-        const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-            Math.cos(φ1) * Math.cos(φ2) *
-            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-        const d = R * c; // in metres
-        return d;
-    };
 
 
 
-    const checkOffTrack = (lat, lon) => {
-        // Find minimum distance to any point in the recorded path
-        const path = routeRef.current;
-        if (!path || path.length === 0) return;
-
-        let minDistance = Infinity;
-        for (let point of path) {
-            const d = calculateDistance(lat, lon, point.latitude, point.longitude);
-            if (d < minDistance) minDistance = d;
-        }
-
-        setDistanceToTrail(Math.round(minDistance));
-
-        // Threshold: 20 meters for strict navigation
-        if (minDistance > 20) {
-            setOffTrackWarning(true);
-
-            // Show Alert if not already alerted
-            if (!hasAlertedOffTrack.current) {
-                hasAlertedOffTrack.current = true;
-                Alert.alert(
-                    "Wrong Path!",
-                    "You have strayed from the trail. Please return to the orange path.",
-                    [{ text: "OK" }]
-                );
-            }
-        } else {
-            setOffTrackWarning(false);
-            hasAlertedOffTrack.current = false; // Reset when back on track
-        }
-    };
 
 
 
@@ -379,19 +320,20 @@ export default function ActiveTrek() {
                 trailIdRef.current = newId;
                 setStats(prev => ({ ...prev, startName: res.data.name }));
 
-                // AUTOMATIC START POINT
-                if (location) {
+                // AUTOMATIC START POINT - Using high accuracy validated location
+                const startPoint = validatedLocation || location;
+                if (startPoint) {
                     try {
                         await client.put(`/treks/update/${newId}`, {
                             waypoints: [{
-                                latitude: location.latitude,
-                                longitude: location.longitude,
+                                latitude: startPoint.latitude,
+                                longitude: startPoint.longitude,
                                 title: "Start Point",
                                 description: "Trek started here",
                                 icon: "play-circle"
                             }]
                         });
-                        console.log("[ActiveTrek] Automatic Start point marked");
+                        console.log("[ActiveTrek] Automatic Start point marked using accurate location");
                     } catch (e) {
                         console.error("Failed to mark start point", e);
                     }
@@ -630,11 +572,38 @@ export default function ActiveTrek() {
 
                     <View style={styles.weatherOverlay}>
                         <WeatherWidget compact={true} />
+                        <View style={[styles.accuracyBadge, { marginTop: 10, borderColor: locationError ? '#dc3545' : '#ccc', borderWidth: locationError ? 1 : 0 }]}>
+                            <View style={[styles.accuracyDot, { backgroundColor: locationError ? '#dc3545' : accuracyStatus === 'high' ? '#28a745' : accuracyStatus === 'medium' ? '#ffc107' : accuracyStatus === 'locating' ? '#666' : '#dc3545' }]} />
+                            <Text style={[styles.accuracyText, { color: locationError ? '#dc3545' : '#333' }]}>{locationError ? 'Error' : (gpsAccuracy ? Math.round(gpsAccuracy) : '--') + 'm'}</Text>
+                        </View>
                     </View>
                 </View>
             ) : (
                 <View style={styles.centered}>
                     <Text>Initializing Trail...</Text>
+                </View>
+            )}
+
+            {/* Navigation Guidance Banner (Trek Back Mode) */}
+            {isTrailingBack && (
+                <View style={[styles.navBanner, offTrackWarning && styles.navBannerAlert]}>
+                    <View style={styles.navIconContainer}>
+                        <Ionicons
+                            name={offTrackWarning ? "warning" : "navigate-circle"}
+                            size={32}
+                            color="white"
+                        />
+                    </View>
+                    <View style={styles.navTextContainer}>
+                        <Text style={styles.navDistance}>{distanceToTrail}m <Text style={styles.navUnit}>to trail</Text></Text>
+                        <Text style={styles.navStatus}>{navGuidance}</Text>
+                    </View>
+                    <TouchableOpacity
+                        style={styles.navClose}
+                        onPress={() => setIsTrailingBack(false)}
+                    >
+                        <Ionicons name="close-circle" size={24} color="white" />
+                    </TouchableOpacity>
                 </View>
             )}
 
@@ -855,9 +824,49 @@ export default function ActiveTrek() {
                             <Ionicons name="location" size={60} color="#28a745" />
                             <Text style={styles.startTitle}>Ready to Trail?</Text>
                             <Text style={styles.startSub}>Position yourself and click below to begin recording.</Text>
-                            <TouchableOpacity style={styles.startBigBtn} onPress={startTrail}>
-                                <Text style={styles.startBigBtnText}>Start Trail Now</Text>
-                            </TouchableOpacity>
+
+                            <View style={styles.lockStatusContainer}>
+                                <View style={[styles.accuracyIndicator, { borderColor: accuracyStatus === 'high' ? '#28a745' : accuracyStatus === 'medium' ? '#ffc107' : accuracyStatus === 'locating' ? '#666' : '#dc3545' }]}>
+                                    <Text style={[styles.accuracyValue, { color: accuracyStatus === 'high' ? '#28a745' : accuracyStatus === 'medium' ? '#ffc107' : accuracyStatus === 'locating' ? '#666' : '#dc3545' }]}>
+                                        {gpsAccuracy ? `${Math.round(gpsAccuracy)}m` : 'Locating...'}
+                                    </Text>
+                                    <Text style={styles.accuracyLabel}>GPS Accuracy</Text>
+                                </View>
+                                <Text style={styles.lockInfo}>
+                                    {accuracyStatus === 'high' ? 'Signal Locked! Perfect for trailing.' :
+                                        accuracyStatus === 'medium' ? 'Refining position... please wait.' :
+                                            accuracyStatus === 'locating' ? 'Waking up GPS sensors...' :
+                                                'Waiting for better signal...'}
+                                </Text>
+                            </View>
+
+                            {locationError ? (
+                                <View style={styles.waitingContainer}>
+                                    <Ionicons name="alert-circle" size={40} color="#dc3545" />
+                                    <Text style={[styles.waitingText, { color: '#dc3545' }]}>{locationError}</Text>
+                                    <TouchableOpacity
+                                        style={[styles.startBigBtn, { marginTop: 15, backgroundColor: '#666' }]}
+                                        onPress={() => router.replace('/(tabs)/trek')}
+                                    >
+                                        <Text style={styles.startBigBtnText}>Go Back</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ) : (accuracyStatus === 'high' || accuracyStatus === 'medium') ? (
+                                <TouchableOpacity
+                                    style={styles.startBigBtn}
+                                    onPress={startTrail}
+                                >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <Ionicons name="play" size={24} color="white" style={{ marginRight: 10 }} />
+                                        <Text style={styles.startBigBtnText}>Start Trail Now</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            ) : (
+                                <View style={styles.waitingContainer}>
+                                    <ActivityIndicator size="large" color="#ccc" />
+                                    <Text style={styles.waitingText}>Waiting for GPS Lock...</Text>
+                                </View>
+                            )}
                         </View>
                     </View>
                 )
@@ -1222,9 +1231,115 @@ const styles = StyleSheet.create({
         borderRadius: 15,
         elevation: 5,
     },
+    disabledBtn: {
+        backgroundColor: '#ccc',
+        elevation: 0,
+    },
     startBigBtnText: {
         color: 'white',
         fontSize: 18,
         fontWeight: 'bold',
+    },
+    lockStatusContainer: {
+        marginVertical: 20,
+        alignItems: 'center',
+    },
+    accuracyIndicator: {
+        borderWidth: 2,
+        borderRadius: 50,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        alignItems: 'center',
+        minWidth: 120,
+    },
+    accuracyValue: {
+        fontSize: 24,
+        fontWeight: 'bold',
+    },
+    accuracyLabel: {
+        fontSize: 10,
+        color: '#888',
+        textTransform: 'uppercase',
+    },
+    lockInfo: {
+        marginTop: 10,
+        fontSize: 14,
+        color: '#666',
+        fontStyle: 'italic',
+    },
+    accuracyBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.9)',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 15,
+        elevation: 3,
+        alignSelf: 'flex-end',
+    },
+    accuracyDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        marginRight: 6,
+    },
+    accuracyText: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    waitingContainer: {
+        alignItems: 'center',
+        padding: 20,
+    },
+    waitingText: {
+        marginTop: 10,
+        color: '#666',
+        fontSize: 14,
+        fontStyle: 'italic',
+    },
+    navBanner: {
+        position: 'absolute',
+        top: 60,
+        left: 20,
+        right: 20,
+        backgroundColor: '#007bff',
+        borderRadius: 15,
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 15,
+        zIndex: 1001,
+        elevation: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 5,
+    },
+    navBannerAlert: {
+        backgroundColor: '#dc3545',
+    },
+    navIconContainer: {
+        marginRight: 15,
+    },
+    navTextContainer: {
+        flex: 1,
+    },
+    navDistance: {
+        color: 'white',
+        fontSize: 20,
+        fontWeight: 'bold',
+    },
+    navUnit: {
+        fontSize: 12,
+        fontWeight: 'normal',
+        opacity: 0.8,
+    },
+    navStatus: {
+        color: 'white',
+        fontSize: 14,
+        opacity: 0.9,
+    },
+    navClose: {
+        padding: 5,
     },
 });
