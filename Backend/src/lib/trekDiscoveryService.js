@@ -40,14 +40,45 @@ export const discoverTreks = async (query, limit = 30) => {
         }
 
         console.log("Sending Expanded Overpass Query...");
-        const response = await fetch(OVERPASS_URL, {
-            method: 'POST',
-            body: `data=${encodeURIComponent(overpassQuery)}`,
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': 'Hikernet-App/1.0 (contact@hikernet.com)'
+
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+        let response;
+        let retries = 2;
+
+        // Retry logic with exponential backoff
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                response = await fetch(OVERPASS_URL, {
+                    method: 'POST',
+                    body: `data=${encodeURIComponent(overpassQuery)}`,
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'User-Agent': 'Hikernet-App/1.0 (contact@hikernet.com)'
+                    },
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+                break; // Success, exit retry loop
+
+            } catch (error) {
+                clearTimeout(timeoutId);
+
+                if (attempt === retries) {
+                    // Last attempt failed
+                    console.warn(`Overpass API timeout after ${retries + 1} attempts. Returning empty results.`);
+                    return []; // Return empty array instead of throwing
+                }
+
+                // Wait before retry (exponential backoff: 1s, 2s, 4s)
+                const waitTime = Math.pow(2, attempt) * 1000;
+                console.log(`Retry ${attempt + 1}/${retries} after ${waitTime}ms...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
             }
-        });
+        }
 
         if (!response.ok) {
             if (response.status === 504 || response.status === 429) {
@@ -159,11 +190,23 @@ export const getTrekDetails = async (osmId, type = 'relation') => {
             out body;
         `;
 
-        const response = await fetch(OVERPASS_URL, {
-            method: 'POST',
-            body: `data=${encodeURIComponent(overpassQuery)}`,
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+        let response;
+        try {
+            response = await fetch(OVERPASS_URL, {
+                method: 'POST',
+                body: `data=${encodeURIComponent(overpassQuery)}`,
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+        } catch (error) {
+            clearTimeout(timeoutId);
+            console.warn("Trek details fetch timeout, returning null");
+            return null;
+        }
 
         if (!response.ok) {
             throw new Error("Overpass API Error");

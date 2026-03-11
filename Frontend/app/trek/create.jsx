@@ -32,26 +32,46 @@ export default function CreateTrailScreen() {
             let location = await Location.getCurrentPositionAsync({
                 accuracy: Location.Accuracy.Highest
             });
-            let reverseGeocode = await Location.reverseGeocodeAsync({
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude
-            });
 
-            const place = reverseGeocode[0];
-            // Google Maps style: [Name/Number] [Street], [City], [Region] [PostalCode], [Country]
-            const streetInfo = [place.streetNumber, place.street].filter(Boolean).join(' ');
-            const cityInfo = place.city || place.subregion || place.district;
-            const regionInfo = place.region;
-            const parts = [
-                place.name !== streetInfo ? place.name : null, // Avoid duplicating if name == street
-                streetInfo,
-                cityInfo,
-                regionInfo,
-                place.country
-            ].filter(Boolean);
+            // Try reverse geocoding with timeout
+            try {
+                const geocodePromise = Location.reverseGeocodeAsync({
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude
+                });
 
-            const locString = parts.join(', ');
-            setLocationName(locString || "Unknown Location");
+                // Add 8-second timeout to prevent hanging
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Geocoding timeout')), 8000)
+                );
+
+                let reverseGeocode = await Promise.race([geocodePromise, timeoutPromise]);
+
+                const place = reverseGeocode[0];
+                if (place) {
+                    // Google Maps style: [Name/Number] [Street], [City], [Region] [PostalCode], [Country]
+                    const streetInfo = [place.streetNumber, place.street].filter(Boolean).join(' ');
+                    const cityInfo = place.city || place.subregion || place.district;
+                    const regionInfo = place.region;
+                    const parts = [
+                        place.name !== streetInfo ? place.name : null, // Avoid duplicating if name == street
+                        streetInfo,
+                        cityInfo,
+                        regionInfo,
+                        place.country
+                    ].filter(Boolean);
+
+                    const locString = parts.join(', ');
+                    setLocationName(locString || "Unknown Location");
+                } else {
+                    // Fallback to coordinates
+                    setLocationName(`${location.coords.latitude.toFixed(4)}, ${location.coords.longitude.toFixed(4)}`);
+                }
+            } catch (geocodeError) {
+                // If geocoding fails or times out, use coordinates
+                console.log("Geocoding failed, using coordinates:", geocodeError.message);
+                setLocationName(`${location.coords.latitude.toFixed(4)}, ${location.coords.longitude.toFixed(4)}`);
+            }
         } catch (error) {
             console.error("Location error:", error);
             setLocationName("Location unavailable");
