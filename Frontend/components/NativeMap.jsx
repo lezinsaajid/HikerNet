@@ -5,19 +5,21 @@ import { MAP_STYLE_WHITE } from '../styles/mapStyles';
 
 const OSM_URL_TEMPLATE = "https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png";
 
-const NativeMap = React.forwardRef(({
-    initialRegion,
-    region,
-    onPress,
-    onPanDrag,
-    onRegionChange,
-    showsUserLocation = true,
-    followsUserLocation = false,
-    mapType = 'standard',
-    children,
-    style,
-    ...props
-}, ref) => {
+const NativeMap = React.forwardRef((props, ref) => {
+    const {
+        initialRegion,
+        region,
+        onPress,
+        onPanDrag,
+        onRegionChange,
+        showsUserLocation = true,
+        followsUserLocation = false,
+        mapType = 'standard',
+        children,
+        style,
+        ...otherProps
+    } = props;
+
     // If standard mode, we use custom white tiles to ensure it works without API keys
     const isStandard = mapType === 'standard';
 
@@ -36,8 +38,9 @@ const NativeMap = React.forwardRef(({
                 onRegionChange={onRegionChange}
                 showsUserLocation={showsUserLocation}
                 followsUserLocation={followsUserLocation}
+                maxZoomLevel={17}
                 loadingEnabled={true}
-                {...props}
+                {...otherProps}
             >
                 {isStandard && (
                     <UrlTile

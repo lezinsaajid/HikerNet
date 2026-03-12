@@ -11,6 +11,7 @@ export const AuthProvider = ({ children }) => {
     const [accounts, setAccounts] = useState([]); // List of { user, token }
     const [isLoading, setIsLoading] = useState(true);
     const [isAddingAccount, setIsAddingAccount] = useState(false); // Flag to bypass auth guard for adding account
+    const [isLoggingOut, setIsLoggingOut] = useState(false); // Prevent multiple logout calls
 
     const router = useRouter();
     const segments = useSegments();
@@ -55,14 +56,22 @@ export const AuthProvider = ({ children }) => {
             (response) => response,
             async (error) => {
                 const originalRequest = error.config;
+<<<<<<< HEAD
+                const isAuthRequest =
+                    originalRequest.url?.includes('/auth/login') ||
+=======
                 // Ignore 401s from auth endpoints (login/register) to prevent logging out current user on failed attempts
-                const isAuthRequest = originalRequest.url?.includes('/auth/login') || originalRequest.url?.includes('/auth/register');
+                const isAuthRequest = 
+                    originalRequest.url?.includes('/auth/login') || 
+>>>>>>> 7b32a4245f8d2d320b3cdfbbe1537162c9e82266
+                    originalRequest.url?.includes('/auth/register') ||
+                    originalRequest.url?.includes('/auth/logout');
 
-                if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest) {
+                if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest && !isLoggingOut) {
                     console.log("Session expired (401). Logging out current user...");
                     originalRequest._retry = true;
                     // Log out ONLY the current user
-                    await logout();
+                    logout(); // Don't await here to avoid blocking interceptor? No, await is better but we check flag.
                 }
                 return Promise.reject(error);
             }
@@ -241,18 +250,19 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logout = useCallback(async () => {
+        if (isLoggingOut) return;
         try {
+            setIsLoggingOut(true);
             console.log("[AuthContext] Logout initiated...");
 
-            // Notify server to set offline status
-            try {
-                await client.post('/auth/logout');
-            } catch (err) {
-                console.warn("[AuthContext] Server logout failed (ignoring):", err.message);
-            }
+            // Notify server to set offline status (fire and forget, don't block UI)
+            client.post('/auth/logout').catch(err => {
+                console.warn("[AuthContext] Server logout notification failed (expected if token expired or offline):", err.message);
+            });
 
             if (!user) {
                 console.warn("[AuthContext] Logout called but no user is active.");
+                setIsLoggingOut(false);
                 return;
             }
 
@@ -301,8 +311,10 @@ export const AuthProvider = ({ children }) => {
             setUser(null);
             setAccounts([]);
             // router.replace('/login'); // Handled by AuthGuard
+        } finally {
+            setIsLoggingOut(false);
         }
-    }, [user, accounts, router]); // Removed switchAccount dependency to avoid loops
+    }, [user, accounts, router, isLoggingOut]); // Added isLoggingOut dependency
 
     const logoutAll = useCallback(async () => {
         try {

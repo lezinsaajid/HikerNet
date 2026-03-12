@@ -1,3 +1,4 @@
+import axios from "axios";
 
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 
@@ -51,16 +52,17 @@ export const discoverTreks = async (query, limit = 30) => {
         // Retry logic with exponential backoff
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
-                response = await fetch(OVERPASS_URL, {
-                    method: 'POST',
-                    body: `data=${encodeURIComponent(overpassQuery)}`,
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'User-Agent': 'Hikernet-App/1.0 (contact@hikernet.com)'
-                    },
-                    signal: controller.signal
-                });
-
+                const responseObj = await axios.post(OVERPASS_URL,
+                    `data=${encodeURIComponent(overpassQuery)}`,
+                    {
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'User-Agent': 'Hikernet-App/1.0 (contact@hikernet.com)'
+                        },
+                        signal: controller.signal
+                    }
+                );
+                response = responseObj;
                 clearTimeout(timeoutId);
                 break; // Success, exit retry loop
 
@@ -80,17 +82,16 @@ export const discoverTreks = async (query, limit = 30) => {
             }
         }
 
-        if (!response.ok) {
+        if (response.status !== 200) {
             if (response.status === 504 || response.status === 429) {
                 console.warn(`Overpass API Busy/Timeout (${response.status}). Returning empty results.`);
                 return [];
             }
-            const errorText = await response.text();
-            console.error("Overpass Response Error text:", errorText);
+            console.error("Overpass Response Error:", response.status, response.data);
             throw new Error(`Overpass API Error: ${response.status}`);
         }
 
-        const data = await response.json();
+        const data = response.data;
         console.log(`Received ${data.elements?.length || 0} elements from expanded Overpass.`);
 
         if (!data.elements) return [];
@@ -148,16 +149,14 @@ const getElevationData = async (coordinates) => {
             if (sampled.length >= sampleSize) break;
         }
 
-        const response = await fetch("https://api.open-elevation.com/api/v1/lookup", {
-            method: 'POST',
-            body: JSON.stringify({
-                locations: sampled.map(c => ({ latitude: c.latitude, longitude: c.longitude }))
-            }),
+        const response = await axios.post("https://api.open-elevation.com/api/v1/lookup", {
+            locations: sampled.map(c => ({ latitude: c.latitude, longitude: c.longitude }))
+        }, {
             headers: { 'Content-Type': 'application/json' }
         });
 
-        if (!response.ok) return null;
-        const data = await response.json();
+        if (response.status !== 200) return null;
+        const data = response.data;
 
         const elevations = data.results.map(r => r.elevation);
         const gain = elevations.reduce((acc, curr, i) => {
@@ -195,24 +194,25 @@ export const getTrekDetails = async (osmId, type = 'relation') => {
 
         let response;
         try {
-            response = await fetch(OVERPASS_URL, {
-                method: 'POST',
-                body: `data=${encodeURIComponent(overpassQuery)}`,
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                signal: controller.signal
-            });
+            response = await axios.post(OVERPASS_URL,
+                `data=${encodeURIComponent(overpassQuery)}`,
+                {
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    signal: controller.signal
+                }
+            );
             clearTimeout(timeoutId);
         } catch (error) {
             clearTimeout(timeoutId);
-            console.warn("Trek details fetch timeout, returning null");
+            console.warn("Trek details fetch timeout/error, returning null");
             return null;
         }
 
-        if (!response.ok) {
+        if (response.status !== 200) {
             throw new Error("Overpass API Error");
         }
 
-        const data = await response.json();
+        const data = response.data;
 
         // Find the main element
         const mainElement = data.elements.find(el => el.id == osmId && el.type == type);

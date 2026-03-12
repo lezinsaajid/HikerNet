@@ -70,13 +70,18 @@ router.get("/discover/:osmId", async (req, res) => {
 
 // Get public feed (all public treks)
 router.get("/feed/public", async (req, res) => {
-    const treks = await Trek.find({
-        "stats.distance": { $gt: 10 } // Only legit trails (at least 10m walk)
-    })
-        .sort({ createdAt: -1 })
-        .populate("user", "username profileImage")
-        .limit(20);
-    res.json(treks);
+    try {
+        const treks = await Trek.find({
+            "stats.distance": { $gt: 10 } // Only legit trails (at least 10m walk)
+        })
+            .sort({ createdAt: -1 })
+            .populate("user", "username profileImage")
+            .limit(20);
+        res.json(treks);
+    } catch (error) {
+        console.error("Error fetching public feed:", error);
+        res.status(500).json({ message: "Error fetching public feed" });
+    }
 });
 
 // Get user's treks
