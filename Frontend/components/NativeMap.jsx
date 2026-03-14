@@ -15,6 +15,8 @@ const NativeMap = React.forwardRef((props, ref) => {
         showsUserLocation = true,
         followsUserLocation = false,
         mapType = 'standard',
+        heading = 0, // Map rotation
+        userHeading = 0, // Arrow direction
         children,
         style,
         ...otherProps
@@ -40,6 +42,14 @@ const NativeMap = React.forwardRef((props, ref) => {
                 followsUserLocation={followsUserLocation}
                 maxZoomLevel={17}
                 loadingEnabled={true}
+                rotateEnabled={true}
+                camera={{
+                    center: region || initialRegion,
+                    pitch: 0,
+                    heading: heading,
+                    zoom: 15,
+                    altitude: 1000
+                }}
                 {...otherProps}
             >
                 {isStandard && (
