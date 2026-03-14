@@ -48,6 +48,32 @@ client.interceptors.response.use(
             console.error(`[API Crash] ${message}`);
         }
         
+        // --- Added Retry Logic for Timeouts / Network Errors ---
+        if (!config || !config.url) {
+            return Promise.reject(error);
+        }
+
+        // Initialize retry count
+        config.__retryCount = config.__retryCount || 0;
+        const maxRetries = 2; // Only try 2 times to prevent infinite loops
+
+        // Retry only on Network Errors or 5xx Server Errors (not 400s)
+        const shouldRetry = (!response && message.includes('timeout')) || 
+                           (!response && message.includes('Network Error')) || 
+                           (response && response.status >= 500);
+
+        if (shouldRetry && config.__retryCount < maxRetries) {
+            config.__retryCount += 1;
+            console.log(`[API Retry] Retrying request to ${url} (Attempt ${config.__retryCount} of ${maxRetries})...`);
+            
+            // Wait 1 second before retrying (exponential backoff could be used here)
+            await new Promise(resolve => setTimeout(resolve, 1000 * config.__retryCount));
+            
+            // Retry the same configuration
+            return client(config);
+        }
+
+        // If we reach here, we've exhausted retries or it's not a retriable error
         return Promise.reject(error);
     }
 );

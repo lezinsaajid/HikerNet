@@ -56,16 +56,12 @@ export const AuthProvider = ({ children }) => {
             (response) => response,
             async (error) => {
                 const originalRequest = error.config;
-<<<<<<< HEAD
-                const isAuthRequest =
-                    originalRequest.url?.includes('/auth/login') ||
-=======
                 // Ignore 401s from auth endpoints (login/register) to prevent logging out current user on failed attempts
                 const isAuthRequest = 
                     originalRequest.url?.includes('/auth/login') || 
->>>>>>> 7b32a4245f8d2d320b3cdfbbe1537162c9e82266
                     originalRequest.url?.includes('/auth/register') ||
                     originalRequest.url?.includes('/auth/logout');
+
 
                 if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest && !isLoggingOut) {
                     console.log("Session expired (401). Logging out current user...");
