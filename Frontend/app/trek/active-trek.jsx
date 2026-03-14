@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, TextInput, FlatList, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -56,7 +56,7 @@ export default function ActiveTrek() {
     const [trailId, setTrailId] = useState(paramTrailId || null);
     const [routeCoordinates, setRouteCoordinates] = useState([]);
     const [targetRoute, setTargetRoute] = useState([]); // The reference trail being followed
-    const [backtrackCoordinates, setBacktrackCoordinates] = useState([]);
+    const [currentTrekBackIndex, setCurrentTrekBackIndex] = useState(0);
     const [markers, setMarkers] = useState([]); // [{latitude, longitude, icon, type}]
     const [distanceToTrail, setDistanceToTrail] = useState(0);
     const [offTrackWarning, setOffTrackWarning] = useState(false);
@@ -103,15 +103,8 @@ export default function ActiveTrek() {
         const currentLoc = { latitude, longitude };
 
         // Update current location state for UI (using smoothed coordinates for map)
-        setLocation(currentLoc);
-
-        // Animate Camera
-        if (mapRef.current && isFollowingUser) {
-            mapRef.current.animateCamera({
-                center: currentLoc,
-                heading: isNavMode ? userHeading : 0, // Rotate map if nav mode active
-            }, { duration: 500 });
-        }
+        
+        let displayLoc = currentLoc;
 
         // Logic for Navigation (Trailing Back or Following Uploaded Trail)
         const activeTarget = isTrailingBack ? [...routeCoordinates].reverse() : targetRoute;
@@ -120,6 +113,15 @@ export default function ActiveTrek() {
             // Advanced Drift Detection using point-to-segment algorithm
             const { distance, snappedPoint, segmentIndex } = getPointToPathDistance(currentLoc, activeTarget);
             setDistanceToTrail(Math.round(distance));
+
+            // Trail Snapping Logic - Visually pull user closer to trail if following it
+            if (hasJoinedTrail && !offTrackWarning && distance > 1 && distance < 10) {
+                // Snap 50% towards the nearest point on the path
+                displayLoc = {
+                    latitude: currentLoc.latitude + (snappedPoint.latitude - currentLoc.latitude) * 0.5,
+                    longitude: currentLoc.longitude + (snappedPoint.longitude - currentLoc.longitude) * 0.5
+                };
+            }
 
             // TREK BACK COMPLETION LOGIC
             if (isTrailingBack && !hasAlertedCompletion.current) {
@@ -187,23 +189,31 @@ export default function ActiveTrek() {
             }
 
             // Record backtrack progress if trailing back
-            if (isTrailingBack && !offTrackWarning) {
-                setBacktrackCoordinates(prev => {
-                    // Only add if we've moved significantly to save memory/rendering
-                    if (prev.length === 0) return [currentLoc];
-                    const last = prev[prev.length - 1];
-                    if (getDistance(currentLoc.latitude, currentLoc.longitude, last.latitude, last.longitude) > 3) {
-                        return [...prev, currentLoc];
-                    }
-                    return prev;
-                });
+            if (isTrailingBack && segmentIndex >= 0) {
+                setCurrentTrekBackIndex(segmentIndex);
+            }
+        }
+
+        setLocation(displayLoc);
+
+        // Animate Camera (Moved tracking logic after displayLoc calculation so we frame the snapped point)
+        if (mapRef.current && isFollowingUser) {
+            mapRef.current.animateToRegion({
+                latitude: displayLoc.latitude,
+                longitude: displayLoc.longitude,
+                latitudeDelta: 0.001,
+                longitudeDelta: 0.001,
+            }, 500);
+            
+            if (isNavMode) {
+                mapRef.current.animateCamera({ heading: userHeading }, { duration: 500 });
             }
         }
     }, [smoothedLocation, isFollowingUser, isTrailingBack, routeCoordinates, targetRoute, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished]);
 
     // React to validated location updates for RECORDING
     useEffect(() => {
-        if (!validatedLocation || trailFinished || isPaused || role !== 'leader' || isTrailingBack) return;
+        if (!isTracking || !validatedLocation || trailFinished || isPaused || role !== 'leader' || isTrailingBack) return;
 
         const { latitude, longitude, altitude } = validatedLocation;
         const newPoint = { latitude, longitude };
@@ -487,11 +497,7 @@ export default function ActiveTrek() {
         hasAlertedOffTrack.current = false;
         hasAlertedCompletion.current = false;
         setHasJoinedTrail(false);
-
-        // Initialize backtrack with current location if available
-        if (location) {
-            setBacktrackCoordinates([location]);
-        }
+        setCurrentTrekBackIndex(0);
 
         // Ensure tracking is active but in "back" mode
         pausedRef.current = true; // Stop recording original path points
@@ -558,6 +564,25 @@ export default function ActiveTrek() {
         return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
     };
 
+    // Calculate faded and visible paths for trek-back
+    const { visibleRoute, fadedRoute } = useMemo(() => {
+        if (!isTrailingBack || routeCoordinates.length === 0) {
+            return { visibleRoute: routeCoordinates, fadedRoute: [] };
+        }
+        
+        const reversedRoute = [...routeCoordinates].reverse();
+        // The user starts at index 0 of reversedRoute and moves forward
+        const safeIndex = Math.max(0, Math.min(currentTrekBackIndex, reversedRoute.length - 1));
+        
+        // fadedRoute is the path already traversed (from start of trek-back to current position)
+        const faded = reversedRoute.slice(0, safeIndex + 1);
+        
+        // visibleRoute is the path yet to be traversed (from current position to end)
+        const visible = reversedRoute.slice(safeIndex);
+        
+        return { visibleRoute: visible, fadedRoute: faded };
+    }, [isTrailingBack, routeCoordinates, currentTrekBackIndex]);
+
     return (
         <View style={styles.container}>
             {location ? (
@@ -567,32 +592,25 @@ export default function ActiveTrek() {
                         initialRegion={{
                             latitude: location.latitude,
                             longitude: location.longitude,
-                            latitudeDelta: 0.005, // Slightly wider initial zoom
-                            longitudeDelta: 0.005,
+                            latitudeDelta: 0.001, // Tighter default zoom for trail navigation
+                            longitudeDelta: 0.001,
                         }}
                         mapType={mapType}
                         heading={isNavMode ? userHeading : 0}
                         userHeading={userHeading}
                         showsUserLocation={true}
                         followsUserLocation={false}
-                        onPanDrag={() => {
-                            setIsFollowingUser(false);
-                            if (autoFollowTimerRef.current) clearTimeout(autoFollowTimerRef.current);
-                            autoFollowTimerRef.current = setTimeout(() => {
-                                setIsFollowingUser(true);
-                            }, 10000); // Resume following after 10 seconds of no panning
-                        }}
-                        onRegionChange={(region, isGesture) => {
-                            if (isGesture?.isGesture) {
+                        pitchEnabled={true}
+                        scrollEnabled={true}
+                        zoomEnabled={true}
+                        onPanDrag={() => setIsFollowingUser(false)}
+                        onRegionChangeComplete={(region, gesture) => {
+                            if (gesture && gesture.isGesture) {
                                 setIsFollowingUser(false);
-                                if (autoFollowTimerRef.current) clearTimeout(autoFollowTimerRef.current);
-                                autoFollowTimerRef.current = setTimeout(() => {
-                                    setIsFollowingUser(true);
-                                }, 10000);
                             }
                         }}
                     >
-                        {routeCoordinates.length > 0 && (
+                        {!isTrailingBack && routeCoordinates.length > 0 && (
                             <Polyline
                                 coordinates={routeCoordinates}
                                 strokeWidth={6} // Thicker for visibility
@@ -603,18 +621,28 @@ export default function ActiveTrek() {
                                 zIndex={100} // Force on top of tiles
                             />
                         )}
-                        {
-                            backtrackCoordinates.length > 0 && (
-                                <Polyline
-                                    coordinates={backtrackCoordinates}
-                                    strokeWidth={6}
-                                    strokeColor="#28a745" // Always green for backtrack progress
-                                    lineCap="round"
-                                    lineJoin="round"
-                                    geodesic={true}
-                                />
-                            )
-                        }
+                        {isTrailingBack && visibleRoute.length > 0 && (
+                            <Polyline
+                                coordinates={visibleRoute}
+                                strokeWidth={6}
+                                strokeColor="#fc4c02"
+                                lineCap="round"
+                                lineJoin="round"
+                                geodesic={true}
+                                zIndex={100}
+                            />
+                        )}
+                        {isTrailingBack && fadedRoute.length > 0 && (
+                            <Polyline
+                                coordinates={fadedRoute}
+                                strokeWidth={6}
+                                strokeColor="rgba(252, 76, 2, 0.3)" // Faded Strava Orange
+                                lineCap="round"
+                                lineJoin="round"
+                                geodesic={true}
+                                zIndex={99}
+                            />
+                        )}
                         {
                             reroutePath.length > 0 && (
                                 <Polyline
@@ -670,6 +698,15 @@ export default function ActiveTrek() {
                 <View style={styles.centered}>
                     <Text>Initializing Trail...</Text>
                 </View>
+            )}
+
+            {!isFollowingUser && location && (
+                <TouchableOpacity 
+                    style={styles.recenterBtn} 
+                    onPress={() => setIsFollowingUser(true)}
+                >
+                    <Ionicons name="locate" size={24} color="#007bff" />
+                </TouchableOpacity>
             )}
 
             {/* Navigation Guidance Banner */}
@@ -758,14 +795,27 @@ export default function ActiveTrek() {
 
                         <View style={styles.row}>
                             {role === 'leader' && (
-                                <>
-                                    <TouchableOpacity style={[styles.button, styles.pauseBtn]} onPress={togglePause}>
-                                        <Ionicons name={isPaused ? "play" : "pause"} size={32} color="white" />
+                                !hasStarted ? (
+                                    <TouchableOpacity 
+                                        style={[styles.startBigBtn, { width: '100%', flexDirection: 'row', justifyContent: 'center' }]} 
+                                        onPress={startTrail}
+                                        disabled={!gpsAccuracy || gpsAccuracy > 30}
+                                    >
+                                        <Ionicons name="play" size={24} color="white" style={{ marginRight: 10 }} />
+                                        <Text style={styles.startBigBtnText}>
+                                            {(!gpsAccuracy || gpsAccuracy > 30) ? 'Waiting for GPS Lock...' : 'Start Trek'}
+                                        </Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={[styles.button, styles.stopBtn]} onPress={handleStopTrail}>
-                                        <Ionicons name="stop" size={32} color="white" />
-                                    </TouchableOpacity>
-                                </>
+                                ) : (
+                                    <>
+                                        <TouchableOpacity style={[styles.button, styles.pauseBtn]} onPress={togglePause}>
+                                            <Ionicons name={isPaused ? "play" : "pause"} size={32} color="white" />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity style={[styles.button, styles.stopBtn]} onPress={handleStopTrail}>
+                                            <Ionicons name="stop" size={32} color="white" />
+                                        </TouchableOpacity>
+                                    </>
+                                )
                             )}
                         </View>
                     </>
@@ -916,62 +966,6 @@ export default function ActiveTrek() {
                     </View>
                 </TouchableWithoutFeedback>
             </Modal>
-
-            {/* Start Trail Overlay */}
-            {
-                !hasStarted && role === 'leader' && (
-                    <View style={styles.startOverlay}>
-                        <View style={styles.startCard}>
-                            <Ionicons name="location" size={60} color="#28a745" />
-                            <Text style={styles.startTitle}>Ready to Trail?</Text>
-                            <Text style={styles.startSub}>Position yourself and click below to begin recording.</Text>
-
-                            <View style={styles.lockStatusContainer}>
-                                <View style={[styles.accuracyIndicator, { borderColor: accuracyStatus === 'high' ? '#28a745' : accuracyStatus === 'medium' ? '#ffc107' : accuracyStatus === 'locating' ? '#666' : '#dc3545' }]}>
-                                    <Text style={[styles.accuracyValue, { color: accuracyStatus === 'high' ? '#28a745' : accuracyStatus === 'medium' ? '#ffc107' : accuracyStatus === 'locating' ? '#666' : '#dc3545' }]}>
-                                        {gpsAccuracy ? `${Math.round(gpsAccuracy)}m` : 'Locating...'}
-                                    </Text>
-                                    <Text style={styles.accuracyLabel}>GPS Accuracy</Text>
-                                </View>
-                                <Text style={styles.lockInfo}>
-                                    {accuracyStatus === 'high' ? 'Signal Locked! Perfect for trailing.' :
-                                        accuracyStatus === 'medium' ? 'Refining position... please wait.' :
-                                            accuracyStatus === 'locating' ? 'Waking up GPS sensors...' :
-                                                'Waiting for better signal...'}
-                                </Text>
-                            </View>
-
-                            {locationError ? (
-                                <View style={styles.waitingContainer}>
-                                    <Ionicons name="alert-circle" size={40} color="#dc3545" />
-                                    <Text style={[styles.waitingText, { color: '#dc3545' }]}>{locationError}</Text>
-                                    <TouchableOpacity
-                                        style={[styles.startBigBtn, { marginTop: 15, backgroundColor: '#666' }]}
-                                        onPress={() => router.replace('/(tabs)/trek')}
-                                    >
-                                        <Text style={styles.startBigBtnText}>Go Back</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            ) : (accuracyStatus === 'high' || accuracyStatus === 'medium') ? (
-                                <TouchableOpacity
-                                    style={styles.startBigBtn}
-                                    onPress={startTrail}
-                                >
-                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <Ionicons name="play" size={24} color="white" style={{ marginRight: 10 }} />
-                                        <Text style={styles.startBigBtnText}>Start Trail Now</Text>
-                                    </View>
-                                </TouchableOpacity>
-                            ) : (
-                                <View style={styles.waitingContainer}>
-                                    <ActivityIndicator size="large" color="#ccc" />
-                                    <Text style={styles.waitingText}>Waiting for GPS Lock...</Text>
-                                </View>
-                            )}
-                        </View>
-                    </View>
-                )
-            }
 
         </View >
     );
@@ -1445,5 +1439,22 @@ const styles = StyleSheet.create({
     },
     navClose: {
         padding: 5,
+    },
+    recenterBtn: {
+        position: 'absolute',
+        bottom: 270,
+        right: 20,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 6,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.25,
+        shadowRadius: 5,
+        zIndex: 50,
     },
 });
