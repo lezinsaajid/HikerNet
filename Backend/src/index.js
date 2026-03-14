@@ -43,6 +43,14 @@ app.use("/api/adventures", adventureRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/chat", chatRoutes);
 
+// Coverage endpoint for manual testing
+if (process.env.COLLECT_COVERAGE === 'true') {
+    app.get("/api/coverage", (req, res) => {
+        res.json(global.__coverage__ || { message: "No coverage data found. Ensure the server was started with nyc." });
+    });
+}
+
+
 // Error Handling Middleware (must be last)
 app.use(errorMiddleware);
 
