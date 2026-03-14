@@ -69,7 +69,8 @@ export const useSmartLocation = (isTracking) => {
 
                         // 1. Pre-Filter (Accuracy Gate)
                         // If accuracy is too poor, don't even process movement logic
-                        if (accuracy > 30) return;
+                        // In trekking, anything > 20m starts to become questionable for path tracking
+                        if (accuracy > 25) return;
 
                         // 2. Dynamics Filter (Speed Spike Rejection)
                         // Mountainous terrain can have multipath errors causing 100m jumps in 1s.
@@ -78,8 +79,8 @@ export const useSmartLocation = (isTracking) => {
                             const dist = getDistance(lastRawLoc.current.latitude, lastRawLoc.current.longitude, latitude, longitude);
                             const calcSpeed = dist / (timeDiff || 1);
 
-                            // 15m/s (54km/h) is the limit for a trekker. Reject spikes.
-                            if (calcSpeed > 15 && timeDiff > 0) {
+                            // 10m/s (36km/h) is the limit for a fast trekker/runner. Reject spikes.
+                            if (calcSpeed > 10 && timeDiff > 0) {
                                 console.log(`[SmartLocation] SPIKE REJECT: ${calcSpeed.toFixed(1)}m/s`);
                                 return;
                             }
@@ -87,9 +88,10 @@ export const useSmartLocation = (isTracking) => {
                         lastRawLoc.current = { latitude, longitude, timestamp: newLoc.timestamp };
 
                         // 3. EMA Smoothing (For Visual Map Positioning)
+                        // This prevents the marker from jumping around
                         setSmoothedLocation(prev => {
                             if (!prev) return { latitude, longitude, accuracy };
-                            const alpha = 0.5; // Smoothing factor
+                            const alpha = 0.4; // Slightly more smoothing (0.4 instead of 0.5)
                             return {
                                 latitude: alpha * latitude + (1 - alpha) * prev.latitude,
                                 longitude: alpha * longitude + (1 - alpha) * prev.longitude,
@@ -98,14 +100,23 @@ export const useSmartLocation = (isTracking) => {
                         });
 
                         // 4. Movement Gating (Recording Logic)
+                        // Prevent "ghost" points when user is stationary or moving slightly
                         const distFromLast = lastValidatedLoc.current
                             ? getDistance(lastValidatedLoc.current.latitude, lastValidatedLoc.current.longitude, latitude, longitude)
                             : Infinity;
 
-                        // Initial lock requirement: accuracy <= 50m (Medium/High)
-                        const isInitialLock = !lastValidatedLoc.current && accuracy <= 50;
+                        // Initial lock requirement: accuracy <= 15m (High)
+                        const isInitialLock = !lastValidatedLoc.current && accuracy <= 15;
 
-                        if (isInitialLock || (lastValidatedLoc.current && distFromLast >= 3)) {
+                        if (isInitialLock || (lastValidatedLoc.current && distFromLast >= 5)) {
+                            // Secondary check: Are we actually walking? (If pedometer is available)
+                            // If pedometer says we haven't moved in 10s, but GPS says 5m, it might be drift.
+                            const timeSinceLastStep = Date.now() - lastStepTime.current;
+                            if (lastValidatedLoc.current && timeSinceLastStep > 10000 && distFromLast < 10) {
+                                // console.log("[SmartLocation] Stationary drift suspected. Skipping point.");
+                                return;
+                            }
+
                             const validPoint = { latitude, longitude, accuracy, altitude, timestamp: newLoc.timestamp };
                             console.log(`[SmartLocation] VALIDATED: ${isInitialLock ? 'Start' : distFromLast.toFixed(1) + 'm'} move.`);
                             lastValidatedLoc.current = validPoint;

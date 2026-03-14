@@ -4,11 +4,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import NativeMap, { Polyline, Marker } from '../../components/NativeMap';
 import client from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import WeatherWidget from '../../components/WeatherWidget';
 import { useSmartLocation } from '../../hooks/useSmartLocation';
+import { useCompass } from '../../hooks/useCompass';
 import { getDistance, getPointToPathDistance, calculateHeading } from '../../utils/geoUtils';
 // icon map
 const MARKER_ICONS = [
@@ -42,6 +44,7 @@ export default function ActiveTrek() {
     const [trailFinished, setTrailFinished] = useState(false); // New state for "Stop" -> "Trail Back"
     const [isTrailingBack, setIsTrailingBack] = useState(false);
     const [hasStarted, setHasStarted] = useState(false);
+    const [hasJoinedTrail, setHasJoinedTrail] = useState(false);
 
     const [stats, setStats] = useState({
         distance: 0,
@@ -52,6 +55,7 @@ export default function ActiveTrek() {
     });
     const [trailId, setTrailId] = useState(paramTrailId || null);
     const [routeCoordinates, setRouteCoordinates] = useState([]);
+    const [targetRoute, setTargetRoute] = useState([]); // The reference trail being followed
     const [backtrackCoordinates, setBacktrackCoordinates] = useState([]);
     const [markers, setMarkers] = useState([]); // [{latitude, longitude, icon, type}]
     const [distanceToTrail, setDistanceToTrail] = useState(0);
@@ -60,6 +64,8 @@ export default function ActiveTrek() {
     const [targetBearing, setTargetBearing] = useState(0);
     const [mapType, setMapType] = useState('standard'); // 'standard', 'satellite', 'hybrid'
     const [isFollowingUser, setIsFollowingUser] = useState(true);
+    const [isNavMode, setIsNavMode] = useState(false); // Map rotates with compass
+    const [reroutePath, setReroutePath] = useState([]); // Temporary guidance line
 
     // Modal State
     const [showMarkerModal, setShowMarkerModal] = useState(false);
@@ -77,6 +83,7 @@ export default function ActiveTrek() {
     const routeRef = useRef([]);
     const lastLocationRef = useRef(null); // For EMA smoothing filter
     const hasAlertedOffTrack = useRef(false); // To prevent alert spam
+    const hasAlertedCompletion = useRef(false); // To prevent completion alert spam
 
     const {
         location: validatedLocation,
@@ -85,6 +92,8 @@ export default function ActiveTrek() {
         accuracyStatus,
         error: locationError
     } = useSmartLocation(isTracking || isTrailingBack || (!hasStarted && role === 'leader'));
+
+    const userHeading = useCompass(isNavMode || isTrailingBack);
 
     // React to smart location updates
     useEffect(() => {
@@ -99,35 +108,98 @@ export default function ActiveTrek() {
         // Animate Camera
         if (mapRef.current && isFollowingUser) {
             mapRef.current.animateCamera({
-                center: currentLoc
+                center: currentLoc,
+                heading: isNavMode ? userHeading : 0, // Rotate map if nav mode active
             }, { duration: 500 });
         }
 
-        // Logic for Backtracking
-        if (isTrailingBack) {
-            // We use validatedLocation for trail back progress markers? 
-            // Or smoothed for UI polyline? Let's use smoothed for UI.
-            setBacktrackCoordinates(prev => [...prev, currentLoc]);
+        // Logic for Navigation (Trailing Back or Following Uploaded Trail)
+        const activeTarget = isTrailingBack ? [...routeCoordinates].reverse() : targetRoute;
 
+        if (activeTarget.length > 2) {
             // Advanced Drift Detection using point-to-segment algorithm
-            const { distance, snappedPoint, segmentIndex } = getPointToPathDistance(currentLoc, routeCoordinates);
+            const { distance, snappedPoint, segmentIndex } = getPointToPathDistance(currentLoc, activeTarget);
             setDistanceToTrail(Math.round(distance));
 
-            // Calculate heading to next point in reverse trail (since trekking back)
-            if (segmentIndex >= 0) {
-                const targetPoint = routeCoordinates[segmentIndex]; // Points backward
-                const bearing = calculateHeading(currentLoc, targetPoint);
-                setTargetBearing(bearing);
-
-                // Simplified guidance
-                if (distance > 5) {
-                    setNavGuidance("Return to Path");
-                } else {
-                    setNavGuidance("On Track");
+            // TREK BACK COMPLETION LOGIC
+            if (isTrailingBack && !hasAlertedCompletion.current) {
+                const originalStartPoint = activeTarget[activeTarget.length - 1]; // Last point of reversed route = original start
+                if (originalStartPoint) {
+                    const distanceToStart = getDistance(currentLoc.latitude, currentLoc.longitude, originalStartPoint.latitude, originalStartPoint.longitude);
+                    if (distanceToStart <= 10) {
+                        hasAlertedCompletion.current = true;
+                        Alert.alert("Trek Completed", "You have reached the starting point of the trail.");
+                        setIsTrailingBack(false);
+                        setReroutePath([]);
+                        return; // Stop further nav processing
+                    }
                 }
             }
+
+            if (!hasJoinedTrail) {
+                // TRAIL JOINING LOGIC
+                if (distance > 10) {
+                    setReroutePath([currentLoc, snappedPoint]);
+                    setNavGuidance("Head to nearest trail point");
+                    setOffTrackWarning(false);
+                } else {
+                    setHasJoinedTrail(true);
+                    setReroutePath([]);
+                    setNavGuidance("On Track");
+                    Alert.alert("Trail Joined", "You are now on the trail.");
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+            } else {
+                // TRAIL FOLLOWING MODE & OFF-TRAIL RECOVERY
+                if (offTrackWarning) {
+                    // We are currently off track, require getting within 5 meters to recover
+                    if (distance <= 5) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        setOffTrackWarning(false);
+                        setReroutePath([]);
+                        setNavGuidance("On Track");
+                    } else {
+                        // Still off track, keep rerouting to nearest point
+                        setReroutePath([currentLoc, snappedPoint]);
+                        setNavGuidance("Return to Path");
+                    }
+                } else {
+                    // We are on track, trigger warning if drifting > 10m
+                    if (distance > 10) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        setOffTrackWarning(true);
+                        setReroutePath([currentLoc, snappedPoint]);
+                        setNavGuidance("Return to Path");
+                    } else {
+                        setReroutePath([]);
+                        setNavGuidance("On Track");
+                    }
+                }
+            }
+
+            // Calculate bearing to next point in trail
+            if (segmentIndex >= 0) {
+                const targetPoint = activeTarget[segmentIndex + 1] || activeTarget[segmentIndex];
+                if (targetPoint) {
+                    const bearing = calculateHeading(currentLoc, targetPoint);
+                    setTargetBearing(bearing);
+                }
+            }
+
+            // Record backtrack progress if trailing back
+            if (isTrailingBack && !offTrackWarning) {
+                setBacktrackCoordinates(prev => {
+                    // Only add if we've moved significantly to save memory/rendering
+                    if (prev.length === 0) return [currentLoc];
+                    const last = prev[prev.length - 1];
+                    if (getDistance(currentLoc.latitude, currentLoc.longitude, last.latitude, last.longitude) > 3) {
+                        return [...prev, currentLoc];
+                    }
+                    return prev;
+                });
+            }
         }
-    }, [smoothedLocation, isFollowingUser, isTrailingBack, routeCoordinates]);
+    }, [smoothedLocation, isFollowingUser, isTrailingBack, routeCoordinates, targetRoute, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished]);
 
     // React to validated location updates for RECORDING
     useEffect(() => {
@@ -194,6 +266,7 @@ export default function ActiveTrek() {
                             longitude: p[0]
                         }));
                         setRouteCoordinates(mappedRoute);
+                        setTargetRoute(mappedRoute);
                         routeRef.current = mappedRoute;
                     }
 
@@ -412,6 +485,8 @@ export default function ActiveTrek() {
     const handleTrailBack = () => {
         setIsTrailingBack(true);
         hasAlertedOffTrack.current = false;
+        hasAlertedCompletion.current = false;
+        setHasJoinedTrail(false);
 
         // Initialize backtrack with current location if available
         if (location) {
@@ -496,6 +571,8 @@ export default function ActiveTrek() {
                             longitudeDelta: 0.005,
                         }}
                         mapType={mapType}
+                        heading={isNavMode ? userHeading : 0}
+                        userHeading={userHeading}
                         showsUserLocation={true}
                         followsUserLocation={false}
                         onPanDrag={() => {
@@ -534,6 +611,17 @@ export default function ActiveTrek() {
                                     strokeColor="#28a745" // Always green for backtrack progress
                                     lineCap="round"
                                     lineJoin="round"
+                                    geodesic={true}
+                                />
+                            )
+                        }
+                        {
+                            reroutePath.length > 0 && (
+                                <Polyline
+                                    coordinates={reroutePath}
+                                    strokeWidth={4}
+                                    strokeColor="#dc3545" // Red for reroute
+                                    lineDashPattern={[10, 10]} // Dashed line for guidance
                                     geodesic={true}
                                 />
                             )
@@ -584,9 +672,9 @@ export default function ActiveTrek() {
                 </View>
             )}
 
-            {/* Navigation Guidance Banner (Trek Back Mode) */}
-            {isTrailingBack && (
-                <View style={[styles.navBanner, offTrackWarning && styles.navBannerAlert]}>
+            {/* Navigation Guidance Banner */}
+            {(isTrailingBack || targetRoute.length > 0) && (
+                <View style={[styles.navBanner, offTrackWarning && styles.navBannerAlert, !hasJoinedTrail && distanceToTrail > 10 && {backgroundColor: '#17a2b8'}]}>
                     <View style={styles.navIconContainer}>
                         <Ionicons
                             name={offTrackWarning ? "warning" : "navigate-circle"}
@@ -595,15 +683,17 @@ export default function ActiveTrek() {
                         />
                     </View>
                     <View style={styles.navTextContainer}>
-                        <Text style={styles.navDistance}>{distanceToTrail}m <Text style={styles.navUnit}>to trail</Text></Text>
+                        <Text style={styles.navDistance}>{distanceToTrail}m <Text style={styles.navUnit}>to {hasJoinedTrail ? 'trail' : 'nearest point'}</Text></Text>
                         <Text style={styles.navStatus}>{navGuidance}</Text>
                     </View>
-                    <TouchableOpacity
-                        style={styles.navClose}
-                        onPress={() => setIsTrailingBack(false)}
-                    >
-                        <Ionicons name="close-circle" size={24} color="white" />
-                    </TouchableOpacity>
+                    {isTrailingBack && (
+                        <TouchableOpacity
+                            style={styles.navClose}
+                            onPress={() => setIsTrailingBack(false)}
+                        >
+                            <Ionicons name="close-circle" size={24} color="white" />
+                        </TouchableOpacity>
+                    )}
                 </View>
             )}
 
@@ -620,6 +710,17 @@ export default function ActiveTrek() {
                                 name={mapType === 'standard' ? 'map' : mapType === 'satellite' ? 'image' : 'layers'}
                                 size={28}
                                 color="#28a745"
+                            />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.mapIconButton, isNavMode && styles.mapIconButtonActive]}
+                            onPress={() => setIsNavMode(!isNavMode)}
+                        >
+                            <Ionicons
+                                name={isNavMode ? "compass" : "compass-outline"}
+                                size={28}
+                                color={isNavMode ? "white" : "#28a745"}
                             />
                         </TouchableOpacity>
                     </View>
@@ -961,6 +1062,9 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.25,
         shadowRadius: 3.84,
         marginBottom: 10,
+    },
+    mapIconButtonActive: {
+        backgroundColor: '#28a745',
     },
     centered: {
         flex: 1,
