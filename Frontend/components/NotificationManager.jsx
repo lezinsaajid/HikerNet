@@ -32,7 +32,7 @@ export default function NotificationManager() {
                 }
             } catch (error) {
                 // Silent fail
-                console.log("Polling invites error:", error.message);
+                console.log("Polling invites error:", error.response?.status || error.message);
             }
         };
 
