@@ -10,7 +10,7 @@ const router = express.Router();
 // Create a new post
 router.post("/create", protectRoute, async (req, res) => {
     try {
-        let { caption, image, trekId } = req.body;
+        let { caption, image, trekId, taggedUsernames } = req.body;
 
         if (!image && !caption && !trekId) {
             return res.status(400).json({ message: "Post must contain at least text, image, or a trek" });
@@ -23,11 +23,24 @@ router.post("/create", protectRoute, async (req, res) => {
             image = uploadRes.secure_url;
         }
 
+        // Resolve tagged usernames to user IDs (only allow friends)
+        let taggedUserIds = [];
+        if (Array.isArray(taggedUsernames) && taggedUsernames.length > 0) {
+            const currentUser = await User.findById(req.user._id).select('following');
+            const friendIdSet = new Set(currentUser.following.map(id => id.toString()));
+
+            const taggedUsers = await User.find({ username: { $in: taggedUsernames } }).select('_id username');
+            taggedUserIds = taggedUsers
+                .filter(u => friendIdSet.has(u._id.toString()))  // Only allow friends
+                .map(u => u._id);
+        }
+
         const newPost = new Post({
             user: req.user._id,
             caption,
             image,
             trek: trekId,
+            taggedUsers: taggedUserIds,
         });
 
         await newPost.save();
@@ -67,6 +80,23 @@ router.get("/feed", protectRoute, async (req, res) => {
     } catch (error) {
         console.error("Error fetching feed:", error);
         res.status(500).json({ message: "Error fetching feed" });
+    }
+});
+
+// Get posts where a user is tagged (must be before /:id to avoid collision)
+router.get("/tagged/:userId", protectRoute, async (req, res) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.userId)) {
+            return res.status(400).json({ message: "Invalid user ID format" });
+        }
+        const posts = await Post.find({ taggedUsers: req.params.userId })
+            .populate("user", "username profileImage")
+            .populate("taggedUsers", "username profileImage")
+            .sort({ createdAt: -1 });
+        res.json(posts);
+    } catch (error) {
+        console.error("Error fetching tagged posts:", error);
+        res.status(500).json({ message: "Error fetching tagged posts" });
     }
 });
 

@@ -1,53 +1,89 @@
-
-import React from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, ActivityIndicator, Linking } from 'react-native';
+import { Link } from 'expo-router';
+import { fetchTrekkingNews } from '../api/news';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const NEWS_ITEMS = [
-    {
-        id: 1,
-        title: "Top 10 Monsoon Treks in 2026",
-        image: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80",
-        readTime: "5 min read"
-    },
-    {
-        id: 2,
-        title: "Gear Guide: Ultralight Backpacking",
-        image: "https://images.unsplash.com/photo-1542152348-73599026b9f2?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80",
-        readTime: "3 min read"
-    },
-    {
-        id: 3,
-        title: "Survival Skills 101: Fire Starting",
-        image: "https://images.unsplash.com/photo-1487612089476-bd46452292f7?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80",
-        readTime: "7 min read"
-    }
-];
-
 export default function NewsSection() {
+    const [news, setNews] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        loadNews();
+    }, []);
+
+    const loadNews = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+            const data = await fetchTrekkingNews();
+            // Only show top 5 in homepage horizontal scroll
+            setNews(data.slice(0, 5));
+        } catch (err) {
+            setError('Failed to load news.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const renderItem = ({ item }) => (
+        <TouchableOpacity 
+            style={styles.card}
+            activeOpacity={0.8}
+            onPress={() => item.url && Linking.openURL(item.url)}
+        >
+            <Image source={{ uri: item.urlToImage }} style={styles.image} />
+            <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.85)']}
+                style={styles.gradient}
+            >
+                <Text style={styles.source} numberOfLines={1}>
+                    {item.source?.name || 'News Source'}
+                </Text>
+                <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
+            </LinearGradient>
+        </TouchableOpacity>
+    );
+
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.sectionTitle}>Latest News</Text>
-                <TouchableOpacity>
-                    <Text style={styles.seeAll}>See All</Text>
-                </TouchableOpacity>
+                <Text style={styles.sectionTitle}>Trekking News</Text>
+                {error ? (
+                    <TouchableOpacity onPress={loadNews}>
+                        <Text style={styles.retryText}>Retry</Text>
+                    </TouchableOpacity>
+                ) : (
+                    <Link href="/news" asChild>
+                        <TouchableOpacity>
+                            <Text style={styles.seeAll}>See All</Text>
+                        </TouchableOpacity>
+                    </Link>
+                )}
             </View>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-                {NEWS_ITEMS.map((item) => (
-                    <TouchableOpacity key={item.id} style={styles.card}>
-                        <Image source={{ uri: item.image }} style={styles.image} />
-                        <LinearGradient
-                            colors={['transparent', 'rgba(0,0,0,0.8)']}
-                            style={styles.gradient}
-                        >
-                            <Text style={styles.readTime}>{item.readTime}</Text>
-                            <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
-                        </LinearGradient>
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
+            {loading ? (
+                <View style={styles.centerContainer}>
+                    <ActivityIndicator size="small" color="#28a745" />
+                </View>
+            ) : error ? (
+                <View style={styles.centerContainer}>
+                    <Text style={styles.errorText}>{error}</Text>
+                </View>
+            ) : (
+                <FlatList
+                    data={news}
+                    keyExtractor={(item, index) => item.url || index.toString()}
+                    renderItem={renderItem}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.listContent}
+                    ListEmptyComponent={
+                        <Text style={styles.emptyText}>No news found at the moment.</Text>
+                    }
+                />
+            )}
         </View>
     );
 }
@@ -73,20 +109,51 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
     },
-    scrollContent: {
+    retryText: {
+        color: '#28a745',
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    centerContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: 140,
+    },
+    errorText: {
+        color: '#dc3545',
+        fontSize: 14,
+        textAlign: 'center',
+        paddingHorizontal: 20,
+    },
+    emptyText: {
+        color: '#666',
+        fontSize: 14,
+        textAlign: 'center',
+        marginTop: 20,
+        paddingHorizontal: 20,
+    },
+    listContent: {
         paddingHorizontal: 15,
     },
     card: {
-        width: 200,
-        height: 140,
+        width: 280,
+        height: 160,
         marginRight: 15,
         borderRadius: 12,
         overflow: 'hidden',
         backgroundColor: '#eee',
+        // Shadow for iOS
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        // Elevation for Android
+        elevation: 3,
     },
     image: {
         width: '100%',
         height: '100%',
+        position: 'absolute',
     },
     gradient: {
         position: 'absolute',
@@ -95,19 +162,20 @@ const styles = StyleSheet.create({
         right: 0,
         height: '60%',
         justifyContent: 'flex-end',
-        padding: 10,
+        padding: 15,
     },
-    readTime: {
-        color: '#ddd',
-        fontSize: 10,
-        marginBottom: 4,
-        fontWeight: '600',
+    source: {
+        fontSize: 11,
+        color: '#28a745',
+        fontWeight: '700',
         textTransform: 'uppercase',
+        marginBottom: 4,
+        letterSpacing: 0.5,
     },
     title: {
-        color: '#fff',
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: 'bold',
-        lineHeight: 18,
+        color: '#fff',
+        lineHeight: 20,
     }
 });

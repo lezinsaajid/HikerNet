@@ -102,6 +102,16 @@ export default function PostDetail() {
         );
     };
 
+    const onProfileNavigate = () => {
+        if (!post?.user) return;
+        const targetId = post.user._id || post.user;
+        if (targetId === currentUser._id) {
+            router.push('/profile');
+        } else {
+            router.push(`/user-profile/${targetId}`);
+        }
+    };
+
     if (loading) {
         return (
             <SafeAreaView style={styles.center}>
@@ -116,7 +126,7 @@ export default function PostDetail() {
     const isLiked = post.likes.includes(currentUser._id);
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             <KeyboardAvoidingView
                 behavior={Platform.OS === "ios" ? "padding" : "height"}
                 style={{ flex: 1 }}
@@ -136,13 +146,13 @@ export default function PostDetail() {
                 </View>
 
                 <ScrollView contentContainerStyle={styles.scrollContent}>
-                    <View style={styles.userInfo}>
-                        <Image source={{ uri: post.user.profileImage }} style={styles.avatar} />
+                    <TouchableOpacity onPress={onProfileNavigate} style={styles.userInfo}>
+                        <Image source={{ uri: post.user.profileImage || 'https://via.placeholder.com/150' }} style={styles.avatar} />
                         <View>
                             <Text style={styles.username}>{post.user.username}</Text>
                             <Text style={styles.date}>{new Date(post.createdAt).toLocaleDateString()}</Text>
                         </View>
-                    </View>
+                    </TouchableOpacity>
 
                     {post.image && (
                         <Image source={{ uri: post.image }} style={styles.postImage} resizeMode="cover" />
@@ -150,12 +160,13 @@ export default function PostDetail() {
 
                     <View style={styles.content}>
                         <Text style={styles.caption}>
-                            <Text style={styles.bold}>{post.user.username}</Text> {post.caption}
+                            <Text style={styles.usernameText} onPress={onProfileNavigate}>{post.user.username} </Text>
+                            {post.caption}
                         </Text>
 
                         <View style={styles.actionRow}>
                             <TouchableOpacity onPress={handleLike} style={styles.actionButton}>
-                                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={28} color={isLiked ? "#e91e63" : "#333"} />
+                                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={28} color={isLiked ? "#e74c3c" : "#333"} />
                                 <Text style={styles.actionText}>{post.likes.length} likes</Text>
                             </TouchableOpacity>
                             <View style={styles.actionButton}>
@@ -172,18 +183,22 @@ export default function PostDetail() {
                                 const canDelete = isCommentAuthor || isPostOwner;
 
                                 return (
-                                    <View key={index} style={styles.commentItem}>
-                                        <View style={styles.commentContent}>
-                                            <Text style={styles.commentText}>
-                                                <Text style={styles.bold}>User </Text>
-                                                {comment.text}
-                                            </Text>
-                                            {canDelete && (
-                                                <TouchableOpacity onPress={() => handleDeleteComment(comment._id)}>
-                                                    <Ionicons name="trash-outline" size={16} color="#999" />
-                                                </TouchableOpacity>
-                                            )}
+                                    <View key={comment._id || index} style={styles.commentItem}>
+                                        <Image 
+                                            source={{ uri: comment.user?.profileImage || 'https://via.placeholder.com/150' }} 
+                                            style={styles.commentAvatar} 
+                                        />
+                                        <View style={styles.commentBubbleContainer}>
+                                            <View style={styles.commentBubble}>
+                                                <Text style={styles.commentUser}>{comment.user?.username || 'User'}</Text>
+                                                <Text style={styles.commentText}>{comment.text}</Text>
+                                            </View>
                                         </View>
+                                        {canDelete && (
+                                            <TouchableOpacity onPress={() => handleDeleteComment(comment._id)} style={styles.deleteCommentBtn}>
+                                                <Ionicons name="trash-outline" size={16} color="#bbb" />
+                                            </TouchableOpacity>
+                                        )}
                                     </View>
                                 );
                             })}
@@ -192,15 +207,31 @@ export default function PostDetail() {
                 </ScrollView>
 
                 <View style={styles.footer}>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Add a comment..."
-                        value={commentText}
-                        onChangeText={setCommentText}
+                    <Image 
+                        source={{ uri: currentUser?.profileImage || 'https://via.placeholder.com/150' }} 
+                        style={styles.inputAvatar} 
                     />
-                    <TouchableOpacity onPress={handleComment} disabled={!commentText.trim() || sendingComment}>
-                        <Text style={[styles.sendText, !commentText.trim() && { color: '#ccc' }]}>Post</Text>
-                    </TouchableOpacity>
+                    <View style={styles.inputWrapper}>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Add a comment..."
+                            placeholderTextColor="#888"
+                            value={commentText}
+                            onChangeText={setCommentText}
+                            multiline
+                        />
+                        <TouchableOpacity 
+                            style={styles.sendButton}
+                            onPress={handleComment} 
+                            disabled={!commentText.trim() || sendingComment}
+                        >
+                            {sendingComment ? (
+                                <ActivityIndicator size="small" color="#28a745" />
+                            ) : (
+                                <Ionicons name="send" size={20} color={commentText.trim() ? '#28a745' : '#ccc'} />
+                            )}
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </KeyboardAvoidingView>
         </SafeAreaView>
@@ -229,9 +260,10 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontSize: 18,
         fontWeight: 'bold',
+        color: '#222',
     },
     scrollContent: {
-        paddingBottom: 80,
+        paddingBottom: 20,
     },
     userInfo: {
         flexDirection: 'row',
@@ -239,35 +271,41 @@ const styles = StyleSheet.create({
         padding: 15,
     },
     avatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         marginRight: 10,
         backgroundColor: '#eee',
+        borderWidth: 1,
+        borderColor: '#f0f0f0',
     },
     username: {
         fontWeight: 'bold',
         fontSize: 16,
+        color: '#222',
+    },
+    usernameText: {
+        fontWeight: 'bold',
+        color: '#222',
     },
     date: {
         color: '#666',
         fontSize: 12,
+        marginTop: 2,
     },
     postImage: {
         width: '100%',
-        height: 400,
+        height: 420,
         backgroundColor: '#f0f0f0',
     },
     content: {
         padding: 15,
     },
     caption: {
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: 15,
+        lineHeight: 22,
         marginBottom: 15,
-    },
-    bold: {
-        fontWeight: 'bold',
+        color: '#333',
     },
     actionRow: {
         flexDirection: 'row',
@@ -283,43 +321,85 @@ const styles = StyleSheet.create({
     },
     actionText: {
         marginLeft: 6,
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '600',
+        color: '#333',
     },
     commentsSection: {
-        marginTop: 10,
+        marginTop: 5,
     },
     commentItem: {
-        marginBottom: 12,
-    },
-    commentContent: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        marginBottom: 18,
+        alignItems: 'flex-start',
+    },
+    commentAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        marginRight: 10,
+        backgroundColor: '#eee',
+    },
+    commentBubbleContainer: {
+        flex: 1,
+    },
+    commentBubble: {
+        backgroundColor: '#f1f3f5',
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 18,
+        borderTopLeftRadius: 4,
+        alignSelf: 'flex-start',
+        maxWidth: '100%',
+    },
+    commentUser: {
+        fontWeight: 'bold',
+        fontSize: 13,
+        marginBottom: 4,
+        color: '#333',
     },
     commentText: {
         fontSize: 14,
-        flex: 1,
-        marginRight: 10,
+        lineHeight: 18,
+        color: '#444',
+    },
+    deleteCommentBtn: {
+        marginLeft: 10,
+        paddingTop: 10,
     },
     footer: {
         flexDirection: 'row',
-        alignItems: 'center',
         padding: 15,
         borderTopWidth: 1,
         borderTopColor: '#eee',
-        backgroundColor: 'white',
+        alignItems: 'center',
+        backgroundColor: '#fff',
+        paddingBottom: Platform.OS === 'ios' ? 30 : 15,
+    },
+    inputAvatar: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        marginRight: 10,
+    },
+    inputWrapper: {
+        flex: 1,
+        flexDirection: 'row',
+        backgroundColor: '#f1f3f5',
+        borderRadius: 20,
+        alignItems: 'center',
+        paddingHorizontal: 15,
+        minHeight: 40,
+        maxHeight: 100,
     },
     input: {
         flex: 1,
-        backgroundColor: '#f1f1f1',
-        borderRadius: 20,
-        paddingHorizontal: 15,
-        paddingVertical: 8,
-        marginRight: 10,
+        paddingVertical: 10,
+        fontSize: 14,
+        color: '#222',
     },
-    sendText: {
-        color: '#007bff',
-        fontWeight: 'bold',
-    },
+    sendButton: {
+        padding: 5,
+        marginLeft: 5,
+    }
 });
