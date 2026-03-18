@@ -10,6 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInUp, Layout } from 'react-native-reanimated';
 import UserListModal from '../../components/UserListModal';
 import SafeScreen from '../../components/SafeScreen';
+import PostGridItem from '../../components/PostGridItem';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
@@ -52,6 +53,7 @@ export default function Profile() {
     const [isPostModalVisible, setIsPostModalVisible] = useState(false);
     const [newPostCaption, setNewPostCaption] = useState('');
     const [newPostImage, setNewPostImage] = useState(null);
+    const [newPostVideo, setNewPostVideo] = useState(null);
     const [creatingPost, setCreatingPost] = useState(false);
     const [tagInput, setTagInput] = useState('');
     const [tags, setTags] = useState([]);
@@ -302,32 +304,49 @@ export default function Profile() {
             quality: 0.8,
             base64: true,
         });
-
         if (!result.canceled) {
             setNewPostImage(result.assets[0]);
+            setNewPostVideo(null);
+        }
+    };
+
+    const pickPostVideo = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+            allowsEditing: true,
+            quality: 0.8,
+            base64: true,
+        });
+        if (!result.canceled) {
+            setNewPostVideo(result.assets[0]);
+            setNewPostImage(null);
         }
     };
 
     const handleCreatePost = async () => {
-        if (!newPostImage && !newPostCaption && tags.length === 0) {
-            Alert.alert("Error", "Please add an image, a caption, or tag someone");
+        if (!newPostImage && !newPostVideo && !newPostCaption && tags.length === 0) {
+            Alert.alert("Error", "Please add an image, video, caption, or tag someone");
             return;
         }
 
         try {
             setCreatingPost(true);
             const payload = {
-                caption: newPostCaption,
+                content: newPostCaption, // New standard
+                caption: newPostCaption, // Legacy support
                 image: newPostImage ? `data:image/jpeg;base64,${newPostImage.base64}` : null,
+                video: newPostVideo ? `data:video/mp4;base64,${newPostVideo.base64}` : null,
                 taggedUsernames: tags,
             };
             await client.post('/posts/create', payload);
             setNewPostCaption('');
             setNewPostImage(null);
+            setNewPostVideo(null);
             setTags([]);
             setTagInput('');
             setIsPostModalVisible(false);
             fetchUserPosts(user._id);
+            fetchTaggedPosts(user._id);
             fetchProfileData(user._id);
             Alert.alert("Success", "Post created!");
         } catch (error) {
@@ -423,42 +442,22 @@ export default function Profile() {
                     </View>
                 );
             }
-            // Re-use the post grid item style
             return (
-                <TouchableOpacity
-                    style={styles.postGridItem}
-                    onPress={() => router.push(`/post/${item._id}`)}
-                >
-                    <Image
-                        source={{ uri: item.image || 'https://via.placeholder.com/301' }}
-                        style={styles.gridImage}
-                    />
-                </TouchableOpacity>
+                <PostGridItem
+                    item={item}
+                    onLongPress={null}
+                />
             );
         }
 
+        // Posts tab
         return (
-            <TouchableOpacity
-                style={[
-                    styles.postGridItem,
-                    activeTab === 'stories' && styles.storyGridItem
-                ]}
-                onPress={() => {
-                    if (activeTab === 'posts') {
-                        router.push(`/post/${item._id}`);
-                    }
-                }}
+            <PostGridItem
+                item={item}
                 onLongPress={() => {
-                    if (activeTab === 'posts' && isOwner) {
-                        handleDeletePost(item._id);
-                    }
+                    if (isOwner) handleDeletePost(item._id);
                 }}
-            >
-                <Image
-                    source={{ uri: item.image || 'https://via.placeholder.com/301' }}
-                    style={styles.gridImage}
-                />
-            </TouchableOpacity>
+            />
         );
     };
 
@@ -878,16 +877,39 @@ export default function Profile() {
                             </View>
 
                             <ScrollView style={styles.modalBody}>
-                                <TouchableOpacity onPress={pickPostImage} style={styles.imagePlaceholder}>
-                                    {newPostImage ? (
-                                        <Image source={{ uri: newPostImage.uri }} style={styles.selectedImage} />
-                                    ) : (
-                                        <View style={styles.placeholderContent}>
-                                            <Ionicons name="image-outline" size={60} color="#CCC" />
-                                            <Text style={styles.placeholderLabel}>Add Photos</Text>
-                                        </View>
-                                    )}
-                                </TouchableOpacity>
+                                {/* Media Picker Row */}
+                                <View style={styles.mediaPickerRow}>
+                                    <TouchableOpacity
+                                        onPress={pickPostImage}
+                                        style={[styles.mediaPicker, newPostImage && styles.mediaPickerActive]}
+                                    >
+                                        {newPostImage ? (
+                                            <Image source={{ uri: newPostImage.uri }} style={styles.mediaPreview} />
+                                        ) : (
+                                            <View style={styles.mediaPickerContent}>
+                                                <Ionicons name="image-outline" size={36} color="#CCC" />
+                                                <Text style={styles.mediaPickerLabel}>Photo</Text>
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        onPress={pickPostVideo}
+                                        style={[styles.mediaPicker, newPostVideo && styles.mediaPickerActive]}
+                                    >
+                                        {newPostVideo ? (
+                                            <View style={[styles.mediaPreview, styles.videoPreviewBox]}>
+                                                <Ionicons name="play-circle" size={42} color="rgba(255,255,255,0.9)" />
+                                                <Text style={styles.videoSelectedLabel}>Video selected</Text>
+                                            </View>
+                                        ) : (
+                                            <View style={styles.mediaPickerContent}>
+                                                <Ionicons name="videocam-outline" size={36} color="#CCC" />
+                                                <Text style={styles.mediaPickerLabel}>Video</Text>
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
 
                                 <TextInput
                                     style={[styles.captionInput, { minHeight: 100 }]}
@@ -1445,16 +1467,50 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: '#28a745',
     },
-    imagePlaceholder: {
-        width: width,
-        height: width,
+    mediaPickerRow: {
+        flexDirection: 'row',
+        paddingHorizontal: 15,
+        paddingVertical: 15,
+        gap: 12,
+    },
+    mediaPicker: {
+        flex: 1,
+        height: 140,
         backgroundColor: '#F5F5F5',
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 2,
+        borderColor: '#E8E8E8',
+        borderStyle: 'dashed',
+        overflow: 'hidden',
+    },
+    mediaPickerActive: {
+        borderColor: '#28a745',
+        borderStyle: 'solid',
+    },
+    mediaPickerContent: {
+        alignItems: 'center',
+    },
+    mediaPickerLabel: {
+        marginTop: 8,
+        fontSize: 13,
+        color: '#AAA',
+        fontWeight: '600',
+    },
+    mediaPreview: {
+        width: '100%',
+        height: '100%',
+    },
+    videoPreviewBox: {
+        backgroundColor: '#1a1a2e',
         justifyContent: 'center',
         alignItems: 'center',
     },
-    selectedImage: {
-        width: '100%',
-        height: '100%',
+    videoSelectedLabel: {
+        color: 'rgba(255,255,255,0.8)',
+        fontSize: 12,
+        marginTop: 6,
     },
     captionInput: {
         padding: 20,

@@ -8,6 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInUp, Layout } from 'react-native-reanimated';
 import UserListModal from '../../components/UserListModal';
+import PostGridItem from '../../components/PostGridItem';
 import SafeScreen from '../../components/SafeScreen';
 
 const { width } = Dimensions.get('window');
@@ -39,6 +40,7 @@ export default function UserProfile() {
     const [activeTab, setActiveTab] = useState('posts'); // 'posts', 'trails', 'tagged'
     const [userStories, setUserStories] = useState([]);
     const [userAdventures, setUserAdventures] = useState([]);
+    const [taggedPosts, setTaggedPosts] = useState([]);
 
     useEffect(() => {
         if (id) {
@@ -46,8 +48,9 @@ export default function UserProfile() {
             fetchUserPosts();
             fetchUserStories();
             fetchUserAdventures();
+            fetchTaggedPosts();
         }
-    }, [id, fetchProfileData, fetchUserPosts, fetchUserStories, fetchUserAdventures]);
+    }, [id, fetchProfileData, fetchUserPosts, fetchUserStories, fetchUserAdventures, fetchTaggedPosts]);
 
     const fetchProfileData = useCallback(async () => {
         try {
@@ -85,22 +88,28 @@ export default function UserProfile() {
 
     const fetchUserAdventures = useCallback(async () => {
         try {
-            // Fetch both Treks and Adventure Remarks
             const [treksRes, remarksRes] = await Promise.all([
                 client.get(`/treks/user/${id}`),
                 client.get(`/adventures/user/${id}`)
             ]);
-
-            // Combine and sort by date
             const combined = [
                 ...(treksRes.data || []).map(t => ({ ...t, displayType: 'trek' })),
                 ...(remarksRes.data || []).map(r => ({ ...r, displayType: 'remark' }))
             ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
             setUserAdventures(combined);
         } catch (error) {
             console.error("Error fetching adventures:", error);
             setUserAdventures([]);
+        }
+    }, [id]);
+
+    const fetchTaggedPosts = useCallback(async () => {
+        try {
+            const res = await client.get(`/posts/tagged/${id}`);
+            setTaggedPosts(res.data || []);
+        } catch (error) {
+            console.error("Error fetching tagged posts:", error);
+            setTaggedPosts([]);
         }
     }, [id]);
 
@@ -267,39 +276,26 @@ export default function UserProfile() {
         }
 
         if (activeTab === 'tagged') {
-            return (
-                <View style={styles.emptyContainer}>
-                    <Ionicons name="person-circle-outline" size={64} color="#EEE" />
-                    <Text style={styles.emptyText}>No tagged posts yet</Text>
-                </View>
-            );
+            if (taggedPosts.length === 0) {
+                return (
+                    <View style={styles.emptyContainer}>
+                        <Ionicons name="person-circle-outline" size={64} color="#EEE" />
+                        <Text style={styles.emptyText}>No tagged posts yet</Text>
+                    </View>
+                );
+            }
+            return <PostGridItem item={item} onLongPress={null} />;
         }
 
-        const isStory = activeTab === 'stories';
-        const imageUri = isStory ? item.media : item.image;
+        // Posts tab
         const isOwner = String(id) === String(user?._id);
-
         return (
-            <TouchableOpacity
-                style={styles.postGridItem}
-                onPress={() => {
-                    if (isStory) {
-                        router.push({ pathname: '/story/view', params: { userId: id } });
-                    } else {
-                        router.push(`/post/${item._id}`);
-                    }
-                }}
+            <PostGridItem
+                item={item}
                 onLongPress={() => {
-                    if (!isStory && isOwner) {
-                        handleDeletePost(item._id);
-                    }
+                    if (isOwner) handleDeletePost(item._id);
                 }}
-            >
-                <Image
-                    source={{ uri: imageUri || 'https://via.placeholder.com/301' }}
-                    style={styles.gridImage}
-                />
-            </TouchableOpacity>
+            />
         );
     };
 
@@ -352,9 +348,13 @@ export default function UserProfile() {
             </View>
 
             <FlatList
-                // ... props ...
                 key={activeTab === 'trails' ? 'single' : 'grid'}
-                data={activeTab === 'posts' ? posts : (activeTab === 'trails' ? userAdventures : [])}
+                data={
+                    activeTab === 'posts' ? posts
+                    : activeTab === 'trails' ? userAdventures
+                    : activeTab === 'tagged' ? taggedPosts
+                    : []
+                }
                 numColumns={activeTab === 'trails' ? 1 : 3}
                 keyExtractor={(item) => item._id}
                 ListHeaderComponent={

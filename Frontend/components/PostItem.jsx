@@ -2,8 +2,12 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { Video, ResizeMode } from 'expo-av';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import TextPost from './posts/TextPost';
+import ImagePost from './posts/ImagePost';
+import VideoPost from './posts/VideoPost';
 
 export default function PostItem({ post, onUpdate }) {
     const { user, updateUserData } = useAuth();
@@ -15,7 +19,6 @@ export default function PostItem({ post, onUpdate }) {
     const [newComment, setNewComment] = useState('');
     const [commentLoading, setCommentLoading] = useState(false);
 
-    // Check global following status directly from context
     const isFollowing = user && user.following && user.following.includes(post.user._id);
     const isLiked = likes.includes(user?._id);
 
@@ -28,36 +31,37 @@ export default function PostItem({ post, onUpdate }) {
         }
     };
 
+    const onTaggedUserPress = (taggedUser) => {
+        if (!taggedUser?._id) return;
+        if (user._id === taggedUser._id) {
+            router.push('/profile');
+        } else {
+            router.push(`/user-profile/${taggedUser._id}`);
+        }
+    };
+
     const handleFollow = async () => {
-        // Optimistic global update
         if (!user) return;
         const newFollowing = [...(user.following || []), post.user._id];
         updateUserData({ following: newFollowing });
-
         try {
             await client.post(`/users/follow/${post.user._id}`);
         } catch (error) {
             console.error("Error following user:", error);
-            // Revert on error
-            const revertedFollowing = user.following.filter(id => id !== post.user._id);
-            updateUserData({ following: revertedFollowing });
+            updateUserData({ following: user.following });
         }
     };
 
     const handleLike = async () => {
-        // Optimistic update
         const previouslyLiked = isLiked;
         const newLikes = previouslyLiked
             ? likes.filter(id => id !== user._id)
             : [...likes, user._id];
-
         setLikes(newLikes);
-
         try {
             await client.put(`/posts/like/${post._id}`);
         } catch (error) {
             console.error("Error liking post:", error);
-            // Revert on error
             setLikes(likes);
         }
     };
@@ -89,23 +93,58 @@ export default function PostItem({ post, onUpdate }) {
         }
     };
 
+    const taggedUsers = post.taggedUsers || [];
+    const resolvedType = post.type || (post.mediaUrl ? (post.mediaUrl.includes('video') ? 'video' : 'image') : (post.video ? 'video' : post.image ? 'image' : 'text'));
+
+    // Debug log as requested by user
+    console.log(`[PostItem] Rendering post ${post._id}:`, {
+        type: post.type,
+        resolvedType,
+        content: post.content || post.caption,
+        mediaUrl: post.mediaUrl || post.video || post.image,
+    });
+
+    const renderPostContent = () => {
+        const content = post.content || post.caption || "";
+        const mediaUrl = post.mediaUrl || post.video || post.image;
+
+        switch (resolvedType) {
+            case 'image':
+                return <ImagePost mediaUrl={mediaUrl} content={content} />;
+            case 'video':
+                return <VideoPost mediaUrl={mediaUrl} content={content} />;
+            case 'text':
+            default:
+                return <TextPost content={content} />;
+        }
+    };
+
     return (
         <View style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={onProfileNavigate} style={styles.profileNavGroup}>
-                    <Image source={{ uri: post.user.profileImage }} style={styles.avatar} />
+                    <Image source={{ uri: post.user.profileImage || 'https://via.placeholder.com/150' }} style={styles.avatar} />
                     <View style={styles.headerText}>
-                        <View style={styles.nameRow}>
-                            <Text style={styles.username}>{post.user.username}</Text>
-                        </View>
+                        <Text style={styles.username}>{post.user.username}</Text>
+                        {taggedUsers.length > 0 && (
+                            <View style={styles.taggedLine}>
+                                <Text style={styles.withText}>with </Text>
+                                {taggedUsers.map((u, i) => (
+                                    <TouchableOpacity key={u._id} onPress={() => onTaggedUserPress(u)}>
+                                        <Text style={styles.taggedUserLink}>
+                                            @{u.username}{i < taggedUsers.length - 1 ? ', ' : ''}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        )}
                         {post.trek && (
                             <Text style={styles.location}>at {post.trek.name}</Text>
                         )}
                     </View>
                 </TouchableOpacity>
 
-                {/* Follow Button stays separate so it doesn't navigate on click */}
                 {!isFollowing && user && post.user._id !== user._id && (
                     <TouchableOpacity style={styles.followBtn} onPress={handleFollow}>
                         <Text style={styles.followText}>Follow</Text>
@@ -113,12 +152,10 @@ export default function PostItem({ post, onUpdate }) {
                 )}
             </View>
 
-            {/* Image */}
-            {post.image && (
-                <Image source={{ uri: post.image }} style={styles.postImage} resizeMode="cover" />
-            )}
+            {/* Modular Post Content (Image, Video, or Text) */}
+            {renderPostContent()}
 
-            {/* Content & Actions */}
+            {/* Actions & Meta */}
             <View style={styles.content}>
                 <View style={styles.actions}>
                     <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
@@ -129,38 +166,27 @@ export default function PostItem({ post, onUpdate }) {
                         />
                         <Text style={styles.actionText}>{likes.length > 0 ? likes.length : ''}</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity style={styles.actionButton} onPress={() => setShowComments(true)}>
                         <Ionicons name="chatbubble-outline" size={26} color="black" />
                         <Text style={styles.actionText}>{comments.length > 0 ? comments.length : ''}</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity style={styles.actionButton}>
                         <Ionicons name="paper-plane-outline" size={26} color="black" />
                     </TouchableOpacity>
                 </View>
-
-                {post.caption ? (
-                    <Text style={styles.caption}>
-                        <Text style={styles.usernameText} onPress={onProfileNavigate}>{post.user.username} </Text>
-                        {post.caption}
-                    </Text>
-                ) : null}
 
                 {comments.length > 0 && (
                     <TouchableOpacity onPress={() => setShowComments(true)}>
                         <Text style={styles.viewComments}>View all {comments.length} comments</Text>
                     </TouchableOpacity>
                 )}
-
                 <Text style={styles.timeAgo}>{new Date(post.createdAt).toLocaleDateString()}</Text>
             </View>
 
-            {/* Comments Modal (BottomSheet Style) */}
+            {/* Comments Bottom Sheet Modal */}
             <Modal visible={showComments} animationType="slide" transparent={true} onRequestClose={() => setShowComments(false)}>
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
                     <View style={styles.modalContainer}>
-                        {/* Drag Handle & Header */}
                         <View style={styles.modalHeader}>
                             <View style={styles.dragIndicator} />
                             <Text style={styles.modalTitle}>Comments</Text>
@@ -174,12 +200,12 @@ export default function PostItem({ post, onUpdate }) {
                                 <Text style={styles.noComments}>No comments yet. Start the conversation!</Text>
                             ) : (
                                 comments.map((comment, index) => {
-                                    const isSelf = comment.user === user?._id || comment.user?._id === user?._id || post.user._id === user?._id;
+                                    const isSelf = comment.user?._id === user?._id || comment.user === user?._id || post.user._id === user?._id;
                                     return (
                                         <View key={comment._id || index} style={styles.commentItem}>
-                                            <Image 
-                                                source={{ uri: comment.user?.profileImage || 'https://via.placeholder.com/150' }} 
-                                                style={styles.commentAvatar} 
+                                            <Image
+                                                source={{ uri: comment.user?.profileImage || 'https://via.placeholder.com/150' }}
+                                                style={styles.commentAvatar}
                                             />
                                             <View style={styles.commentBubbleContainer}>
                                                 <View style={styles.commentBubble}>
@@ -199,9 +225,9 @@ export default function PostItem({ post, onUpdate }) {
                         </ScrollView>
 
                         <View style={styles.inputContainer}>
-                            <Image 
-                                source={{ uri: user?.profileImage || 'https://via.placeholder.com/150' }} 
-                                style={styles.inputAvatar} 
+                            <Image
+                                source={{ uri: user?.profileImage || 'https://via.placeholder.com/150' }}
+                                style={styles.inputAvatar}
                             />
                             <View style={styles.inputWrapper}>
                                 <TextInput
@@ -212,19 +238,15 @@ export default function PostItem({ post, onUpdate }) {
                                     onChangeText={setNewComment}
                                     multiline
                                 />
-                                <TouchableOpacity 
-                                    style={styles.sendButton} 
-                                    onPress={handleSendComment} 
+                                <TouchableOpacity
+                                    style={styles.sendButton}
+                                    onPress={handleSendComment}
                                     disabled={commentLoading || !newComment.trim()}
                                 >
                                     {commentLoading ? (
                                         <ActivityIndicator size="small" color="#28a745" />
                                     ) : (
-                                        <Ionicons 
-                                            name="send" 
-                                            size={20} 
-                                            color={newComment.trim() ? '#28a745' : '#ccc'} 
-                                        />
+                                        <Ionicons name="send" size={20} color={newComment.trim() ? '#28a745' : '#ccc'} />
                                     )}
                                 </TouchableOpacity>
                             </View>
@@ -250,6 +272,7 @@ const styles = StyleSheet.create({
     profileNavGroup: {
         flexDirection: 'row',
         alignItems: 'center',
+        flex: 1,
     },
     avatar: {
         width: 38,
@@ -261,6 +284,7 @@ const styles = StyleSheet.create({
         borderColor: '#f0f0f0',
     },
     headerText: {
+        flex: 1,
         justifyContent: 'center',
     },
     username: {
@@ -268,14 +292,25 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#222',
     },
+    taggedLine: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        marginTop: 2,
+    },
+    withText: {
+        fontSize: 12,
+        color: '#666',
+    },
+    taggedUserLink: {
+        fontSize: 12,
+        color: '#28a745',
+        fontWeight: '600',
+    },
     location: {
         fontSize: 12,
         color: '#666',
         marginTop: 2,
-    },
-    nameRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
     },
     followBtn: {
         backgroundColor: '#28a745',
@@ -330,7 +365,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         marginTop: 6,
     },
-    // Modal Overlay Settings
     modalOverlay: {
         flex: 1,
         justifyContent: 'flex-end',
@@ -340,7 +374,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        height: '75%', // Dynamic Bottom Sheet feel
+        height: '75%',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -2 },
         shadowOpacity: 0.1,

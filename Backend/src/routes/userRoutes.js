@@ -317,7 +317,18 @@ router.get("/posts/:id", async (req, res) => {
             console.error(`[Backend] Rejecting invalid posts ID: "${req.params.id}"`);
             return res.status(400).json({ message: "Invalid user ID format" });
         }
-        const posts = await Post.find({ user: req.params.id }).sort({ createdAt: -1 });
+        let posts = await Post.find({ user: req.params.id })
+            .populate("taggedUsers", "username profileImage")
+            .sort({ createdAt: -1 })
+            .lean();
+
+        // Enforce unified fields for frontend (Backward compatibility)
+        posts = posts.map(p => ({
+            ...p,
+            content: p.content || p.caption || "",
+            mediaUrl: p.mediaUrl || p.video || p.image || null,
+        }));
+
         res.json(posts);
     } catch (error) {
         console.error("Error fetching user posts:", error);
