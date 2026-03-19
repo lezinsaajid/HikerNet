@@ -2,6 +2,9 @@ import React, { createContext, useState, useEffect, useContext, useCallback } fr
 import { getItem, setItem, deleteItem } from '../utils/platformStorage';
 import client from '../api/client';
 import { useRouter, useSegments } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { generateAndSaveKeys, getKeys, encryptPrivateKey, decryptPrivateKey, saveKeys } from '../utils/encryption';
 
 const AuthContext = createContext();
@@ -12,6 +15,7 @@ export const AuthProvider = ({ children }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [isAddingAccount, setIsAddingAccount] = useState(false); // Flag to bypass auth guard for adding account
     const [isLoggingOut, setIsLoggingOut] = useState(false); // Prevent multiple logout calls
+    const [isMounted, setIsMounted] = useState(false);
 
     const router = useRouter();
     const segments = useSegments();
@@ -233,8 +237,17 @@ export const AuthProvider = ({ children }) => {
             setUser(sanitizedUser);
             setIsAddingAccount(false); // Reset flag
 
+            // --- PUSH NOTIFICATION REGISTRATION ---
+            registerForPushNotificationsAsync().then(token => {
+                if (token) {
+                    client.put('/users/profile', { expoPushToken: token }).catch(err => {
+                        console.error("[Push] Failed to update token on server:", err);
+                    });
+                }
+            });
+
             // Redirect based on restore need
-            if (needsRestore) {
+            if (needsRestore && isMounted) {
                 setTimeout(() => {
                     router.replace('/settings/restore-keys');
                 }, 100);
@@ -285,7 +298,9 @@ export const AuthProvider = ({ children }) => {
                 await setItem('active_user_id', String(sanitizedNextUser._id));
 
                 console.log("[AuthContext] Logout/Switch complete. Refreshing UI...");
-                router.replace('/(tabs)');
+                if (isMounted) {
+                    router.replace('/(tabs)');
+                }
             } else {
                 // No accounts left, perform full cleanup
                 console.log("[AuthContext] No accounts left. Clearing all auth data...");
@@ -355,14 +370,16 @@ export const AuthProvider = ({ children }) => {
                 console.log(`[AuthContext] State updated for ${sanitizedUser.username}. Navigating...`);
 
                 // 3. Force navigation reset
-                router.replace('/(tabs)');
+                if (isMounted) {
+                    router.replace('/(tabs)');
+                }
             } else {
                 console.warn("[AuthContext] switchAccount: Account not found for ID", targetIdStr);
             }
         } catch (error) {
             console.error("[AuthContext] switchAccount failed:", error);
         }
-    }, [accounts, router]);
+    }, [accounts, router, isMounted]);
 
     const prepareAddAccount = useCallback(() => {
         setIsAddingAccount(true);
@@ -396,7 +413,11 @@ export const AuthProvider = ({ children }) => {
     }, [router]);
 
     useEffect(() => {
-        if (isLoading) return;
+        setIsMounted(true);
+    }, []);
+
+    useEffect(() => {
+        if (isLoading || !isMounted) return;
 
         const inAuthGroup = segments.some(seg => seg === '(auth)' || seg === 'login' || seg === 'register');
         const isIndex = segments.length === 0 || (segments.length === 1 && (segments[0] === 'index' || segments[0] === undefined));
@@ -430,5 +451,40 @@ export const AuthProvider = ({ children }) => {
         </AuthContext.Provider>
     );
 };
+
+async function registerForPushNotificationsAsync() {
+    let token;
+
+    if (Device.isDevice) {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+            const { status } = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
+        }
+        if (finalStatus !== 'granted') {
+            console.warn('Failed to get push token for push notification!');
+            return;
+        }
+        
+        // Learn more about projectId here: https://docs.expo.dev/push-notifications/push-notifications-setup/#configure-projectid
+        try {
+            const projectId =
+                Constants?.expoConfig?.extra?.eas?.projectId ??
+                Constants?.easConfig?.projectId;
+            
+            token = (await Notifications.getExpoPushTokenAsync({
+                projectId,
+            })).data;
+            console.log("[Push] Token:", token);
+        } catch (e) {
+            console.error("[Push] Error getting token:", e);
+        }
+    } else {
+        console.log('[Push] Must use physical device for Push Notifications');
+    }
+
+    return token;
+}
 
 export const useAuth = () => useContext(AuthContext);

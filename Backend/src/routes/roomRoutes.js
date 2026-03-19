@@ -3,6 +3,7 @@ import Room from "../models/Room.js";
 import User from "../models/User.js";
 import Trek from "../models/Trek.js";
 import protectRoute from "../middleware/auth.middleware.js";
+import NotificationService from "../services/notificationService.js";
 import crypto from 'crypto';
 
 const router = express.Router();
@@ -55,6 +56,17 @@ router.post("/invite", protectRoute, async (req, res) => {
         }
 
         await targetUser.save();
+
+        // Trigger notification
+        NotificationService.createNotification({
+            userId: targetUserId,
+            senderId: req.user._id,
+            type: "trek_invite",
+            message: `${req.user.username} invited you to join the trek: ${room.trekName}`,
+            trekId: room.trekId || room._id, // Room ID as fallback
+            data: { roomId: room._id, roomCode: room.code }
+        });
+
         res.json({ message: "Invitation sent!" });
 
     } catch (error) {
@@ -163,6 +175,16 @@ router.post("/join", protectRoute, async (req, res) => {
 
         await room.save();
 
+        // Trigger notification to leader
+        NotificationService.createNotification({
+            userId: room.leader,
+            senderId: req.user._id,
+            type: "trek_join",
+            message: `${req.user.username} requested to join your trek: ${room.trekName}`,
+            trekId: room.trekId || room._id,
+            data: { roomId: room._id }
+        });
+
         res.json({ message: "Join request sent", roomId: room._id });
     } catch (error) {
         console.error("Error joining room:", error);
@@ -223,6 +245,16 @@ router.post("/accept", protectRoute, async (req, res) => {
         }
 
         await room.save();
+
+        // Trigger notification to user
+        NotificationService.createNotification({
+            userId: userId,
+            senderId: req.user._id,
+            type: "trek_update",
+            message: `Your request to join ${room.trekName} was accepted!`,
+            trekId: room.trekId || room._id,
+            data: { roomId: room._id }
+        });
 
         // Return updated room
         const updatedRoom = await Room.findById(roomId)
@@ -294,6 +326,27 @@ router.post("/leave", protectRoute, async (req, res) => {
         room.members = room.members.filter(m => m.user.toString() !== targetId);
         await room.save();
 
+        // Trigger notification
+        if (targetId === req.user._id.toString()) {
+            // User left voluntarily, notify leader
+            NotificationService.createNotification({
+                userId: room.leader,
+                senderId: req.user._id,
+                type: "trek_leave",
+                message: `${req.user.username} left the trek: ${room.trekName}`,
+                trekId: room.trekId || room._id
+            });
+        } else {
+            // Leader removed user
+            NotificationService.createNotification({
+                userId: targetId,
+                senderId: req.user._id,
+                type: "trek_leave",
+                message: `You were removed from the trek: ${room.trekName}`,
+                trekId: room.trekId || room._id
+            });
+        }
+
         res.json({ message: "Member removed/left" });
     } catch (error) {
         console.error("Error leaving room:", error);
@@ -361,6 +414,19 @@ router.post("/start", protectRoute, async (req, res) => {
 
         room.trekId = newTrek._id;
         await room.save();
+
+        // Notify all participants
+        room.members.forEach(m => {
+            if (m.user.toString() !== req.user._id.toString()) {
+                NotificationService.createNotification({
+                    userId: m.user,
+                    senderId: req.user._id,
+                    type: "trek_update",
+                    message: `The trek "${room.trekName}" has started!`,
+                    trekId: newTrek._id
+                });
+            }
+        });
 
         res.json({ trekId: newTrek._id });
     } catch (error) {

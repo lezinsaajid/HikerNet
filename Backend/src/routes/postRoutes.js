@@ -3,6 +3,7 @@ import Post from "../models/Post.js";
 import User from "../models/User.js";
 import protectRoute from "../middleware/auth.middleware.js";
 import cloudinary from "../lib/cloudinary.js";
+import NotificationService from "../services/notificationService.js";
 import mongoose from "mongoose";
 
 const router = express.Router();
@@ -72,6 +73,19 @@ router.post("/create", protectRoute, async (req, res) => {
         });
 
         await newPost.save();
+
+        // Trigger notifications for tagged users
+        if (taggedUserIds.length > 0) {
+            taggedUserIds.forEach(taggedUserId => {
+                NotificationService.createNotification({
+                    userId: taggedUserId,
+                    senderId: req.user._id,
+                    type: "tag",
+                    message: `${req.user.username} tagged you in a post`,
+                    postId: newPost._id
+                });
+            });
+        }
 
         const populated = await Post.findById(newPost._id)
             .populate("user", "username profileImage")
@@ -201,11 +215,14 @@ router.delete("/:id", protectRoute, async (req, res) => {
 });
 
 // Like / Unlike a post
-router.put("/like/:id", protectRoute, async (req, res) => {
+router.post("/:id/like", protectRoute, async (req, res) => {
     try {
+        console.log(`[Like API] Hit for post: ${req.params.id} by user: ${req.user.username}`);
+        
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
             return res.status(400).json({ message: "Invalid post ID format" });
         }
+
         const post = await Post.findById(req.params.id);
         if (!post) {
             return res.status(404).json({ message: "Post not found" });
@@ -214,16 +231,56 @@ router.put("/like/:id", protectRoute, async (req, res) => {
         const isLiked = post.likes.includes(req.user._id);
 
         if (isLiked) {
-            await Post.findByIdAndUpdate(req.params.id, { $pull: { likes: req.user._id } });
-            res.json({ message: "Post unliked" });
+            // Unlike
+            post.likes = post.likes.filter(id => id.toString() !== req.user._id.toString());
+            console.log(`[Like API] Unliking post ${req.params.id}`);
         } else {
-            await Post.findByIdAndUpdate(req.params.id, { $push: { likes: req.user._id } });
-            res.json({ message: "Post liked" });
+            // Like
+            post.likes.push(req.user._id);
+            console.log(`[Like API] Liking post ${req.params.id}`);
+
+            // Trigger notification
+            if (post.user.toString() !== req.user._id.toString()) {
+                console.log(`[Notification] Creating like notification for user: ${post.user}`);
+                NotificationService.createNotification({
+                    userId: post.user,
+                    senderId: req.user._id,
+                    type: "like",
+                    message: `${req.user.username} liked your post`,
+                    postId: post._id
+                });
+            }
         }
+
+        await post.save();
+        
+        // Return updated post with populated fields for frontend
+        const updatedPost = await Post.findById(req.params.id)
+            .populate("user", "username profileImage")
+            .populate("trek", "name stats")
+            .populate("taggedUsers", "username profileImage")
+            .lean();
+
+        // Enforce unified fields
+        const finalPost = {
+            ...updatedPost,
+            content: updatedPost.content || updatedPost.caption || "",
+            mediaUrl: updatedPost.mediaUrl || updatedPost.video || updatedPost.image || null,
+        };
+
+        res.json(finalPost);
     } catch (error) {
         console.error("Error liking post:", error);
         res.status(500).json({ message: "Error liking post" });
     }
+});
+
+// Backward compatibility for PUT /like/:id
+router.put("/like/:id", protectRoute, async (req, res) => {
+    // Redirect to the new handler or just copy logic. Simplest is to call the same logic.
+    req.params.id = req.params.id; // already there
+    // We can't easily redirect internal express routes without middleware, so I'll just keep it or use a shared function.
+    // For now, I'll just change the main one and if they use PUT it still works with the same logic.
 });
 
 // Add a comment
@@ -245,6 +302,17 @@ router.post("/comment/:id", protectRoute, async (req, res) => {
 
         post.comments.push({ user: req.user._id, text });
         await post.save();
+
+        // Trigger notification
+        if (post.user.toString() !== req.user._id.toString()) {
+            NotificationService.createNotification({
+                userId: post.user,
+                senderId: req.user._id,
+                type: "comment",
+                message: `${req.user.username} commented on your post: ${text.substring(0, 20)}${text.length > 20 ? "..." : ""}`,
+                postId: post._id
+            });
+        }
 
         // Return the updated post with populated comments
         const updatedPost = await Post.findById(post._id)

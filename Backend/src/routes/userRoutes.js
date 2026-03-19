@@ -5,6 +5,7 @@ import Post from "../models/Post.js";
 import Adventure from "../models/Adventure.js";
 import protectRoute from "../middleware/auth.middleware.js";
 import cloudinary from "../lib/cloudinary.js";
+import NotificationService from "../services/notificationService.js";
 import mongoose from "mongoose";
 
 const router = express.Router();
@@ -84,6 +85,15 @@ router.post("/follow/:id", protectRoute, async (req, res) => {
             // Friend (Mutual)
             await User.findByIdAndUpdate(req.user._id, { $addToSet: { following: req.params.id, followers: req.params.id } });
             await User.findByIdAndUpdate(req.params.id, { $addToSet: { followers: req.user._id, following: req.user._id } });
+            
+            // Trigger notification
+            NotificationService.createNotification({
+                userId: req.params.id,
+                senderId: req.user._id,
+                type: "friend_request", // In this context, it's mutual adding
+                message: `${req.user.username} added you as a friend`
+            });
+
             res.json({ message: "Added friend successfully" });
         }
     } catch (error) {

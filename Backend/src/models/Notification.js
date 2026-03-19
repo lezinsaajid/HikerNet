@@ -2,31 +2,53 @@ import mongoose from "mongoose";
 
 const notificationSchema = new mongoose.Schema(
     {
-        recipient: {
+        userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
             required: true,
         },
-        sender: {
+        senderId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
         },
         type: {
             type: String,
-            enum: ["like", "comment", "follow", "sos", "system"],
+            enum: [
+                "like",
+                "comment",
+                "tag",
+                "follow",
+                "friend_request",
+                "trek_invite",
+                "trek_update",
+                "trek_join",
+                "trek_leave",
+                "trek_reminder",
+                "sos",
+                "system",
+                "message",
+            ],
             required: true,
         },
         message: {
             type: String,
             required: true,
         },
-        read: {
+        isRead: {
             type: Boolean,
             default: false,
         },
+        postId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Post",
+        },
+        trekId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Trek",
+        },
         relatedId: {
-            type: mongoose.Schema.Types.ObjectId, // Could be Post ID, Trek ID, etc.
-        }
+            type: mongoose.Schema.Types.ObjectId, // Generic fallback
+        },
     },
     { timestamps: true }
 );

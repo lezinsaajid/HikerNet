@@ -4,6 +4,7 @@ import Chat from "../models/Chat.js";
 import Message from "../models/Message.js";
 import protectRoute from "../middleware/auth.middleware.js";
 import cloudinary from "../lib/cloudinary.js";
+import NotificationService from "../services/notificationService.js";
 // import { encrypt, decrypt } from "../lib/encryption.js"; // Not used for E2EE
 
 const router = express.Router();
@@ -167,10 +168,23 @@ router.post("/:chatId/messages", protectRoute, async (req, res) => {
         });
 
         // Update last message in chat
-        await Chat.findByIdAndUpdate(chatId, {
+        const chat = await Chat.findByIdAndUpdate(chatId, {
             lastMessage: message._id,
             updatedAt: new Date(),
         });
+
+        // Trigger notification for the recipient
+        const recipientId = chat.participants.find(p => p.toString() !== senderId.toString());
+        if (recipientId) {
+            console.log(`[Notification] Creating message notification for user: ${recipientId}`);
+            NotificationService.createNotification({
+                userId: recipientId,
+                senderId: senderId,
+                type: "message", // We might want to add this type to the schema if not there
+                message: `${req.user.username} sent you a message`,
+                data: { chatId } // For deep linking
+            });
+        }
 
         const populatedMessage = await message.populate("sender", "username profileImage publicKey");
         res.json(populatedMessage);

@@ -53,16 +53,25 @@ export default function PostItem({ post, onUpdate }) {
     };
 
     const handleLike = async () => {
+        if (!user) return;
+        
         const previouslyLiked = isLiked;
         const newLikes = previouslyLiked
             ? likes.filter(id => id !== user._id)
             : [...likes, user._id];
+        
+        // Optimistic update
         setLikes(newLikes);
+        
         try {
-            await client.put(`/posts/like/${post._id}`);
+            console.log(`[PostItem] Liking post: ${post._id}`);
+            const res = await client.post(`/posts/${post._id}/like`);
+            if (res.data && res.data.likes) {
+                setLikes(res.data.likes);
+            }
         } catch (error) {
             console.error("Error liking post:", error);
-            setLikes(likes);
+            setLikes(likes); // Rollback
         }
     };
 
@@ -70,9 +79,18 @@ export default function PostItem({ post, onUpdate }) {
         if (!newComment.trim()) return;
         setCommentLoading(true);
         try {
+            console.log(`[PostItem] Sending comment to post: ${post._id}`);
             const res = await client.post(`/posts/comment/${post._id}`, { text: newComment });
-            if (res.data && res.data.comments) {
-                setComments(res.data.comments);
+            if (res.data) {
+                // Backend returns updated post object or post with comments
+                const updatedComments = res.data.comments || (res.data.post && res.data.post.comments);
+                if (updatedComments) {
+                    setComments(updatedComments);
+                } else if (res.data.text) { 
+                    // Fallback if it returns just the comment? Unlikely with current backend change
+                    // But let's assume it returns the updated post.
+                    setComments(res.data.comments);
+                }
             }
             setNewComment('');
         } catch (error) {
