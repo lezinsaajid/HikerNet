@@ -1,20 +1,26 @@
 import React, { useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
 const POLL_INTERVAL = 30000;
 
-// Foreground notification behavior
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-    }),
-});
+let Notifications;
+try {
+    Notifications = require('expo-notifications');
+    // Foreground notification behavior
+    Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: true,
+        }),
+    });
+} catch (e) {
+    console.warn("expo-notifications disabled for Expo Go compatibility.");
+    Notifications = null;
+}
 
 export default function NotificationManager() {
     const { user } = useAuth();
@@ -27,19 +33,22 @@ export default function NotificationManager() {
     useEffect(() => {
         if (!user) return;
 
-        // 1. Foreground listener
-        notificationListener.current =
-            Notifications.addNotificationReceivedListener(notification => {
-                console.log("[Push] Received:", notification.request.content.data);
-            });
+        // 1 & 2. Push Notification listeners
+        if (Notifications) {
+            // Foreground listener
+            notificationListener.current =
+                Notifications.addNotificationReceivedListener(notification => {
+                    console.log("[Push] Received:", notification.request.content.data);
+                });
 
-        // 2. Tap listener
-        responseListener.current =
-            Notifications.addNotificationResponseReceivedListener(response => {
-                const data = response.notification.request.content.data;
-                console.log("[Push] Tapped:", data);
-                handleNotificationNavigation(data);
-            });
+            // Tap listener
+            responseListener.current =
+                Notifications.addNotificationResponseReceivedListener(response => {
+                    const data = response.notification.request.content.data;
+                    console.log("[Push] Tapped:", data);
+                    handleNotificationNavigation(data);
+                });
+        }
 
         // 3. Polling fallback
         const checkInvites = async () => {

@@ -40,22 +40,15 @@ const NativeMap = React.forwardRef((props, ref) => {
                 onRegionChange={onRegionChange}
                 showsUserLocation={showsUserLocation}
                 followsUserLocation={followsUserLocation}
-                maxZoomLevel={17}
+                maxZoomLevel={17.5}
                 loadingEnabled={true}
                 rotateEnabled={true}
-                camera={{
-                    center: region || initialRegion,
-                    pitch: 0,
-                    heading: heading,
-                    zoom: 15,
-                    altitude: 1000
-                }}
                 {...otherProps}
             >
                 {isStandard && (
                     <UrlTile
                         urlTemplate={OSM_URL_TEMPLATE}
-                        maximumZ={19}
+                        maximumZ={17.5}
                         flipY={false}
                         zIndex={-1} // Ensure tiles are below markers/polylines
                     />

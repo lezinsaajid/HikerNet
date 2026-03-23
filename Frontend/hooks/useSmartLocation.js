@@ -58,8 +58,8 @@ export const useSmartLocation = (isTracking) => {
                 locationSub = await Location.watchPositionAsync(
                     {
                         accuracy: Location.Accuracy.BestForNavigation,
-                        timeInterval: 1000, // 1 second
-                        distanceInterval: 0,
+                        timeInterval: 2000, // 2 seconds between pulls
+                        distanceInterval: 2, // MUST physically move 2 meters to trigger an update (crushes stationary drift)
                     },
                     (newLoc) => {
                         const { latitude, longitude, accuracy, altitude } = newLoc.coords;
@@ -87,10 +87,15 @@ export const useSmartLocation = (isTracking) => {
                         }
                         lastRawLoc.current = { latitude, longitude, timestamp: newLoc.timestamp };
 
-                        // 3. EMA Smoothing (For Visual Map Positioning)
-                        // This prevents the marker from jumping around
+                        // 3. EMA Smoothing + Deadzone (For Visual Map Positioning)
+                        // This prevents the marker from jumping around when standing still
                         setSmoothedLocation(prev => {
                             if (!prev) return { latitude, longitude, accuracy };
+
+                            // Deadzone: If the raw GPS point moved less than 2 meters from our visual marker, ignore it
+                            const driftDist = getDistance(prev.latitude, prev.longitude, latitude, longitude);
+                            if (driftDist < 2) return prev;
+
                             const alpha = 0.4; // Slightly more smoothing (0.4 instead of 0.5)
                             return {
                                 latitude: alpha * latitude + (1 - alpha) * prev.latitude,
