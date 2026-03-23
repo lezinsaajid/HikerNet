@@ -63,8 +63,8 @@ export default function ActiveTrek() {
     const [navGuidance, setNavGuidance] = useState("Following Trail");
     const [targetBearing, setTargetBearing] = useState(0);
     const [mapType, setMapType] = useState('standard'); // 'standard', 'satellite', 'hybrid'
-    const [isFollowingUser, setIsFollowingUser] = useState(true);
-    const [isNavMode, setIsNavMode] = useState(false); // Map rotates with compass
+    const [mapViewMode, setMapViewMode] = useState('top-down'); // 'top-down', 'navigation', 'explore'
+    const [isNavMode, setIsNavMode] = useState(false); // Legacy nav mode toggle, mapped to mapViewMode
     const [reroutePath, setReroutePath] = useState([]); // Temporary guidance line
 
     // Modal State
@@ -196,20 +196,51 @@ export default function ActiveTrek() {
 
         setLocation(displayLoc);
 
-        // Animate Camera (Moved tracking logic after displayLoc calculation so we frame the snapped point)
-        if (mapRef.current && isFollowingUser) {
-            mapRef.current.animateToRegion({
-                latitude: displayLoc.latitude,
-                longitude: displayLoc.longitude,
-                latitudeDelta: 0.001,
-                longitudeDelta: 0.001,
-            }, 500);
-            
-            if (isNavMode) {
-                mapRef.current.animateCamera({ heading: userHeading }, { duration: 500 });
+        // Animate Camera
+        if (mapRef.current && mapViewMode !== 'explore') {
+            const cameraUpdate = {
+                center: {
+                    latitude: displayLoc.latitude,
+                    longitude: displayLoc.longitude,
+                },
+                zoom: 16,
+            };
+
+            if (mapViewMode === 'navigation') {
+                cameraUpdate.pitch = 60;
+                cameraUpdate.heading = userHeading || 0;
+            } else if (mapViewMode === 'top-down') {
+                cameraUpdate.pitch = 0;
+                cameraUpdate.heading = 0;
+            }
+
+            mapRef.current.animateCamera(cameraUpdate, { duration: 500 });
+        }
+    }, [smoothedLocation, mapViewMode, isTrailingBack, routeCoordinates, targetRoute, userHeading, hasJoinedTrail, offTrackWarning, trailFinished]);
+
+    // Loop Detection Helper
+    const detectAndRemoveLoop = (currentTrail, newLocation) => {
+        const LOOP_DISTANCE_THRESHOLD_METERS = 10;
+        const MIN_INDEX_GAP = 20;
+
+        if (currentTrail.length < MIN_INDEX_GAP) {
+            return [...currentTrail, newLocation];
+        }
+
+        for (let i = currentTrail.length - MIN_INDEX_GAP; i >= 0; i--) {
+            const pastPoint = currentTrail[i];
+            const distance = getDistance(pastPoint.latitude, pastPoint.longitude, newLocation.latitude, newLocation.longitude);
+
+            if (distance <= LOOP_DISTANCE_THRESHOLD_METERS) {
+                // Loop detected! Slice and remove.
+                const optimizedTrail = currentTrail.slice(0, i + 1);
+                optimizedTrail.push(newLocation);
+                console.log(`[ActiveTrek] Loop Removed: Start Index ${i}, End Index ${currentTrail.length - 1}`);
+                return optimizedTrail; 
             }
         }
-    }, [smoothedLocation, isFollowingUser, isTrailingBack, routeCoordinates, targetRoute, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished]);
+        return [...currentTrail, newLocation];
+    };
 
     // React to validated location updates for RECORDING
     useEffect(() => {
@@ -227,7 +258,7 @@ export default function ActiveTrek() {
 
         // Threshold 3m already enforced by hook, but we double check here if needed
         setRouteCoordinates(prev => {
-            const updated = [...prev, newPoint];
+            const updated = detectAndRemoveLoop(prev, newPoint);
             routeRef.current = updated;
             return updated;
         });
@@ -603,10 +634,14 @@ export default function ActiveTrek() {
                         pitchEnabled={true}
                         scrollEnabled={true}
                         zoomEnabled={true}
-                        onPanDrag={() => setIsFollowingUser(false)}
+                        onPanDrag={() => {
+                            if (mapViewMode !== 'explore') {
+                                setMapViewMode('explore');
+                            }
+                        }}
                         onRegionChangeComplete={(region, gesture) => {
-                            if (gesture && gesture.isGesture) {
-                                setIsFollowingUser(false);
+                            if (gesture && gesture.isGesture && mapViewMode !== 'explore') {
+                                setMapViewMode('explore');
                             }
                         }}
                     >
@@ -700,10 +735,10 @@ export default function ActiveTrek() {
                 </View>
             )}
 
-            {!isFollowingUser && location && (
+            {mapViewMode === 'explore' && location && (
                 <TouchableOpacity 
                     style={styles.recenterBtn} 
-                    onPress={() => setIsFollowingUser(true)}
+                    onPress={() => setMapViewMode(isNavMode ? 'navigation' : 'top-down')}
                 >
                     <Ionicons name="locate" size={24} color="#007bff" />
                 </TouchableOpacity>
@@ -751,13 +786,17 @@ export default function ActiveTrek() {
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                            style={[styles.mapIconButton, isNavMode && styles.mapIconButtonActive]}
-                            onPress={() => setIsNavMode(!isNavMode)}
+                            style={[styles.mapIconButton, mapViewMode === 'navigation' && styles.mapIconButtonActive]}
+                            onPress={() => {
+                                const newMode = mapViewMode === 'navigation' ? 'top-down' : 'navigation';
+                                setMapViewMode(newMode);
+                                setIsNavMode(newMode === 'navigation'); // Sync legacy state if needed elsewhere
+                            }}
                         >
                             <Ionicons
-                                name={isNavMode ? "compass" : "compass-outline"}
+                                name={mapViewMode === 'navigation' ? "compass" : "compass-outline"}
                                 size={28}
-                                color={isNavMode ? "white" : "#28a745"}
+                                color={mapViewMode === 'navigation' ? "white" : "#28a745"}
                             />
                         </TouchableOpacity>
                     </View>
