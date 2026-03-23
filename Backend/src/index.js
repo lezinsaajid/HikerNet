@@ -47,7 +47,7 @@ app.use("/api/chat", chatRoutes);
 // Coverage endpoint for manual testing
 if (process.env.COLLECT_COVERAGE === 'true') {
     app.get("/api/coverage", (req, res) => {
-        res.json(global.__coverage__ || { message: "No coverage data found. Ensure the server was started with nyc." });
+        res.json({ message: "Coverage is now handled automatically by c8. Please stop the server (Ctrl+C) to save the report to coverage/manual/." });
     });
 }
 

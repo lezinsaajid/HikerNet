@@ -1,7 +1,10 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useNotifications } from "../../context/NotificationContext";
 
 export default function TabLayout() {
+    const { unreadCount } = useNotifications();
+
     return (
         <Tabs screenOptions={{
             tabBarActiveTintColor: "#28a745",

@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
 
 import NotificationManager from '../components/NotificationManager';
+import { NotificationProvider } from '../context/NotificationContext';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -62,23 +63,25 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <NotificationManager />
-        <View style={{ flex: 1 }}>
-          <Stack screenOptions={{ headerShown: false }} />
+        <NotificationProvider>
+          <NotificationManager />
+          <View style={{ flex: 1 }}>
+            <Stack screenOptions={{ headerShown: false }} />
 
-          {splashVisible && (
-            <Animated.View style={[styles.splashContainer, { opacity: fadeAnim }]}>
-              {/* Minimalist Logo Splash */}
-              <Animated.View style={{ transform: [{ scale: scaleAnim }], width: '100%', alignItems: 'center' }}>
-                <Image
-                  source={require('../assets/images/logo_hikernet.png')}
-                  style={styles.logoImage}
-                  resizeMode="contain"
-                />
+            {splashVisible && (
+              <Animated.View style={[styles.splashContainer, { opacity: fadeAnim }]}>
+                {/* Minimalist Logo Splash */}
+                <Animated.View style={{ transform: [{ scale: scaleAnim }], width: '100%', alignItems: 'center' }}>
+                  <Image
+                    source={require('../assets/images/logo_hikernet.png')}
+                    style={styles.logoImage}
+                    resizeMode="contain"
+                  />
+                </Animated.View>
               </Animated.View>
-            </Animated.View>
-          )}
-        </View>
+            )}
+          </View>
+        </NotificationProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import client from '../../api/client';
 import PostItem from '../../components/PostItem';
 import { useAuth } from '../../context/AuthContext';
@@ -14,10 +14,15 @@ import TopTrekkers from '../../components/TopTrekkers';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WeatherWidget from '../../components/WeatherWidget';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useNotifications } from '../../context/NotificationContext';
 
 export default function HomeFeed() {
     const insets = useSafeAreaInsets();
     const { user } = useAuth();
+    const router = useRouter();
+    const { unreadCount } = useNotifications();
     const [posts, setPosts] = useState([]);
     const [processedData, setProcessedData] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -89,6 +94,17 @@ export default function HomeFeed() {
             <Text style={styles.logoText}>HikerNet</Text>
             <View style={styles.headerIcons}>
                 <WeatherWidget compact={true} />
+                <TouchableOpacity 
+                    style={styles.notificationButton} 
+                    onPress={() => router.push('/notifications')}
+                >
+                    <Ionicons name="notifications-outline" size={26} color="#333" />
+                    {unreadCount > 0 && (
+                        <View style={styles.badge}>
+                            <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                        </View>
+                    )}
+                </TouchableOpacity>
             </View>
         </View>
     );
@@ -177,6 +193,30 @@ const styles = StyleSheet.create({
     },
     headerIcons: {
         flexDirection: 'row',
+        alignItems: 'center',
+    },
+    notificationButton: {
+        marginLeft: 15,
+        position: 'relative',
+    },
+    badge: {
+        position: 'absolute',
+        top: -5,
+        right: -5,
+        backgroundColor: '#ff3b30',
+        borderRadius: 10,
+        minWidth: 18,
+        height: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 4,
+        borderWidth: 2,
+        borderColor: '#fff',
+    },
+    badgeText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: 'bold',
     },
     iconButton: {
         marginLeft: 15,

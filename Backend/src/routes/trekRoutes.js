@@ -74,6 +74,7 @@ router.get("/feed/public", async (req, res) => {
         const treks = await Trek.find({
             "stats.distance": { $gt: 10 } // Only legit trails (at least 10m walk)
         })
+            .select("-path -waypoints")
             .sort({ createdAt: -1 })
             .populate("user", "username profileImage")
             .limit(20);
@@ -90,7 +91,7 @@ router.get("/user/:userId", async (req, res) => {
         const treks = await Trek.find({
             user: req.params.userId,
             // Removed distance filter to show all "added" trails in profile
-        }).sort({ createdAt: -1 });
+        }).select("-path -waypoints").sort({ createdAt: -1 });
         res.json(treks);
     } catch (error) {
         console.error("Error fetching user treks:", error);
@@ -130,20 +131,42 @@ router.get("/nearby", async (req, res) => {
         const maxDist = parseFloat(radius);
 
         // Fetch all public treks with coordinates
-        // Optimization: In real app, use MongoDB $near or 2dsphere index.
+        // Optimization: Fetching only the first part of the path for distance checking
+        // But since we can't easily slice nested 2D arrays in find() and still be efficient, 
+        // we'll fetch just enough to get the start point.
         const allTreks = await Trek.find({
             "path.coordinates": { $exists: true, $not: { $size: 0 } }
-        }).select("name location path stats user images description");
+        }).select("name location path.coordinates stats user images description createdAt status");
 
         const nearbyTreks = allTreks.filter(trek => {
             if (!trek.path || !trek.path.coordinates || trek.path.coordinates.length === 0) return false;
-            const startNode = { latitude: trek.path.coordinates[0][1], longitude: trek.path.coordinates[0][0] }; // GeoJSON is [lng, lat]
+            
+            // Handle both LineString and MultiLineString for start point
+            let startCoord;
+            if (Array.isArray(trek.path.coordinates[0][0])) {
+                // MultiLineString: coordinates[0] is an array of points
+                startCoord = trek.path.coordinates[0][0];
+            } else {
+                // LineString: coordinates[0] is a point [lng, lat]
+                startCoord = trek.path.coordinates[0];
+            }
+            
+            const startNode = { latitude: startCoord[1], longitude: startCoord[0] }; 
             const dist = getDistanceFromLatLonInKm(userLat, userLon, startNode.latitude, startNode.longitude);
             return dist <= maxDist;
         }).map(trek => {
-            const startNode = { latitude: trek.path.coordinates[0][1], longitude: trek.path.coordinates[0][0] };
-            const dist = getDistanceFromLatLonInKm(userLat, userLon, startNode.latitude, startNode.longitude);
-            return { ...trek.toObject(), distanceConfig: dist }; // Enrich with distance from user
+            const trekObj = trek.toObject();
+            delete trekObj.path; // STRIP the path before sending to client
+            
+            let startCoord;
+            if (Array.isArray(trek.path.coordinates[0][0])) {
+                startCoord = trek.path.coordinates[0][0];
+            } else {
+                startCoord = trek.path.coordinates[0];
+            }
+            
+            const dist = getDistanceFromLatLonInKm(userLat, userLon, startCoord[1], startCoord[0]);
+            return { ...trekObj, distanceConfig: dist }; // Enrich with distance from user
         }).sort((a, b) => a.distanceConfig - b.distanceConfig);
 
         res.json(nearbyTreks);
@@ -179,20 +202,27 @@ router.put("/update/:id", protectRoute, async (req, res) => {
             }).filter(p => p !== null);
 
             if (!trek.path || !trek.path.coordinates || trek.path.coordinates.length === 0) {
-                // Initialize path
-                // GeoJSON LineString requires at least 2 points.
-                // If we only have 1 point, duplicate it to satisfy validation [A, A]
+                // Initialize path as MultiLineString by default to support segments
                 if (newPoints.length === 1) {
-                    // MongoDB collapses identical adjacent points, so [A, A] becomes [A], which is invalid.
-                    // We must add a tiny offset to make them distinct.
                     const p1 = newPoints[0];
                     const p2 = [p1[0] + 0.000001, p1[1]];
-                    trek.path = { type: 'LineString', coordinates: [p1, p2] };
+                    trek.path = { type: 'MultiLineString', coordinates: [[p1, p2]] };
                 } else {
-                    trek.path = { type: 'LineString', coordinates: newPoints };
+                    trek.path = { type: 'MultiLineString', coordinates: [newPoints] };
                 }
             } else {
-                trek.path.coordinates.push(...newPoints);
+                if (trek.path.type === 'LineString') {
+                    // Convert old LineString to MultiLineString format on the fly
+                    trek.path = { type: 'MultiLineString', coordinates: [trek.path.coordinates] };
+                }
+
+                if (req.body.isNewSegment) {
+                    trek.path.coordinates.push(newPoints);
+                } else {
+                    // Append points to the last segment
+                    const lastSegmentIndex = trek.path.coordinates.length - 1;
+                    trek.path.coordinates[lastSegmentIndex].push(...newPoints);
+                }
             }
         }
 

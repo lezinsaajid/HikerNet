@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, TextInput, FlatList, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, TextInput, FlatList, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import NativeMap, { Polyline, Marker } from '../../components/NativeMap';
@@ -11,7 +13,7 @@ import { useAuth } from '../../context/AuthContext';
 import WeatherWidget from '../../components/WeatherWidget';
 import { useSmartLocation } from '../../hooks/useSmartLocation';
 import { useCompass } from '../../hooks/useCompass';
-import { getDistance, getPointToPathDistance, calculateHeading } from '../../utils/geoUtils';
+import { getDistance, getPointToPathDistance, calculateHeading, detectIntersectionLoop } from '../../utils/geoUtils';
 // icon map
 const MARKER_ICONS = [
     { name: 'water', icon: 'water', color: '#007bff', label: 'Water', tags: ['river', 'lake', 'drink', 'stream', 'wet'] },
@@ -36,7 +38,8 @@ export default function ActiveTrek() {
     const router = useRouter();
     const params = useLocalSearchParams();
     useKeepAwake(); // Prevent screen from sleeping while tracking
-    const { name, description, location: initialLocation, mode, trailId: paramTrailId, role = 'leader' } = params;
+    useKeepAwake(); // Prevent screen from sleeping while tracking
+    const { name, description, location: initialLocation, mode, trailId: paramTrailId, role = 'leader', uploadedTrailId } = params;
 
     const [location, setLocation] = useState(null);
     const [isTracking, setIsTracking] = useState(false);
@@ -45,6 +48,7 @@ export default function ActiveTrek() {
     const [isTrailingBack, setIsTrailingBack] = useState(false);
     const [hasStarted, setHasStarted] = useState(false);
     const [hasJoinedTrail, setHasJoinedTrail] = useState(false);
+    const [hasReachedMidpoint, setHasReachedMidpoint] = useState(false);
 
     const [stats, setStats] = useState({
         distance: 0,
@@ -54,10 +58,14 @@ export default function ActiveTrek() {
         maxAltitude: -Infinity
     });
     const [trailId, setTrailId] = useState(paramTrailId || null);
-    const [routeCoordinates, setRouteCoordinates] = useState([]);
-    const [targetRoute, setTargetRoute] = useState([]); // The reference trail being followed
-    const [currentTrekBackIndex, setCurrentTrekBackIndex] = useState(0);
+    const [pathSegments, setPathSegments] = useState([[]]); // Array of segments
+    const [targetRoute, setTargetRoute] = useState([]); 
+    const resumedFromPauseRef = useRef(false);
+    const [currentNavIndex, setCurrentNavIndex] = useState(0);
+    const [navDirection, setNavDirection] = useState('forward'); // 'forward' | 'backward'
+    const [isReusingTrail, setIsReusingTrail] = useState(!!uploadedTrailId);
     const [markers, setMarkers] = useState([]); // [{latitude, longitude, icon, type}]
+    const [baseWaypoints, setBaseWaypoints] = useState([]); // Read-only pins from reused trails
     const [distanceToTrail, setDistanceToTrail] = useState(0);
     const [offTrackWarning, setOffTrackWarning] = useState(false);
     const [navGuidance, setNavGuidance] = useState("Following Trail");
@@ -72,6 +80,9 @@ export default function ActiveTrek() {
     const [selectedIcon, setSelectedIcon] = useState(null);
     const [waypointDescription, setWaypointDescription] = useState('');
     const [iconSearchQuery, setIconSearchQuery] = useState('');
+    const [waypointImages, setWaypointImages] = useState([]); // Array of local URIs
+    const [selectedPinDetails, setSelectedPinDetails] = useState(null); // Used to render the Pin info modal
+    const [mapZoomLevel, setMapZoomLevel] = useState(18);
 
     // Timer Ref
     const timerRef = useRef(null);
@@ -80,10 +91,11 @@ export default function ActiveTrek() {
 
     const mapRef = useRef(null);
     const trailIdRef = useRef(trailId);
-    const routeRef = useRef([]);
+    const pathSegmentsRef = useRef([[]]);
     const lastLocationRef = useRef(null); // For EMA smoothing filter
     const hasAlertedOffTrack = useRef(false); // To prevent alert spam
     const hasAlertedCompletion = useRef(false); // To prevent completion alert spam
+    const lastStatsPointRef = useRef(null);     // For distance/stats tracking
 
     const {
         location: validatedLocation,
@@ -93,7 +105,7 @@ export default function ActiveTrek() {
         error: locationError
     } = useSmartLocation(isTracking || isTrailingBack || (!hasStarted && role === 'leader'));
 
-    const userHeading = useCompass(isNavMode || isTrailingBack);
+    const userHeading = useCompass(!trailFinished); // Ensure compass runs anytime you're tracking or preparing to track
 
     // React to smart location updates
     useEffect(() => {
@@ -106,82 +118,113 @@ export default function ActiveTrek() {
         
         let displayLoc = currentLoc;
 
-        // Logic for Navigation (Trailing Back or Following Uploaded Trail)
-        const activeTarget = isTrailingBack ? [...routeCoordinates].reverse() : targetRoute;
+        // Logic for Navigation (Unified Engine)
+        const flatRoute = pathSegments.flat();
+        let navigationPolyline = [];
+        let navigationDirection = navDirection;
 
-        if (activeTarget.length > 2) {
-            // Advanced Drift Detection using point-to-segment algorithm
-            const { distance, snappedPoint, segmentIndex } = getPointToPathDistance(currentLoc, activeTarget);
+        if (isTrailingBack) {
+            navigationPolyline = [...flatRoute];
+            navigationDirection = 'backward';
+        } else if (isReusingTrail) {
+            navigationPolyline = targetRoute;
+        }
+
+        // 1. PRE-PROCESS NAVIGATION (DISTANCE & SNAPPING)
+        let distance = Infinity;
+        let snappedPoint = null;
+        let segmentIndex = -1;
+
+        if (navigationPolyline.length >= 2) {
+            // GLOBAL SEARCH if not joined, WINDOWED SEARCH if already tracking progress
+            const searchIndex = hasJoinedTrail ? currentNavIndex : -1;
+            const searchWindow = hasJoinedTrail ? 30 : -1;
+
+            const result = getPointToPathDistance(
+                currentLoc, 
+                navigationPolyline,
+                searchIndex,
+                searchWindow
+            );
+            distance = result.distance;
+            snappedPoint = result.snappedPoint;
+            segmentIndex = result.segmentIndex;
             setDistanceToTrail(Math.round(distance));
 
+            // Map user index progress
+            if (segmentIndex >= 0) {
+                setCurrentNavIndex(segmentIndex);
+                
+                // MIDPOINT GUARD: Mark if user reached 50% progress
+                if (navigationDirection === 'forward' && segmentIndex > navigationPolyline.length * 0.5) {
+                    setHasReachedMidpoint(true);
+                } else if (navigationDirection === 'backward' && segmentIndex < navigationPolyline.length * 0.5) {
+                    setHasReachedMidpoint(true);
+                }
+            }
+
             // Trail Snapping Logic - Visually pull user closer to trail if following it
-            if (hasJoinedTrail && !offTrackWarning && distance > 1 && distance < 10) {
-                // Snap 50% towards the nearest point on the path
+            if (hasJoinedTrail && !offTrackWarning && distance > 2 && distance < 12) {
                 displayLoc = {
                     latitude: currentLoc.latitude + (snappedPoint.latitude - currentLoc.latitude) * 0.5,
                     longitude: currentLoc.longitude + (snappedPoint.longitude - currentLoc.longitude) * 0.5
                 };
             }
+        }
 
-            // TREK BACK COMPLETION LOGIC
-            if (isTrailingBack && !hasAlertedCompletion.current) {
-                const originalStartPoint = activeTarget[activeTarget.length - 1]; // Last point of reversed route = original start
-                if (originalStartPoint) {
-                    const distanceToStart = getDistance(currentLoc.latitude, currentLoc.longitude, originalStartPoint.latitude, originalStartPoint.longitude);
-                    if (distanceToStart <= 10) {
-                        hasAlertedCompletion.current = true;
-                        Alert.alert("Trek Completed", "You have reached the starting point of the trail.");
-                        setIsTrailingBack(false);
-                        setReroutePath([]);
-                        return; // Stop further nav processing
-                    }
+        // 2. UPDATE MAP STATE (ALWAYS RUNS)
+        setLocation(displayLoc);
+
+        if (mapRef.current && isFollowingUser) {
+            mapRef.current.animateCamera({
+                center: displayLoc,
+                heading: isNavMode ? userHeading : undefined,
+                altitude: 500, // Standard street level for hiking
+                zoom: 18
+            }, { duration: 1000 });
+        }
+
+        // 3. NAVIGATION LOGIC (ALERTS & GUIDANCE)
+        if (navigationPolyline.length >= 2) {
+            // JOINING LOGIC: If not joined, check if we just hit the 10m proximity
+            if (!hasJoinedTrail && (isReusingTrail || isTrailingBack)) {
+                if (distance <= 10) {
+                    setHasJoinedTrail(true);
+                    setNavGuidance("You are now on the trail.");
+                    setReroutePath([]);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                } else {
+                    setNavGuidance("Move to the nearest point on the trail to begin trekking.");
+                    setReroutePath([currentLoc, snappedPoint]);
+                    const bearing = calculateHeading(currentLoc, snappedPoint);
+                    setTargetBearing(bearing);
+                    return; // Don't proceed to progress logic until joined
                 }
             }
 
-            if (!hasJoinedTrail) {
-                // TRAIL JOINING LOGIC
-                if (distance > 10) {
+            // DRIFT DETECTION / OFF-TRACK WARNING
+            if (hasJoinedTrail) {
+                if (distance > 15) {
+                    if (!offTrackWarning) {
+                        setOffTrackWarning(true);
+                        setNavGuidance(`Off trail! Head back to the path.`);
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                    }
                     setReroutePath([currentLoc, snappedPoint]);
-                    setNavGuidance("Head to nearest trail point");
+                    const bearing = calculateHeading(currentLoc, snappedPoint);
+                    setTargetBearing(bearing);
+                } else if (offTrackWarning && distance <= 10) {
                     setOffTrackWarning(false);
-                } else {
-                    setHasJoinedTrail(true);
+                    setNavGuidance("Back on track.");
                     setReroutePath([]);
-                    setNavGuidance("On Track");
-                    Alert.alert("Trail Joined", "You are now on the trail.");
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }
-            } else {
-                // TRAIL FOLLOWING MODE & OFF-TRAIL RECOVERY
-                if (offTrackWarning) {
-                    // We are currently off track, require getting within 5 meters to recover
-                    if (distance <= 5) {
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        setOffTrackWarning(false);
-                        setReroutePath([]);
-                        setNavGuidance("On Track");
-                    } else {
-                        // Still off track, keep rerouting to nearest point
-                        setReroutePath([currentLoc, snappedPoint]);
-                        setNavGuidance("Return to Path");
-                    }
-                } else {
-                    // We are on track, trigger warning if drifting > 10m
-                    if (distance > 10) {
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                        setOffTrackWarning(true);
-                        setReroutePath([currentLoc, snappedPoint]);
-                        setNavGuidance("Return to Path");
-                    } else {
-                        setReroutePath([]);
-                        setNavGuidance("On Track");
-                    }
-                }
-            }
 
-            // Calculate bearing to next point in trail
-            if (segmentIndex >= 0) {
-                const targetPoint = activeTarget[segmentIndex + 1] || activeTarget[segmentIndex];
+                // TARGET BEARING & NAVIGATION GUIDANCE
+                let targetIdx = navigationDirection === 'forward' ? segmentIndex + 1 : segmentIndex - 1;
+                targetIdx = Math.max(0, Math.min(navigationPolyline.length - 1, targetIdx));
+                
+                const targetPoint = navigationPolyline[targetIdx];
                 if (targetPoint) {
                     const bearing = calculateHeading(currentLoc, targetPoint);
                     setTargetBearing(bearing);
@@ -196,55 +239,24 @@ export default function ActiveTrek() {
 
         setLocation(displayLoc);
 
-        // Animate Camera
-        if (mapRef.current && mapViewMode !== 'explore') {
-            const cameraUpdate = {
-                center: {
-                    latitude: displayLoc.latitude,
-                    longitude: displayLoc.longitude,
-                },
-                zoom: 16,
-            };
-
-            if (mapViewMode === 'navigation') {
-                cameraUpdate.pitch = 60;
-                cameraUpdate.heading = userHeading || 0;
-            } else if (mapViewMode === 'top-down') {
-                cameraUpdate.pitch = 0;
-                cameraUpdate.heading = 0;
-            }
-
-            mapRef.current.animateCamera(cameraUpdate, { duration: 500 });
-        }
-    }, [smoothedLocation, mapViewMode, isTrailingBack, routeCoordinates, targetRoute, userHeading, hasJoinedTrail, offTrackWarning, trailFinished]);
-
-    // Loop Detection Helper
-    const detectAndRemoveLoop = (currentTrail, newLocation) => {
-        const LOOP_DISTANCE_THRESHOLD_METERS = 10;
-        const MIN_INDEX_GAP = 20;
-
-        if (currentTrail.length < MIN_INDEX_GAP) {
-            return [...currentTrail, newLocation];
-        }
-
-        for (let i = currentTrail.length - MIN_INDEX_GAP; i >= 0; i--) {
-            const pastPoint = currentTrail[i];
-            const distance = getDistance(pastPoint.latitude, pastPoint.longitude, newLocation.latitude, newLocation.longitude);
-
-            if (distance <= LOOP_DISTANCE_THRESHOLD_METERS) {
-                // Loop detected! Slice and remove.
-                const optimizedTrail = currentTrail.slice(0, i + 1);
-                optimizedTrail.push(newLocation);
-                console.log(`[ActiveTrek] Loop Removed: Start Index ${i}, End Index ${currentTrail.length - 1}`);
-                return optimizedTrail; 
+        // Animate Camera (Moved tracking logic after displayLoc calculation so we frame the snapped point)
+        if (mapRef.current && isFollowingUser) {
+            mapRef.current.animateToRegion({
+                latitude: displayLoc.latitude,
+                longitude: displayLoc.longitude,
+                latitudeDelta: 0.001,
+                longitudeDelta: 0.001,
+            }, 500);
+            
+            if (isNavMode) {
+                mapRef.current.animateCamera({ heading: userHeading }, { duration: 500 });
             }
         }
-        return [...currentTrail, newLocation];
-    };
+    }, [smoothedLocation, isFollowingUser, isTrailingBack, routeCoordinates, targetRoute, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished]);
 
-    // React to validated location updates for RECORDING
+    // React to validated location updates for RECORDING & STATS
     useEffect(() => {
-        if (!isTracking || !validatedLocation || trailFinished || isPaused || role !== 'leader' || isTrailingBack) return;
+        if (!isTracking || !validatedLocation || trailFinished || isPaused || role !== 'leader') return;
 
         const { latitude, longitude, altitude } = validatedLocation;
         const newPoint = { latitude, longitude };
@@ -258,30 +270,83 @@ export default function ActiveTrek() {
 
         // Threshold 3m already enforced by hook, but we double check here if needed
         setRouteCoordinates(prev => {
-            const updated = detectAndRemoveLoop(prev, newPoint);
+            const updated = [...prev, newPoint];
             routeRef.current = updated;
             return updated;
         });
 
         setStats(prev => {
-            const newDistance = prev.distance + dist;
-            const updatedStats = {
+            const newDistance = prev.distance + stepDistKm;
+            return {
                 ...prev,
                 distance: newDistance,
-                maxAltitude: (prev.maxAltitude === -Infinity) ? altitude : Math.max(prev.maxAltitude, altitude),
-                avgSpeed: prev.duration > 0 ? parseFloat(((newDistance / 1000) / (prev.duration / 3600)).toFixed(1)) : 0
+                elevationGain: (lastPoint && currentAltitude > lastPoint.altitude) 
+                    ? prev.elevationGain + (currentAltitude - lastPoint.altitude) 
+                    : prev.elevationGain,
+                maxAltitude: (prev.maxAltitude === -Infinity) ? currentAltitude : Math.max(prev.maxAltitude, currentAltitude),
+                avgSpeed: prev.duration > 0 ? parseFloat(((newDistance) / (prev.duration / 3600)).toFixed(1)) : 0
             };
+        });
+        
+        lastStatsPointRef.current = { latitude, longitude, altitude: currentAltitude };
 
-            if (trailIdRef.current) {
-                client.put(`/treks/update/${trailIdRef.current}`, {
-                    coordinates: [{ latitude, longitude, altitude }],
-                    stats: updatedStats
-                }).catch(console.error);
+        // 2. RECORD PATH (Only if not reusing/trailing)
+        if (isTrailingBack || isReusingTrail) return;
+
+        const segments = pathSegmentsRef.current;
+        const lastSeg = segments[segments.length - 1];
+        let isNewSegment = false;
+
+        if (lastSeg && lastSeg.length > 0) {
+            const lastPathPoint = lastSeg[lastSeg.length - 1];
+            const distToLast = getDistance(latitude, longitude, lastPathPoint.latitude, lastPathPoint.longitude);
+            
+            if (resumedFromPauseRef.current) {
+                if (distToLast > 20) {
+                    Alert.alert("Resumed Tracking", `You are ${Math.round(distToLast)}m away from the previous trail point. Starting a new trail segment.`);
+                    isNewSegment = true;
+                }
+                resumedFromPauseRef.current = false;
             }
-            return updatedStats;
+        } else if (segments.length === 0 || (segments.length === 1 && segments[0].length === 0)) {
+             isNewSegment = true; // First ever point
+        }
+
+        setPathSegments(prev => {
+            let updated = [...prev];
+            let targetSegmentIndex = updated.length - 1;
+
+            if (isNewSegment && updated.length > 0 && updated[updated.length - 1].length > 0) {
+                updated.push([newPoint]);
+                targetSegmentIndex++;
+            } else {
+                if(updated.length === 0) {
+                    updated.push([]);
+                    targetSegmentIndex = 0;
+                }
+                
+                const currentSegment = [...updated[targetSegmentIndex]];
+                
+                // Advanced Loop Detection
+                const loopData = detectIntersectionLoop(newPoint, currentSegment, currentSegment.length);
+                if (loopData && loopData.isLoop) {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    Alert.alert(
+                        "⚠️ Loop Detected",
+                        "Redundant path segment safely removed to maintain trail integrity.",
+                        [{ text: "OK" }]
+                    );
+                    currentSegment.splice(loopData.loopStartIndex + 1); // Erase loop points
+                }
+
+                currentSegment.push(newPoint);
+                updated[targetSegmentIndex] = currentSegment;
+            }
+            pathSegmentsRef.current = updated;
+            return updated;
         });
 
-    }, [validatedLocation, trailFinished, isPaused, role, isTrailingBack]);
+    }, [isTracking, validatedLocation, isPaused, trailFinished, role, isTrailingBack, isReusingTrail]);
 
     useEffect(() => {
         (async () => {
@@ -301,14 +366,21 @@ export default function ActiveTrek() {
                     const data = res.data;
 
                     if (data.path && data.path.coordinates) {
-                        // GeoJSON is [lng, lat], our state is [{latitude, longitude}]
-                        const mappedRoute = data.path.coordinates.map(p => ({
-                            latitude: p[1],
-                            longitude: p[0]
-                        }));
-                        setRouteCoordinates(mappedRoute);
-                        setTargetRoute(mappedRoute);
-                        routeRef.current = mappedRoute;
+                        let mappedSegments = [];
+                        if (data.path.type === 'MultiLineString') {
+                            mappedSegments = data.path.coordinates.map(segment => 
+                                segment.map(p => ({ latitude: p[1], longitude: p[0] }))
+                            );
+                        } else {
+                            // Legacy LineString
+                            mappedSegments = [data.path.coordinates.map(p => ({
+                                latitude: p[1],
+                                longitude: p[0]
+                            }))];
+                        }
+                        setPathSegments(mappedSegments);
+                        setTargetRoute(mappedSegments.flat());
+                        pathSegmentsRef.current = mappedSegments;
                     }
 
                     if (data.waypoints) setMarkers(data.waypoints);
@@ -364,11 +436,19 @@ export default function ActiveTrek() {
 
                     // Path synchronization for members
                     if (data.path && data.path.coordinates) {
-                        const mappedRoute = data.path.coordinates.map(p => ({
-                            latitude: p[1],
-                            longitude: p[0]
-                        }));
-                        setRouteCoordinates(mappedRoute);
+                        let mappedSegments = [];
+                        if (data.path.type === 'MultiLineString') {
+                            mappedSegments = data.path.coordinates.map(segment => 
+                                segment.map(p => ({ latitude: p[1], longitude: p[0] }))
+                            );
+                        } else {
+                            mappedSegments = [data.path.coordinates.map(p => ({
+                                latitude: p[1],
+                                longitude: p[0]
+                            }))];
+                        }
+                        setPathSegments(mappedSegments);
+                        pathSegmentsRef.current = mappedSegments;
                     }
 
                     // Sync Waypoints/Markers
@@ -393,8 +473,56 @@ export default function ActiveTrek() {
     }, [trailId]);
 
     useEffect(() => {
-        routeRef.current = routeCoordinates;
-    }, [routeCoordinates]);
+        pathSegmentsRef.current = pathSegments;
+    }, [pathSegments]);
+
+    // Fetch Uploaded (Reusable) Trail Details
+    useEffect(() => {
+        if (!uploadedTrailId) return;
+
+        const loadUploadedTrail = async () => {
+            try {
+                const res = await client.get(`/treks/${uploadedTrailId}`);
+                if (res.data) {
+                    const data = res.data;
+                    
+                    // Mount existing polylines
+                    if (data.path && data.path.coordinates) {
+                        let mappedRoute = [];
+                        if (data.path.type === 'MultiLineString') {
+                            mappedRoute = data.path.coordinates.map(segment => 
+                                segment.map(p => ({ latitude: p[1], longitude: p[0] }))
+                            ).flat();
+                        } else {
+                            mappedRoute = data.path.coordinates.map(p => ({
+                                latitude: p[1], longitude: p[0]
+                            }));
+                        }
+                        setTargetRoute(mappedRoute);
+                        
+                        // Frame the base trail location immediately
+                        if (mappedRoute.length > 0 && mapRef.current) {
+                            mapRef.current.animateCamera({
+                                center: mappedRoute[0],
+                                altitude: 2000,
+                                zoom: 16
+                            }, { duration: 1500 });
+                        }
+                    }
+
+                    // Mount existing read-only waypoints
+                    if (data.waypoints && data.waypoints.length > 0) {
+                        setBaseWaypoints(data.waypoints);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load base trail", err);
+                Alert.alert("Base Trail Error", "Could not load the original trail data.");
+            }
+        };
+
+        loadUploadedTrail();
+    }, [uploadedTrailId]);
 
     // Helper to calculate distance
 
@@ -413,6 +541,15 @@ export default function ActiveTrek() {
             setTrailFinished(false);
             setHasStarted(true);
             pausedRef.current = false;
+            
+            // RESET NAVIGATION ENGINE
+            hasAlertedCompletion.current = false;
+            setCurrentNavIndex(0);
+            setNavDirection('forward');
+            setHasJoinedTrail(false);
+            setHasReachedMidpoint(false);
+            setOffTrackWarning(false);
+            setNavGuidance("Initializing...");
 
             // Start timer
             timerRef.current = setInterval(() => {
@@ -436,22 +573,11 @@ export default function ActiveTrek() {
 
                 // AUTOMATIC START POINT - Using high accuracy validated location
                 const startPoint = validatedLocation || location;
-                if (startPoint) {
-                    try {
-                        await client.put(`/treks/update/${newId}`, {
-                            waypoints: [{
-                                latitude: startPoint.latitude,
-                                longitude: startPoint.longitude,
-                                title: "Start Point",
-                                description: "Trek started here",
-                                icon: "play-circle"
-                            }]
-                        });
-                        console.log("[ActiveTrek] Automatic Start point marked using accurate location");
-                    } catch (e) {
-                        console.error("Failed to mark start point", e);
-                    }
+                if (!uploadedTrailId) {
+                    setHasJoinedTrail(true); // New trail creation = always on trail
                 }
+                // Note: We no longer save a redundant "Start Point" waypoint here
+                // as the UI automatically renders a beautiful marker at pathSegments[0][0].
             }
 
             // await startLocationTracking(); // Handled by hook
@@ -472,23 +598,25 @@ export default function ActiveTrek() {
                 onPress: async () => {
                     setTrailFinished(true); // Switch UI
                     setIsTracking(false);
+                    setIsFollowingUser(false); // Stop aggressive zoom
                     if (timerRef.current) clearInterval(timerRef.current);
+
+                    // Re-frame camera to show full trail encompassing Start & End
+                    if (mapRef.current && pathSegmentsRef.current.length > 0) {
+                        const allCoords = pathSegmentsRef.current.flat();
+                        if (allCoords.length > 0) {
+                            // Using bottom 400 padding to account for the large 'Destination Reached' overlay
+                            mapRef.current.fitToCoordinates(allCoords, {
+                                edgePadding: { top: 100, right: 50, bottom: 400, left: 50 },
+                                animated: true,
+                            });
+                        }
+                    }
 
                     if (trailId) {
                         try {
-                            // AUTOMATIC END POINT
-                            if (location) {
-                                await client.put(`/treks/update/${trailId}`, {
-                                    waypoints: [{
-                                        latitude: location.latitude,
-                                        longitude: location.longitude,
-                                        title: "End Point",
-                                        description: "Trek finished here",
-                                        icon: "flag"
-                                    }]
-                                });
-                                console.log("[ActiveTrek] Automatic End point marked");
-                            }
+                    // AUTOMATIC END POINT handled visually via endPoint marker
+                    // We no longer push a redundant "End Point" to waypoints DB
 
                             await client.put(`/treks/update/${trailId}`, { status: 'completed' });
 
@@ -546,6 +674,10 @@ export default function ActiveTrek() {
         const newPausedState = !isPaused;
         setIsPaused(newPausedState);
         pausedRef.current = newPausedState;
+        if (!newPausedState) {
+            // Unpausing
+            resumedFromPauseRef.current = true;
+        }
     };
 
     const toggleMapType = () => {
@@ -559,6 +691,71 @@ export default function ActiveTrek() {
         setIconSearchQuery(''); // Reset search when icon selected
     };
 
+    const compressImage = async (uri) => {
+        try {
+            const manipResult = await ImageManipulator.manipulateAsync(
+                uri,
+                [{ resize: { width: 1080 } }],
+                { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+            );
+            return manipResult.uri;
+        } catch (error) {
+            console.error("Compression error:", error);
+            return uri; // Fallback to original
+        }
+    };
+
+    const handlePickImage = async () => {
+        if (waypointImages.length >= 10) {
+            Alert.alert("Limit Reached", "You can attach a maximum of 10 photos per waypoint.");
+            return;
+        }
+
+        let result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 1, // Using 1, compression is handled by ImageManipulator
+        });
+
+        if (!result.canceled) {
+            const compressedUri = await compressImage(result.assets[0].uri);
+            setWaypointImages(prev => [...prev, compressedUri]);
+        }
+    };
+
+    const handleTakePhoto = async () => {
+        if (waypointImages.length >= 10) {
+            Alert.alert("Limit Reached", "You can attach a maximum of 10 photos per waypoint.");
+            return;
+        }
+
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission needed', 'Camera permission is required to take photos. Enable it in settings.');
+            return;
+        }
+
+        let result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 1,
+        });
+
+        if (!result.canceled) {
+            const compressedUri = await compressImage(result.assets[0].uri);
+            setWaypointImages(prev => [...prev, compressedUri]);
+        }
+    };
+
+    // Helper to determine polyline thickness dynamically
+    const getPolylineWidth = (zoom) => {
+        if (zoom >= 18) return 8;
+        if (zoom >= 16) return 6;
+        if (zoom >= 14) return 4;
+        return 3;
+    };
+
     const addMarker = async () => {
         if (!location || !selectedIcon) return;
 
@@ -568,6 +765,7 @@ export default function ActiveTrek() {
             icon: selectedIcon.name,
             type: selectedIcon.label,
             description: waypointDescription.trim(),
+            images: waypointImages,
             timestamp: new Date()
         };
 
@@ -576,6 +774,7 @@ export default function ActiveTrek() {
         setSelectedIcon(null);
         setWaypointDescription('');
         setIconSearchQuery('');
+        setWaypointImages([]);
 
         // Save to backend
         if (trailId) {
@@ -595,24 +794,45 @@ export default function ActiveTrek() {
         return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
     };
 
-    // Calculate faded and visible paths for trek-back
+    // Calculate faded and visible paths (Unified Progress Engine)
     const { visibleRoute, fadedRoute } = useMemo(() => {
-        if (!isTrailingBack || routeCoordinates.length === 0) {
-            return { visibleRoute: routeCoordinates, fadedRoute: [] };
+        let sourcePolyline = [];
+        if (isTrailingBack) {
+            sourcePolyline = pathSegments.flat();
+        } else if (isReusingTrail) {
+            sourcePolyline = targetRoute;
+        }
+
+        if (sourcePolyline.length === 0) {
+            return { visibleRoute: [], fadedRoute: [] };
         }
         
-        const reversedRoute = [...routeCoordinates].reverse();
-        // The user starts at index 0 of reversedRoute and moves forward
-        const safeIndex = Math.max(0, Math.min(currentTrekBackIndex, reversedRoute.length - 1));
+        const safeIndex = Math.max(0, Math.min(currentNavIndex, sourcePolyline.length - 1));
         
-        // fadedRoute is the path already traversed (from start of trek-back to current position)
-        const faded = reversedRoute.slice(0, safeIndex + 1);
-        
-        // visibleRoute is the path yet to be traversed (from current position to end)
-        const visible = reversedRoute.slice(safeIndex);
-        
-        return { visibleRoute: visible, fadedRoute: faded };
-    }, [isTrailingBack, routeCoordinates, currentTrekBackIndex]);
+        if (navDirection === 'forward') {
+            return {
+                fadedRoute: sourcePolyline.slice(0, safeIndex + 1),
+                visibleRoute: sourcePolyline.slice(safeIndex)
+            };
+        } else {
+            // Backward: Faded is from End down to current index
+            return {
+                fadedRoute: sourcePolyline.slice(safeIndex),
+                visibleRoute: sourcePolyline.slice(0, safeIndex + 1)
+            };
+        }
+    }, [isTrailingBack, isReusingTrail, pathSegments, targetRoute, currentNavIndex, navDirection]);
+
+    // Explicit markers for Start/End
+    const startPoint = isReusingTrail && targetRoute.length > 0 
+        ? targetRoute[0] 
+        : (pathSegments.length > 0 && pathSegments[0].length > 0 ? pathSegments[0][0] : null);
+
+    const endPoint = isReusingTrail && targetRoute.length > 0
+        ? targetRoute[targetRoute.length - 1]
+        : (trailFinished && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 
+            ? pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1] 
+            : null);
 
     return (
         <View style={styles.container}>
@@ -623,61 +843,100 @@ export default function ActiveTrek() {
                         initialRegion={{
                             latitude: location.latitude,
                             longitude: location.longitude,
-                            latitudeDelta: 0.001, // Tighter default zoom for trail navigation
+                            latitudeDelta: 0.001, // Reverted to standard zoom
                             longitudeDelta: 0.001,
                         }}
                         mapType={mapType}
                         heading={isNavMode ? userHeading : 0}
                         userHeading={userHeading}
-                        showsUserLocation={true}
+                        showsUserLocation={false} // Disable buggy OS native dot
                         followsUserLocation={false}
                         pitchEnabled={true}
                         scrollEnabled={true}
                         zoomEnabled={true}
-                        onPanDrag={() => {
-                            if (mapViewMode !== 'explore') {
-                                setMapViewMode('explore');
-                            }
-                        }}
+                        onPanDrag={() => setIsFollowingUser(false)}
                         onRegionChangeComplete={(region, gesture) => {
                             if (gesture && gesture.isGesture && mapViewMode !== 'explore') {
                                 setMapViewMode('explore');
                             }
                         }}
                     >
-                        {!isTrailingBack && routeCoordinates.length > 0 && (
-                            <Polyline
-                                coordinates={routeCoordinates}
-                                strokeWidth={6} // Thicker for visibility
-                                strokeColor="#fc4c02" // Strava Orange
-                                lineCap="round"
-                                lineJoin="round"
-                                geodesic={true}
-                                zIndex={100} // Force on top of tiles
-                            />
-                        )}
-                        {isTrailingBack && visibleRoute.length > 0 && (
+                        {!isReusingTrail && pathSegments.map((segment, idx) => (
+                            segment.length > 0 ? (
+                                <Polyline
+                                    key={`seg-${idx}`}
+                                    coordinates={segment}
+                                    strokeWidth={getPolylineWidth(mapZoomLevel)}
+                                    strokeColor="#fc4c02" // Strava Orange
+                                    lineCap="round"
+                                    lineJoin="round"
+                                    geodesic={true}
+                                    zIndex={100} // Force on top of tiles
+                                />
+                            ) : null
+                        ))}
+
+                        {/* Unified Navigation Polyline (Faded/Visible) */}
+                        {(isTrailingBack || isReusingTrail) && visibleRoute.length > 0 && (
                             <Polyline
                                 coordinates={visibleRoute}
-                                strokeWidth={6}
-                                strokeColor="#fc4c02"
+                                strokeWidth={getPolylineWidth(mapZoomLevel)}
+                                strokeColor={isReusingTrail ? "#007AFF" : "#fc4c02"} // Blue for reused, Orange for recorded
                                 lineCap="round"
                                 lineJoin="round"
                                 geodesic={true}
                                 zIndex={100}
                             />
                         )}
-                        {isTrailingBack && fadedRoute.length > 0 && (
+                        {(isTrailingBack || isReusingTrail) && fadedRoute.length > 0 && (
                             <Polyline
                                 coordinates={fadedRoute}
-                                strokeWidth={6}
-                                strokeColor="rgba(252, 76, 2, 0.3)" // Faded Strava Orange
+                                strokeWidth={getPolylineWidth(mapZoomLevel)}
+                                strokeColor={isReusingTrail ? "rgba(0, 122, 255, 0.3)" : "rgba(252, 76, 2, 0.3)"}
                                 lineCap="round"
                                 lineJoin="round"
                                 geodesic={true}
                                 zIndex={99}
                             />
                         )}
+                        
+                        {/* Hardware Compass User Marker */}
+                        {location && (
+                            <Marker
+                                coordinate={location}
+                                anchor={{ x: 0.5, y: 0.5 }}
+                                rotation={userHeading} // Some iOS devices respect this natively
+                                flat={true}
+                                zIndex={999}
+                            >
+                                <View style={[styles.userMarkerContainer, { transform: [{ rotate: `${userHeading || 0}deg` }] }]}>
+                                    <View style={styles.userMarkerDot} />
+                                    <Ionicons name="caret-up" size={24} color="#007bff" style={styles.userMarkerArrow} />
+                                </View>
+                            </Marker>
+                        )}
+                        
+                        {startPoint && (
+                            <Marker coordinate={startPoint} anchor={{x: 0.5, y: 1}}>
+                                <View style={{ alignItems: 'center' }}>
+                                    <View style={{ backgroundColor: '#28a745', padding: 4, borderRadius: 4, marginBottom: 2 }}>
+                                        <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>Start</Text>
+                                    </View>
+                                    <Ionicons name="location" size={30} color="#28a745" />
+                                </View>
+                            </Marker>
+                        )}
+                        {endPoint && (
+                            <Marker coordinate={endPoint} anchor={{x: 0.5, y: 1}}>
+                                <View style={{ alignItems: 'center' }}>
+                                    <View style={{ backgroundColor: '#dc3545', padding: 4, borderRadius: 4, marginBottom: 2 }}>
+                                        <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>End</Text>
+                                    </View>
+                                    <Ionicons name="location" size={30} color="#dc3545" />
+                                </View>
+                            </Marker>
+                        )}
+                        {/* Reroute Path */}
                         {
                             reroutePath.length > 0 && (
                                 <Polyline
@@ -689,14 +948,28 @@ export default function ActiveTrek() {
                                 />
                             )
                         }
+
+                        {/* Legacy targetRoute render removed - handled by unified engine above */}
+
+                        {/* Render Base Waypoints (Read Only) */}
                         {
-                            markers.map((m, i) => (
+                            baseWaypoints.filter(m => m.title !== "Start Point" && m.title !== "End Point").map((m, i) => (
+                                <Marker
+                                    key={`base-${i}`}
+                                    coordinate={{ latitude: m.latitude, longitude: m.longitude }}
+                                    pinColor="indigo" // Different color mapped for base pins
+                                    onPress={() => setSelectedPinDetails(m)}
+                                />
+                            ))
+                        }
+
+                        {
+                            markers.filter(m => m.title !== "Start Point" && m.title !== "End Point").map((m, i) => (
                                 <Marker
                                     key={i}
                                     coordinate={{ latitude: m.latitude, longitude: m.longitude }}
-                                    title={m.type}
-                                    description={m.description}
                                     pinColor={MARKER_ICONS.find(ic => ic.name === m.icon)?.color || 'red'}
+                                    onPress={() => setSelectedPinDetails({ ...m, isSessionNew: true })}
                                 />
                             ))
                         }
@@ -757,6 +1030,20 @@ export default function ActiveTrek() {
                     <View style={styles.navTextContainer}>
                         <Text style={styles.navDistance}>{distanceToTrail}m <Text style={styles.navUnit}>to {hasJoinedTrail ? 'trail' : 'nearest point'}</Text></Text>
                         <Text style={styles.navStatus}>{navGuidance}</Text>
+                        
+                        {!hasJoinedTrail && uploadedTrailId && (
+                            <TouchableOpacity 
+                                style={{ marginTop: 5, backgroundColor: 'rgba(255,255,255,0.2)', padding: 5, borderRadius: 5, alignSelf: 'flex-start' }}
+                                onPress={() => {
+                                    if (targetRoute.length > 0) {
+                                        setReroutePath([location, targetRoute[0]]);
+                                        setNavGuidance("Navigating to Trail Start Point");
+                                    }
+                                }}
+                            >
+                                <Text style={{ color: 'white', fontSize: 11, fontWeight: 'bold' }}>Navigate to Start Point instead?</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                     {isTrailingBack && (
                         <TouchableOpacity
@@ -771,7 +1058,7 @@ export default function ActiveTrek() {
 
             {/* Top Left Add Icon Button */}
             {
-                !trailFinished && role === 'leader' && (
+                isTracking && !trailFinished && role === 'leader' && (
                     <View style={styles.topButtonsContainer}>
                         <TouchableOpacity style={styles.mapIconButton} onPress={() => setShowMarkerModal(true)}>
                             <Ionicons name="add-circle" size={32} color="#28a745" />
@@ -899,6 +1186,7 @@ export default function ActiveTrek() {
                     setSelectedIcon(null);
                     setWaypointDescription('');
                     setIconSearchQuery('');
+                    setWaypointImages([]);
                 }}
             >
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -974,6 +1262,30 @@ export default function ActiveTrek() {
                                             autoFocus
                                             onSubmitEditing={Keyboard.dismiss}
                                         />
+                                        
+                                        <View style={styles.mediaButtonsRow}>
+                                            <TouchableOpacity style={styles.mediaBtn} onPress={handleTakePhoto}>
+                                                <Ionicons name="camera" size={20} color="white" />
+                                                <Text style={styles.mediaBtnText}>Camera</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity style={[styles.mediaBtn, { backgroundColor: '#007bff' }]} onPress={handlePickImage}>
+                                                <Ionicons name="images" size={20} color="white" />
+                                                <Text style={styles.mediaBtnText}>Gallery</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                        
+                                        {waypointImages.length > 0 && (
+                                            <FlatList
+                                                data={waypointImages}
+                                                horizontal
+                                                keyExtractor={(item, index) => index.toString()}
+                                                renderItem={({ item }) => (
+                                                    <Image source={{ uri: item }} style={styles.waypointThumbnail} />
+                                                )}
+                                                style={{ marginTop: 10, maxHeight: 80 }}
+                                            />
+                                        )}
+
                                         <TouchableOpacity
                                             style={[styles.actionButton, styles.exitBtn, { marginTop: 20 }]}
                                             onPress={addMarker}
@@ -996,12 +1308,67 @@ export default function ActiveTrek() {
                                         setSelectedIcon(null);
                                         setWaypointDescription('');
                                         setIconSearchQuery('');
+                                        setWaypointImages([]);
                                     }}
                                 >
                                     <Text style={styles.closeText}>Cancel</Text>
                                 </TouchableOpacity>
                             </View>
                         </KeyboardAvoidingView>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
+
+            {/* Pin Details View Modal */}
+            <Modal visible={!!selectedPinDetails} transparent animationType="slide">
+                <TouchableWithoutFeedback onPress={() => setSelectedPinDetails(null)}>
+                    <View style={styles.modalOverlay}>
+                        <TouchableWithoutFeedback>
+                            <View style={styles.modalContent}>
+                                {selectedPinDetails && (
+                                    <>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
+                                            <Ionicons name={selectedPinDetails.icon} size={28} color={MARKER_ICONS.find(ic => ic.name === selectedPinDetails.icon)?.color || '#333'} />
+                                            <Text style={[styles.modalTitle, { marginBottom: 0, marginLeft: 10 }]}>{selectedPinDetails.type}</Text>
+                                        </View>
+                                        
+                                        {selectedPinDetails.description ? (
+                                            <Text style={styles.pinDescText}>{selectedPinDetails.description}</Text>
+                                        ) : null}
+
+                                        <View style={styles.coordBox}>
+                                            <Ionicons name="location-outline" size={16} color="#666" />
+                                            <Text style={styles.coordText}>
+                                                {selectedPinDetails.latitude.toFixed(5)}, {selectedPinDetails.longitude.toFixed(5)}
+                                            </Text>
+                                        </View>
+
+                                        {selectedPinDetails.images && selectedPinDetails.images.length > 0 && (
+                                            <View>
+                                                <Text style={{ marginTop: 15, fontSize: 12, color: '#888', fontWeight: 'bold' }}>PHOTOS ({selectedPinDetails.images.length})</Text>
+                                                <FlatList
+                                                    data={selectedPinDetails.images}
+                                                    horizontal
+                                                    keyExtractor={(_, idx) => idx.toString()}
+                                                    renderItem={({ item }) => (
+                                                        <Image source={{ uri: item }} style={styles.pinDetailThumbnail} />
+                                                    )}
+                                                    showsHorizontalScrollIndicator={false}
+                                                    style={{ marginTop: 5, maxHeight: 120 }}
+                                                />
+                                            </View>
+                                        )}
+
+                                        <TouchableOpacity
+                                            style={[styles.closeModal, { marginTop: 20 }]}
+                                            onPress={() => setSelectedPinDetails(null)}
+                                        >
+                                            <Text style={styles.closeText}>Close</Text>
+                                        </TouchableOpacity>
+                                    </>
+                                )}
+                            </View>
+                        </TouchableWithoutFeedback>
                     </View>
                 </TouchableWithoutFeedback>
             </Modal>
@@ -1496,4 +1863,80 @@ const styles = StyleSheet.create({
         shadowRadius: 5,
         zIndex: 50,
     },
+    mediaButtonsRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 15,
+    },
+    mediaBtn: {
+        flexDirection: 'row',
+        backgroundColor: '#6c757d',
+        padding: 10,
+        borderRadius: 8,
+        alignItems: 'center',
+        flex: 0.48,
+        justifyContent: 'center'
+    },
+    mediaBtnText: {
+        color: 'white',
+        fontWeight: 'bold',
+        marginLeft: 8,
+    },
+    waypointThumbnail: {
+        width: 70,
+        height: 70,
+        borderRadius: 8,
+        marginRight: 10,
+    },
+    pinDetailThumbnail: {
+        width: 120,
+        height: 120,
+        borderRadius: 8,
+        marginRight: 10,
+    },
+    pinDescText: {
+        fontSize: 15,
+        color: '#444',
+        lineHeight: 22,
+        marginBottom: 10,
+    },
+    coordBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#e9ecef',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 5,
+        alignSelf: 'flex-start',
+    },
+    coordText: {
+        marginLeft: 5,
+        fontSize: 13,
+        color: '#555',
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    userMarkerContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 40,
+        height: 40,
+    },
+    userMarkerDot: {
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        backgroundColor: '#007bff',
+        borderWidth: 3,
+        borderColor: 'white',
+        position: 'absolute',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    userMarkerArrow: {
+        position: 'absolute',
+        top: -4,
+    }
 });

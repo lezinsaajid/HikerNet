@@ -7,12 +7,27 @@ const postSchema = new mongoose.Schema(
             ref: "User",
             required: true,
         },
+        type: {
+            type: String,
+            enum: ["text", "image", "video"],
+            default: "text",
+        },
+        content: {
+            type: String, // Unified text field (tweet-style)
+            trim: true,
+        },
+        mediaUrl: {
+            type: String, // Unified media field (Cloudinary URL)
+        },
         caption: {
             type: String,
             trim: true,
         },
         image: {
-            type: String, // URL for the post image
+            type: String, // Cloudinary URL (legacy)
+        },
+        video: {
+            type: String, // Cloudinary URL for video (legacy)
         },
         trek: {
             type: mongoose.Schema.Types.ObjectId,
@@ -39,6 +54,12 @@ const postSchema = new mongoose.Schema(
                     type: Date,
                     default: Date.now,
                 },
+            },
+        ],
+        taggedUsers: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "User",
             },
         ],
     },

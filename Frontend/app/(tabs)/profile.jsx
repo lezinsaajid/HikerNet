@@ -10,6 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInUp, Layout } from 'react-native-reanimated';
 import UserListModal from '../../components/UserListModal';
 import SafeScreen from '../../components/SafeScreen';
+import PostGridItem from '../../components/PostGridItem';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
@@ -35,6 +36,7 @@ export default function Profile() {
     const [posts, setPosts] = useState([]);
     const [userStories, setUserStories] = useState([]);
     const [userAdventures, setUserAdventures] = useState([]);
+    const [taggedPosts, setTaggedPosts] = useState([]);
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('posts'); // 'posts', 'trails', 'tagged'
@@ -51,7 +53,35 @@ export default function Profile() {
     const [isPostModalVisible, setIsPostModalVisible] = useState(false);
     const [newPostCaption, setNewPostCaption] = useState('');
     const [newPostImage, setNewPostImage] = useState(null);
+    const [newPostVideo, setNewPostVideo] = useState(null);
     const [creatingPost, setCreatingPost] = useState(false);
+    const [tagInput, setTagInput] = useState('');
+    const [tags, setTags] = useState([]);
+    const [tagCandidates, setTagCandidates] = useState([]);
+
+    useEffect(() => {
+        if (isPostModalVisible && user?._id) {
+            client.get(`/users/following/${user._id}`)
+                .then(res => setTagCandidates(res.data || []))
+                .catch(err => console.error(err));
+        }
+    }, [isPostModalVisible]);
+
+    const filteredCandidates = tagInput.trim() 
+        ? tagCandidates.filter(u => u.username.toLowerCase().includes(tagInput.replace(/^@/, '').toLowerCase()) && !tags.includes(u.username))
+        : [];
+
+    const handleAddTag = () => {
+        const cleanTag = tagInput.trim().replace(/^@/, '');
+        if (cleanTag && !tags.includes(cleanTag)) {
+            setTags([...tags, cleanTag]);
+            setTagInput('');
+        }
+    };
+
+    const removeTag = (tagToRemove) => {
+        setTags(tags.filter(t => t !== tagToRemove));
+    };
 
     // Adventure State
     const [isAdventureModalVisible, setIsAdventureModalVisible] = useState(false);
@@ -74,7 +104,8 @@ export default function Profile() {
                         fetchProfileData(currentId),
                         fetchUserPosts(currentId),
                         fetchUserStories(currentId),
-                        fetchUserAdventures(currentId)
+                        fetchUserAdventures(currentId),
+                        fetchTaggedPosts(currentId)
                     ]).catch(err => {
                         console.error("[Profile] Fetch error:", err);
                     }).finally(() => {
@@ -140,6 +171,16 @@ export default function Profile() {
         } catch (error) {
             console.error("[Profile] fetchUserStories error:", error);
             setUserStories([]);
+        }
+    }, []);
+
+    const fetchTaggedPosts = useCallback(async (targetId) => {
+        try {
+            const res = await client.get(`/posts/tagged/${targetId}`);
+            setTaggedPosts(res.data || []);
+        } catch (error) {
+            console.error("[Profile] fetchTaggedPosts error:", error);
+            setTaggedPosts([]);
         }
     }, []);
 
@@ -263,29 +304,49 @@ export default function Profile() {
             quality: 0.8,
             base64: true,
         });
-
         if (!result.canceled) {
             setNewPostImage(result.assets[0]);
+            setNewPostVideo(null);
+        }
+    };
+
+    const pickPostVideo = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+            allowsEditing: true,
+            quality: 0.8,
+            base64: true,
+        });
+        if (!result.canceled) {
+            setNewPostVideo(result.assets[0]);
+            setNewPostImage(null);
         }
     };
 
     const handleCreatePost = async () => {
-        if (!newPostImage && !newPostCaption) {
-            Alert.alert("Error", "Please add an image or a caption");
+        if (!newPostImage && !newPostVideo && !newPostCaption && tags.length === 0) {
+            Alert.alert("Error", "Please add an image, video, caption, or tag someone");
             return;
         }
 
         try {
             setCreatingPost(true);
             const payload = {
-                caption: newPostCaption,
-                image: newPostImage ? `data:image/jpeg;base64,${newPostImage.base64}` : null
+                content: newPostCaption, // New standard
+                caption: newPostCaption, // Legacy support
+                image: newPostImage ? `data:image/jpeg;base64,${newPostImage.base64}` : null,
+                video: newPostVideo ? `data:video/mp4;base64,${newPostVideo.base64}` : null,
+                taggedUsernames: tags,
             };
             await client.post('/posts/create', payload);
             setNewPostCaption('');
             setNewPostImage(null);
+            setNewPostVideo(null);
+            setTags([]);
+            setTagInput('');
             setIsPostModalVisible(false);
             fetchUserPosts(user._id);
+            fetchTaggedPosts(user._id);
             fetchProfileData(user._id);
             Alert.alert("Success", "Post created!");
         } catch (error) {
@@ -373,36 +434,30 @@ export default function Profile() {
         }
 
         if (activeTab === 'tagged') {
+            if (taggedPosts.length === 0) {
+                return (
+                    <View style={styles.emptyContainer}>
+                        <Ionicons name="person-circle-outline" size={64} color="#EEE" />
+                        <Text style={styles.emptyText}>No tagged posts yet</Text>
+                    </View>
+                );
+            }
             return (
-                <View style={styles.emptyContainer}>
-                    <Ionicons name="person-circle-outline" size={64} color="#EEE" />
-                    <Text style={styles.emptyText}>No tagged posts yet</Text>
-                </View>
+                <PostGridItem
+                    item={item}
+                    onLongPress={null}
+                />
             );
         }
 
+        // Posts tab
         return (
-            <TouchableOpacity
-                style={[
-                    styles.postGridItem,
-                    activeTab === 'stories' && styles.storyGridItem
-                ]}
-                onPress={() => {
-                    if (activeTab === 'posts') {
-                        router.push(`/post/${item._id}`);
-                    }
-                }}
+            <PostGridItem
+                item={item}
                 onLongPress={() => {
-                    if (activeTab === 'posts' && isOwner) {
-                        handleDeletePost(item._id);
-                    }
+                    if (isOwner) handleDeletePost(item._id);
                 }}
-            >
-                <Image
-                    source={{ uri: item.image || 'https://via.placeholder.com/301' }}
-                    style={styles.gridImage}
-                />
-            </TouchableOpacity>
+            />
         );
     };
 
@@ -460,7 +515,7 @@ export default function Profile() {
 
             <FlatList
                 key={activeTab === 'trails' ? 'single' : 'grid'}
-                data={activeTab === 'posts' ? posts : (activeTab === 'trails' ? userAdventures : [])}
+                data={activeTab === 'posts' ? posts : (activeTab === 'trails' ? userAdventures : (activeTab === 'tagged' ? taggedPosts : []))}
                 numColumns={activeTab === 'trails' ? 1 : 3}
                 keyExtractor={(item) => item._id}
                 ListHeaderComponent={
@@ -822,24 +877,95 @@ export default function Profile() {
                             </View>
 
                             <ScrollView style={styles.modalBody}>
-                                <TouchableOpacity onPress={pickPostImage} style={styles.imagePlaceholder}>
-                                    {newPostImage ? (
-                                        <Image source={{ uri: newPostImage.uri }} style={styles.selectedImage} />
-                                    ) : (
-                                        <View style={styles.placeholderContent}>
-                                            <Ionicons name="image-outline" size={60} color="#CCC" />
-                                            <Text style={styles.placeholderLabel}>Add Photos</Text>
-                                        </View>
-                                    )}
-                                </TouchableOpacity>
+                                {/* Media Picker Row */}
+                                <View style={styles.mediaPickerRow}>
+                                    <TouchableOpacity
+                                        onPress={pickPostImage}
+                                        style={[styles.mediaPicker, newPostImage && styles.mediaPickerActive]}
+                                    >
+                                        {newPostImage ? (
+                                            <Image source={{ uri: newPostImage.uri }} style={styles.mediaPreview} />
+                                        ) : (
+                                            <View style={styles.mediaPickerContent}>
+                                                <Ionicons name="image-outline" size={36} color="#CCC" />
+                                                <Text style={styles.mediaPickerLabel}>Photo</Text>
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        onPress={pickPostVideo}
+                                        style={[styles.mediaPicker, newPostVideo && styles.mediaPickerActive]}
+                                    >
+                                        {newPostVideo ? (
+                                            <View style={[styles.mediaPreview, styles.videoPreviewBox]}>
+                                                <Ionicons name="play-circle" size={42} color="rgba(255,255,255,0.9)" />
+                                                <Text style={styles.videoSelectedLabel}>Video selected</Text>
+                                            </View>
+                                        ) : (
+                                            <View style={styles.mediaPickerContent}>
+                                                <Ionicons name="videocam-outline" size={36} color="#CCC" />
+                                                <Text style={styles.mediaPickerLabel}>Video</Text>
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
 
                                 <TextInput
-                                    style={styles.captionInput}
+                                    style={[styles.captionInput, { minHeight: 100 }]}
                                     placeholder="Write a caption..."
                                     multiline
                                     value={newPostCaption}
                                     onChangeText={setNewPostCaption}
                                 />
+                                
+                                <View style={styles.tagSection}>
+                                    <Text style={styles.tagSectionTitle}>Tag People</Text>
+                                    <View style={styles.tagInputRow}>
+                                        <TextInput
+                                            style={styles.tagInput}
+                                            placeholder="username (e.g. johndoe)"
+                                            value={tagInput}
+                                            onChangeText={setTagInput}
+                                            autoCapitalize="none"
+                                            onSubmitEditing={handleAddTag}
+                                        />
+                                        <TouchableOpacity 
+                                            style={[styles.addTagBtn, !tagInput.trim() && { opacity: 0.5 }]} 
+                                            onPress={handleAddTag} 
+                                            disabled={!tagInput.trim()}
+                                        >
+                                            <Text style={styles.addTagBtnText}>Add</Text>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {filteredCandidates.length > 0 && (
+                                        <ScrollView style={styles.tagSuggestionsBox} keyboardShouldPersistTaps="handled" nestedScrollEnabled={true}>
+                                            {filteredCandidates.slice(0, 5).map(u => (
+                                                <TouchableOpacity key={u._id} style={styles.suggestionItem} onPress={() => {
+                                                    setTags([...tags, u.username]);
+                                                    setTagInput('');
+                                                }}>
+                                                    <Image source={{ uri: u.profileImage || 'https://via.placeholder.com/150' }} style={styles.suggestionAvatar} />
+                                                    <Text style={styles.suggestionUsername}>{u.username}</Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </ScrollView>
+                                    )}
+
+                                    {tags.length > 0 && (
+                                        <View style={styles.tagList}>
+                                            {tags.map((tag, index) => (
+                                                <View key={index} style={styles.tagPill}>
+                                                    <Text style={styles.tagPillText}>@{tag}</Text>
+                                                    <TouchableOpacity onPress={() => removeTag(tag)}>
+                                                        <Ionicons name="close-circle" size={16} color="#FFF" style={{ marginLeft: 6 }} />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    )}
+                                </View>
                             </ScrollView>
                         </KeyboardAvoidingView>
                     </SafeScreen>
@@ -1341,21 +1467,149 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: '#28a745',
     },
-    imagePlaceholder: {
-        width: width,
-        height: width,
+    mediaPickerRow: {
+        flexDirection: 'row',
+        paddingHorizontal: 15,
+        paddingVertical: 15,
+        gap: 12,
+    },
+    mediaPicker: {
+        flex: 1,
+        height: 140,
         backgroundColor: '#F5F5F5',
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 2,
+        borderColor: '#E8E8E8',
+        borderStyle: 'dashed',
+        overflow: 'hidden',
+    },
+    mediaPickerActive: {
+        borderColor: '#28a745',
+        borderStyle: 'solid',
+    },
+    mediaPickerContent: {
+        alignItems: 'center',
+    },
+    mediaPickerLabel: {
+        marginTop: 8,
+        fontSize: 13,
+        color: '#AAA',
+        fontWeight: '600',
+    },
+    mediaPreview: {
+        width: '100%',
+        height: '100%',
+    },
+    videoPreviewBox: {
+        backgroundColor: '#1a1a2e',
         justifyContent: 'center',
         alignItems: 'center',
     },
-    selectedImage: {
-        width: '100%',
-        height: '100%',
+    videoSelectedLabel: {
+        color: 'rgba(255,255,255,0.8)',
+        fontSize: 12,
+        marginTop: 6,
     },
     captionInput: {
         padding: 20,
         fontSize: 16,
         minHeight: 150,
         textAlignVertical: 'top',
+        color: '#333',
+    },
+    tagSection: {
+        paddingHorizontal: 20,
+        paddingBottom: 20,
+    },
+    tagSectionTitle: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#444',
+        marginBottom: 10,
+    },
+    tagInputRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    tagSuggestionsBox: {
+        maxHeight: 160,
+        backgroundColor: '#FFF',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#E8E8E8',
+        marginTop: 5,
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    suggestionItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
+    },
+    suggestionAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        marginRight: 10,
+        backgroundColor: '#eee',
+    },
+    suggestionUsername: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#333',
+    },
+    tagInput: {
+        flex: 1,
+        backgroundColor: '#F5F5F5',
+        paddingHorizontal: 15,
+        paddingVertical: 12,
+        borderRadius: 8,
+        fontSize: 14,
+        color: '#222',
+        borderWidth: 1,
+        borderColor: '#E8E8E8',
+    },
+    addTagBtn: {
+        marginLeft: 10,
+        paddingHorizontal: 18,
+        paddingVertical: 12,
+        backgroundColor: '#E8F5E9',
+        borderRadius: 8,
+    },
+    addTagBtnText: {
+        fontWeight: 'bold',
+        color: '#28a745',
+    },
+    tagList: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginTop: 15,
+    },
+    tagPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#28a745',
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 20,
+        marginRight: 8,
+        marginBottom: 8,
+        shadowColor: '#28a745',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    tagPillText: {
+        color: '#FFF',
+        fontSize: 13,
+        fontWeight: '600',
     },
 });
