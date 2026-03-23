@@ -10,13 +10,13 @@ const pointSchema = new mongoose.Schema({
 const pathSchema = new mongoose.Schema({
     type: {
         type: String,
-        enum: ['LineString'],
+        enum: ['LineString', 'MultiLineString'],
         required: true,
         default: 'LineString'
     },
     coordinates: {
-        type: [[Number]], // Array of [longitude, latitude]
-        default: undefined // Ensure no empty array is created by default
+        type: mongoose.Schema.Types.Mixed, // Allows [[num,num]] for LineString and [[[num,num]], [[num,num]]] for MultiLineString
+        default: undefined
     }
 }, { _id: false });
 

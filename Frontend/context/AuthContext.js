@@ -2,8 +2,15 @@ import React, { createContext, useState, useEffect, useContext, useCallback } fr
 import { getItem, setItem, deleteItem } from '../utils/platformStorage';
 import client from '../api/client';
 import { useRouter, useSegments } from 'expo-router';
-import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+
+let Notifications;
+try {
+    Notifications = require('expo-notifications');
+} catch (e) {
+    console.warn("expo-notifications disabled for Expo Go compatibility.");
+    Notifications = null;
+}
 import Constants from 'expo-constants';
 import { generateAndSaveKeys, getKeys, encryptPrivateKey, decryptPrivateKey, saveKeys } from '../utils/encryption';
 
@@ -454,6 +461,11 @@ export const AuthProvider = ({ children }) => {
 
 async function registerForPushNotificationsAsync() {
     let token;
+
+    if (!Notifications) {
+        console.log('[Push] expo-notifications not available, skipping registration.');
+        return null;
+    }
 
     if (Device.isDevice) {
         const { status: existingStatus } = await Notifications.getPermissionsAsync();

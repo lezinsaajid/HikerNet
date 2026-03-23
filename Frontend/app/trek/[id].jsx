@@ -65,12 +65,20 @@ export default function TrailDetailsScreen() {
                 const res = await client.get(`/treks/${id}`);
                 const data = res.data;
 
-                // Map path.coordinates ([lng, lat]) to [{latitude, longitude}]
+                // Map path.coordinates to [{latitude, longitude}]
                 if (data.path && data.path.coordinates) {
-                    data.coordinates = data.path.coordinates.map(c => ({
-                        latitude: c[1],
-                        longitude: c[0]
-                    }));
+                    if (data.path.type === 'MultiLineString') {
+                        // Flatten segments for simple preview or handle MultiPolyline
+                        data.coordinates = data.path.coordinates.flat().map(c => ({
+                            latitude: c[1],
+                            longitude: c[0]
+                        }));
+                    } else {
+                        data.coordinates = data.path.coordinates.map(c => ({
+                            latitude: c[1],
+                            longitude: c[0]
+                        }));
+                    }
                 }
 
                 setTrail(data);
@@ -188,7 +196,7 @@ export default function TrailDetailsScreen() {
                                 )}
 
                                 {/* Waypoints/Checkpoints */}
-                                {trail.waypoints && trail.waypoints.map((m, i) => (
+                                {trail.waypoints && trail.waypoints.filter(w => w.title !== "Start Point" && w.title !== "End Point").map((m, i) => (
                                     <Marker
                                         key={`waypoint-${i}`}
                                         coordinate={{ latitude: m.latitude, longitude: m.longitude }}

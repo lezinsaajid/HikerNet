@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Magnetometer } from 'expo-sensors';
+import * as Location from 'expo-location';
 
 /**
- * Hook to provide smooth compass heading for map navigation
+ * Hook to provide smooth compass heading for map navigation using OS fused sensors
  */
 export const useCompass = (isEnabled) => {
     const [heading, setHeading] = useState(0);
@@ -12,33 +12,41 @@ export const useCompass = (isEnabled) => {
         let subscription = null;
 
         const subscribe = async () => {
-            // Set update interval to 100ms for smooth UI (10Hz)
-            Magnetometer.setUpdateInterval(100);
+            try {
+                // We assume location permissions are already granted by active-trek, but double-check
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    console.warn('[Compass] Location permission to access heading was denied');
+                    return;
+                }
 
-            subscription = Magnetometer.addListener(data => {
-                // Calculate heading in degrees from raw magnetometer data
-                // angle = atan2(y, x) * 180 / PI
-                let { x, y } = data;
-                let angle = Math.atan2(y, x) * (180 / Math.PI);
+                // Leverage iOS/Android native fused-sensors (Compass + Gyro + Accelerometer)
+                // This correctly maps heading even if the phone is held upright or tilted!
+                subscription = await Location.watchHeadingAsync((headingData) => {
+                    const newHeading = headingData.magHeading;
+                    
+                    if (newHeading === undefined || newHeading === null) return;
 
-                // Adjust to 0-360 range (0 is North)
-                // Note: Magnetometer axes depend on device orientation, 
-                // but for portrait, this is a good baseline.
-                let newHeading = (angle + 360) % 360;
+                    // EMA Smoothing
+                    const alpha = 0.15; // Smooth but responsive to 90 degree turns
 
-                // EMA Smoothing: heading = alpha * new + (1 - alpha) * old
-                const alpha = 0.2; // Strong smoothing for compass
+                    let diff = newHeading - lastHeading.current;
+                    if (diff > 180) diff -= 360;
+                    if (diff < -180) diff += 360;
 
-                // Fix "wrap-around" jump (e.g. 359 -> 1)
-                let diff = newHeading - lastHeading.current;
-                if (diff > 180) diff -= 360;
-                if (diff < -180) diff += 360;
+                    // Deadzone: Ignore physical micro-shakes less than 1 degree
+                    if (Math.abs(diff) < 1) {
+                        return;
+                    }
 
-                const smoothed = (lastHeading.current + alpha * diff + 360) % 360;
+                    const smoothed = (lastHeading.current + alpha * diff + 360) % 360;
 
-                lastHeading.current = smoothed;
-                setHeading(Math.round(smoothed));
-            });
+                    lastHeading.current = smoothed;
+                    setHeading(Math.round(smoothed));
+                });
+            } catch (error) {
+                console.warn("[Compass] Hardware Compass isn't supported or failed:", error);
+            }
         };
 
         if (isEnabled) {
@@ -46,7 +54,9 @@ export const useCompass = (isEnabled) => {
         }
 
         return () => {
-            if (subscription) subscription.remove();
+            if (subscription) {
+                subscription.remove();
+            }
         };
     }, [isEnabled]);
 

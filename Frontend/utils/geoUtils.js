@@ -22,16 +22,26 @@ export const getDistance = (lat1, lon1, lat2, lon2) => {
 
 /**
  * Calculates the shortest distance from a point to a path (collection of line segments)
+ * Supports progressive loop detection by constraining the search space via currentIndex and windowSize
  * Returns { distance, segmentIndex, snappedPoint }
  */
-export const getPointToPathDistance = (point, path) => {
+export const getPointToPathDistance = (point, path, currentIndex = -1, windowSize = 30) => {
     if (!path || path.length < 2) return { distance: Infinity, segmentIndex: -1 };
 
     let minDistance = Infinity;
     let closestSegment = -1;
     let bestPoint = null;
 
-    for (let i = 0; i < path.length - 1; i++) {
+    let startIndex = 0;
+    let endIndex = path.length - 1;
+
+    // Apply progressive loop detection window if an index is provided
+    if (currentIndex >= 0 && currentIndex < path.length) {
+        startIndex = Math.max(0, currentIndex - windowSize);
+        endIndex = Math.min(path.length - 1, currentIndex + windowSize);
+    }
+
+    for (let i = startIndex; i < endIndex; i++) {
         const v = path[i];
         const w = path[i + 1];
         const { distance, snapped } = getPointToSegmentDistance(point, v, w);
@@ -91,4 +101,35 @@ export const calculateHeading = (start, end) => {
 
     const bearing = (Math.atan2(y, x) * 180) / Math.PI;
     return (bearing + 360) % 360;
+};
+
+/**
+ * Detects if the current point intersects an older part of the path, creating a true loop.
+ * Avoids false positives (switchbacks) by enforcing a strict segment gap history buffer and distance thresholds.
+ */
+export const detectIntersectionLoop = (currentPoint, path, currentIndex) => {
+    if (currentIndex < 15) return null; // Need enough history to form a notable loop (lowered for faster detection)
+
+    // 1. Sliding window: check past points, but ignore the immediate history (e.g., last 10 points) to avoid switchback false-positives
+    for (let i = 0; i < currentIndex - 10; i++) {
+        const oldPoint = path[i];
+
+        // 2. Distance check: intersecting?
+        const dist = getDistance(currentPoint.latitude, currentPoint.longitude, oldPoint.latitude, oldPoint.longitude);
+        if (dist <= 12) { // 12 meters leeway for GPS inaccuracy
+            // 3. Bearing check
+            const currentHeading = calculateHeading(path[currentIndex - 1] || currentPoint, currentPoint);
+            const oldHeading = calculateHeading(path[i > 0 ? i - 1 : 0] || oldPoint, oldPoint);
+
+            // If within 12m and separated by >10 points, it's a loop.
+            return {
+                isLoop: true,
+                loopStartIndex: i,
+                loopEndIndex: currentIndex,
+                currentHeading,
+                oldHeading
+            };
+        }
+    }
+    return null;
 };
