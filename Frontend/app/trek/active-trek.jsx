@@ -38,16 +38,15 @@ export default function ActiveTrek() {
     const router = useRouter();
     const params = useLocalSearchParams();
     useKeepAwake(); // Prevent screen from sleeping while tracking
-    useKeepAwake(); // Prevent screen from sleeping while tracking
     const { name, description, location: initialLocation, mode, trailId: paramTrailId, role = 'leader', uploadedTrailId } = params;
 
     const [location, setLocation] = useState(null);
     const [isTracking, setIsTracking] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
-    const [trailFinished, setTrailFinished] = useState(false); // New state for "Stop" -> "Trail Back"
+    const [trailFinished, setTrailFinished] = useState(false); 
     const [isTrailingBack, setIsTrailingBack] = useState(false);
     const [hasStarted, setHasStarted] = useState(false);
-    const [hasJoinedTrail, setHasJoinedTrail] = useState(false);
+    const [hasJoinedTrail, setHasJoinedTrail] = useState(!uploadedTrailId && !paramTrailId);
     const [hasReachedMidpoint, setHasReachedMidpoint] = useState(false);
 
     const [stats, setStats] = useState({
@@ -57,23 +56,28 @@ export default function ActiveTrek() {
         avgSpeed: 0,
         maxAltitude: -Infinity
     });
-    const [trailId, setTrailId] = useState(paramTrailId || null);
-    const [pathSegments, setPathSegments] = useState([[]]); // Array of segments
+    
+    // Session ID
+    const [trailId, setTrailId] = useState(paramTrailId && paramTrailId !== uploadedTrailId ? paramTrailId : null);
+    const [pathSegments, setPathSegments] = useState([[]]); 
+    const [routeCoordinates, setRouteCoordinates] = useState([]); 
+    const routeRef = useRef([]);
     const [targetRoute, setTargetRoute] = useState([]); 
     const resumedFromPauseRef = useRef(false);
     const [currentNavIndex, setCurrentNavIndex] = useState(0);
-    const [navDirection, setNavDirection] = useState('forward'); // 'forward' | 'backward'
-    const [isReusingTrail, setIsReusingTrail] = useState(!!uploadedTrailId);
-    const [markers, setMarkers] = useState([]); // [{latitude, longitude, icon, type}]
-    const [baseWaypoints, setBaseWaypoints] = useState([]); // Read-only pins from reused trails
-    const [distanceToTrail, setDistanceToTrail] = useState(0);
+    const [navDirection, setNavDirection] = useState('forward'); 
+    const [isReusingTrail, setIsReusingTrail] = useState(!!uploadedTrailId || !!paramTrailId);
+    const [markers, setMarkers] = useState([]); 
+    const [baseWaypoints, setBaseWaypoints] = useState([]); 
+    const [distanceToTrail, setDistanceToTrail] = useState(9999);
     const [offTrackWarning, setOffTrackWarning] = useState(false);
     const [navGuidance, setNavGuidance] = useState("Following Trail");
     const [targetBearing, setTargetBearing] = useState(0);
-    const [mapType, setMapType] = useState('standard'); // 'standard', 'satellite', 'hybrid'
-    const [mapViewMode, setMapViewMode] = useState('top-down'); // 'top-down', 'navigation', 'explore'
-    const [isNavMode, setIsNavMode] = useState(false); // Legacy nav mode toggle, mapped to mapViewMode
-    const [reroutePath, setReroutePath] = useState([]); // Temporary guidance line
+    const [mapType, setMapType] = useState('standard'); 
+    const [mapViewMode, setMapViewMode] = useState('top-down'); 
+    const [isNavMode, setIsNavMode] = useState(false); 
+    const [reroutePath, setReroutePath] = useState([]); 
+    const [flowState, setFlowState] = useState('idle'); 
 
     // Modal State
     const [showMarkerModal, setShowMarkerModal] = useState(false);
@@ -124,10 +128,12 @@ export default function ActiveTrek() {
         let navigationDirection = navDirection;
 
         if (isTrailingBack) {
-            navigationPolyline = [...flatRoute];
+            // When trailing back, use targetRoute if available, otherwise use recorded path
+            navigationPolyline = isReusingTrail ? targetRoute : pathSegments.flat();
             navigationDirection = 'backward';
         } else if (isReusingTrail) {
             navigationPolyline = targetRoute;
+            navigationDirection = 'forward';
         }
 
         // 1. PRE-PROCESS NAVIGATION (DISTANCE & SNAPPING)
@@ -175,35 +181,41 @@ export default function ActiveTrek() {
         // 2. UPDATE MAP STATE (ALWAYS RUNS)
         setLocation(displayLoc);
 
-        if (mapRef.current && isFollowingUser) {
-            mapRef.current.animateCamera({
-                center: displayLoc,
-                heading: isNavMode ? userHeading : undefined,
-                altitude: 500, // Standard street level for hiking
-                zoom: 18
-            }, { duration: 1000 });
-        }
-
-        // 3. NAVIGATION LOGIC (ALERTS & GUIDANCE)
+        // 3. NAVIGATION LOGIC (STRICT FLOW CONTROL)
         if (navigationPolyline.length >= 2) {
-            // JOINING LOGIC: If not joined, check if we just hit the 10m proximity
+            // PHASE 1 & 2: REACHING THE START
             if (!hasJoinedTrail && (isReusingTrail || isTrailingBack)) {
-                if (distance <= 10) {
-                    setHasJoinedTrail(true);
-                    setNavGuidance("You are now on the trail.");
+                // In pre-trek phase, we ALWAYS target the START of the trail (not just any point)
+                const startPoint = navigationPolyline[navigationDirection === 'forward' ? 0 : navigationPolyline.length - 1];
+                const distanceToRealStart = getDistance(currentLoc.latitude, currentLoc.longitude, startPoint.latitude, startPoint.longitude);
+                
+                if (distanceToRealStart <= 15) {
+                    // REACHED START
+                    setNavGuidance("You have reached the starting point.");
                     setReroutePath([]);
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                } else {
-                    setNavGuidance("Move to the nearest point on the trail to begin trekking.");
-                    setReroutePath([currentLoc, snappedPoint]);
-                    const bearing = calculateHeading(currentLoc, snappedPoint);
+                    if (flowState === 'goto-start') {
+                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    }
+                } else if (flowState === 'goto-start') {
+                    // NAVIGATING TO START
+                    if (reroutePath.length === 0 && distanceToRealStart > 50) {
+                        fetchRoadRoute(currentLoc, startPoint);
+                    }
+                    setNavGuidance(`Navigate to the starting point (${Math.round(distanceToRealStart)}m).`);
+                    const bearing = calculateHeading(currentLoc, startPoint);
                     setTargetBearing(bearing);
-                    return; // Don't proceed to progress logic until joined
+                } else {
+                    // IDLE
+                    setNavGuidance(`You are ${Math.round(distanceToRealStart)} meters away from the starting point.`);
+                    setReroutePath([]); 
                 }
+                setDistanceToTrail(Math.round(distanceToRealStart)); // Update state for UI
+                return; // No progress tracking until joined
             }
 
-            // DRIFT DETECTION / OFF-TRACK WARNING
+            // PHASE 3 & 4: TREKKING / TREKBACK
             if (hasJoinedTrail) {
+                // DRIFT DETECTION
                 if (distance > 15) {
                     if (!offTrackWarning) {
                         setOffTrackWarning(true);
@@ -217,42 +229,48 @@ export default function ActiveTrek() {
                     setOffTrackWarning(false);
                     setNavGuidance("Back on track.");
                     setReroutePath([]);
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }
 
-                // TARGET BEARING & NAVIGATION GUIDANCE
+                // SUB-PHASE: DESTINATION REACHED?
+                if (!trailFinished && !isTrailingBack) {
+                    const endTargetIndex = navigationDirection === 'forward' ? navigationPolyline.length - 1 : 0;
+                    const finalPoint = navigationPolyline[endTargetIndex];
+                    const distToEnd = getDistance(currentLoc.latitude, currentLoc.longitude, finalPoint.latitude, finalPoint.longitude);
+                    
+                    if (distToEnd < 10 && hasReachedMidpoint && !hasAlertedCompletion.current) {
+                        hasAlertedCompletion.current = true;
+                        setNavGuidance("You have reached your destination.");
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        // Force transition to completion state for UI buttons
+                        setTrailFinished(true); // User said "Reaching destination -> Show button 'Start Trek Back'"
+                    }
+                }
+
+                // UPDATE BEARING TO NEXT POINT
                 let targetIdx = navigationDirection === 'forward' ? segmentIndex + 1 : segmentIndex - 1;
                 targetIdx = Math.max(0, Math.min(navigationPolyline.length - 1, targetIdx));
-                
                 const targetPoint = navigationPolyline[targetIdx];
                 if (targetPoint) {
                     const bearing = calculateHeading(currentLoc, targetPoint);
                     setTargetBearing(bearing);
                 }
             }
-
-            // Record backtrack progress if trailing back
-            if (isTrailingBack && segmentIndex >= 0) {
-                setCurrentTrekBackIndex(segmentIndex);
-            }
         }
 
-        setLocation(displayLoc);
-
-        // Animate Camera (Moved tracking logic after displayLoc calculation so we frame the snapped point)
-        if (mapRef.current && isFollowingUser) {
-            mapRef.current.animateToRegion({
-                latitude: displayLoc.latitude,
-                longitude: displayLoc.longitude,
-                latitudeDelta: 0.001,
-                longitudeDelta: 0.001,
-            }, 500);
+        // 4. MAP CAMERA UPDATES (CENTRALIZED)
+        if (mapRef.current && mapViewMode !== 'explore') {
+            const cameraOptions = {
+                center: displayLoc,
+                pitch: mapViewMode === 'navigation' ? 45 : 0, // Tilt for 3D navigation look
+                heading: mapViewMode === 'navigation' ? userHeading : 0,
+                altitude: 500, // Zoom detail
+                zoom: 18
+            };
             
-            if (isNavMode) {
-                mapRef.current.animateCamera({ heading: userHeading }, { duration: 500 });
-            }
+            // Smoother animations during walking
+            mapRef.current.animateCamera(cameraOptions, { duration: 1000 });
         }
-    }, [smoothedLocation, isFollowingUser, isTrailingBack, routeCoordinates, targetRoute, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished]);
+    }, [smoothedLocation, isTrailingBack, routeCoordinates, targetRoute, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished, mapViewMode]);
 
     // React to validated location updates for RECORDING & STATS
     useEffect(() => {
@@ -260,50 +278,49 @@ export default function ActiveTrek() {
 
         const { latitude, longitude, altitude } = validatedLocation;
         const newPoint = { latitude, longitude };
-        const path = routeRef.current;
-
-        let dist = 0;
-        if (path.length > 0) {
-            const lastPoint = path[path.length - 1];
-            dist = getDistance(latitude, longitude, lastPoint.latitude, lastPoint.longitude);
+        
+        // 1. STATS CALCULATION
+        let distMeters = 0;
+        const lastPoint = lastStatsPointRef.current;
+        if (lastPoint) {
+            distMeters = getDistance(latitude, longitude, lastPoint.latitude, lastPoint.longitude);
         }
 
-        // Threshold 3m already enforced by hook, but we double check here if needed
+        setStats(prev => {
+            const newDistance = prev.distance + distMeters;
+            let elevationGain = prev.elevationGain;
+            if (lastPoint && altitude && lastPoint.altitude && altitude > lastPoint.altitude) {
+                elevationGain += (altitude - lastPoint.altitude);
+            }
+            return {
+                ...prev,
+                distance: newDistance,
+                elevationGain: elevationGain,
+                maxAltitude: (prev.maxAltitude === -Infinity) ? (altitude || 0) : Math.max(prev.maxAltitude, altitude || 0),
+                avgSpeed: prev.duration > 0 ? parseFloat(((newDistance / 1000) / (prev.duration / 3600)).toFixed(1)) : 0
+            };
+        });
+        
+        lastStatsPointRef.current = { latitude, longitude, altitude };
+
+        // 2. PATH STORAGE
         setRouteCoordinates(prev => {
             const updated = [...prev, newPoint];
             routeRef.current = updated;
             return updated;
         });
 
-        setStats(prev => {
-            const newDistance = prev.distance + stepDistKm;
-            return {
-                ...prev,
-                distance: newDistance,
-                elevationGain: (lastPoint && currentAltitude > lastPoint.altitude) 
-                    ? prev.elevationGain + (currentAltitude - lastPoint.altitude) 
-                    : prev.elevationGain,
-                maxAltitude: (prev.maxAltitude === -Infinity) ? currentAltitude : Math.max(prev.maxAltitude, currentAltitude),
-                avgSpeed: prev.duration > 0 ? parseFloat(((newDistance) / (prev.duration / 3600)).toFixed(1)) : 0
-            };
-        });
-        
-        lastStatsPointRef.current = { latitude, longitude, altitude: currentAltitude };
-
-        // 2. RECORD PATH (Only if not reusing/trailing)
-        if (isTrailingBack || isReusingTrail) return;
-
         const segments = pathSegmentsRef.current;
         const lastSeg = segments[segments.length - 1];
         let isNewSegment = false;
-
+        
         if (lastSeg && lastSeg.length > 0) {
             const lastPathPoint = lastSeg[lastSeg.length - 1];
-            const distToLast = getDistance(latitude, longitude, lastPathPoint.latitude, lastPathPoint.longitude);
+            const distFromLastPath = getDistance(latitude, longitude, lastPathPoint.latitude, lastPathPoint.longitude);
             
             if (resumedFromPauseRef.current) {
-                if (distToLast > 20) {
-                    Alert.alert("Resumed Tracking", `You are ${Math.round(distToLast)}m away from the previous trail point. Starting a new trail segment.`);
+                if (distFromLastPath > 20) {
+                    Alert.alert("Resumed Tracking", `You are ${Math.round(distFromLastPath)}m away from the previous trail point. Starting a new trail segment.`);
                     isNewSegment = true;
                 }
                 resumedFromPauseRef.current = false;
@@ -346,6 +363,14 @@ export default function ActiveTrek() {
             return updated;
         });
 
+        // 3. INCREMENTAL SYNC TO BACKEND
+        if (trailIdRef.current) {
+            client.put(`/treks/update/${trailIdRef.current}`, {
+                coordinates: [newPoint],
+                isNewSegment: isNewSegment
+            }).catch(e => console.error("Incremental sync error", e));
+        }
+
     }, [isTracking, validatedLocation, isPaused, trailFinished, role, isTrailingBack, isReusingTrail]);
 
     useEffect(() => {
@@ -379,6 +404,8 @@ export default function ActiveTrek() {
                             }))];
                         }
                         setPathSegments(mappedSegments);
+                        setRouteCoordinates(mappedSegments.flat());
+                        routeRef.current = mappedSegments.flat();
                         setTargetRoute(mappedSegments.flat());
                         pathSegmentsRef.current = mappedSegments;
                     }
@@ -395,6 +422,8 @@ export default function ActiveTrek() {
                     }
                 } catch (e) {
                     console.error("Failed to load existing trek data", e);
+                    setTrailId(null);
+                    trailIdRef.current = null;
                 }
             }
 
@@ -448,6 +477,8 @@ export default function ActiveTrek() {
                             }))];
                         }
                         setPathSegments(mappedSegments);
+                        setRouteCoordinates(mappedSegments.flat());
+                        routeRef.current = mappedSegments.flat();
                         pathSegmentsRef.current = mappedSegments;
                     }
 
@@ -524,6 +555,30 @@ export default function ActiveTrek() {
         loadUploadedTrail();
     }, [uploadedTrailId]);
 
+    // NEW: Real-world road routing to trail start
+    const fetchRoadRoute = async (start, end) => {
+        try {
+            // Using OSRM Foot routing for walkable paths/roads
+            const url = `https://router.project-osrm.org/route/v1/foot/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`;
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.routes && data.routes.length > 0) {
+                const coords = data.routes[0].geometry.coordinates.map(p => ({
+                    latitude: p[1],
+                    longitude: p[0]
+                }));
+                setReroutePath(coords);
+                setNavGuidance("Following roads to trail start.");
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error("OSRM Routing Error:", e);
+            return false;
+        }
+    };
+
     // Helper to calculate distance
 
 
@@ -570,14 +625,14 @@ export default function ActiveTrek() {
                 setTrailId(newId);
                 trailIdRef.current = newId;
                 setStats(prev => ({ ...prev, startName: res.data.name }));
+                console.log("[ActiveTrek] New session created:", newId);
 
-                // AUTOMATIC START POINT - Using high accuracy validated location
-                const startPoint = validatedLocation || location;
-                if (!uploadedTrailId) {
-                    setHasJoinedTrail(true); // New trail creation = always on trail
-                }
-                // Note: We no longer save a redundant "Start Point" waypoint here
-                // as the UI automatically renders a beautiful marker at pathSegments[0][0].
+                // Start Trail Activation
+                setHasJoinedTrail(true);
+                setFlowState('trekking');
+                setMapViewMode('navigation');
+                setNavGuidance("Trek started.");
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             }
 
             // await startLocationTracking(); // Handled by hook
@@ -598,7 +653,7 @@ export default function ActiveTrek() {
                 onPress: async () => {
                     setTrailFinished(true); // Switch UI
                     setIsTracking(false);
-                    setIsFollowingUser(false); // Stop aggressive zoom
+                    setMapViewMode('explore'); // Stop aggressive zoom
                     if (timerRef.current) clearInterval(timerRef.current);
 
                     // Re-frame camera to show full trail encompassing Start & End
@@ -618,7 +673,10 @@ export default function ActiveTrek() {
                     // AUTOMATIC END POINT handled visually via endPoint marker
                     // We no longer push a redundant "End Point" to waypoints DB
 
-                            await client.put(`/treks/update/${trailId}`, { status: 'completed' });
+                            await client.put(`/treks/update/${trailId}`, { 
+                                status: 'completed',
+                                stats: stats
+                            });
 
                             // Share Prompt
                             Alert.alert(
@@ -653,17 +711,16 @@ export default function ActiveTrek() {
 
     const handleTrailBack = () => {
         setIsTrailingBack(true);
+        setNavDirection('backward');
+        setFlowState('trekback');
         hasAlertedOffTrack.current = false;
         hasAlertedCompletion.current = false;
-        setHasJoinedTrail(false);
-        setCurrentTrekBackIndex(0);
-
+        setHasJoinedTrail(true); // Already on trail
+        setHasReachedMidpoint(false);
+        setNavGuidance("Trek back mode active.");
+        
         // Ensure tracking is active but in "back" mode
         pausedRef.current = true; // Stop recording original path points
-        // But we need to listen to location updates for off-track logic
-        // re-enable listener if it was stopped (it wasn't strictly stopped in handleStopTrail, just state changed)
-        // Check if subscription exists
-
     };
 
     const handleExit = () => {
@@ -794,13 +851,14 @@ export default function ActiveTrek() {
         return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
     };
 
-    // Calculate faded and visible paths (Unified Progress Engine)
     const { visibleRoute, fadedRoute } = useMemo(() => {
         let sourcePolyline = [];
         if (isTrailingBack) {
-            sourcePolyline = pathSegments.flat();
+            sourcePolyline = routeCoordinates; // Use recorded path for backtrack
         } else if (isReusingTrail) {
-            sourcePolyline = targetRoute;
+            sourcePolyline = targetRoute; // Use uploaded path
+        } else {
+            sourcePolyline = routeCoordinates; // Standard sessionrecording
         }
 
         if (sourcePolyline.length === 0) {
@@ -809,7 +867,9 @@ export default function ActiveTrek() {
         
         const safeIndex = Math.max(0, Math.min(currentNavIndex, sourcePolyline.length - 1));
         
-        if (navDirection === 'forward') {
+        const navDir = isTrailingBack ? 'backward' : navDirection;
+
+        if (navDir === 'forward') {
             return {
                 fadedRoute: sourcePolyline.slice(0, safeIndex + 1),
                 visibleRoute: sourcePolyline.slice(safeIndex)
@@ -821,7 +881,7 @@ export default function ActiveTrek() {
                 visibleRoute: sourcePolyline.slice(0, safeIndex + 1)
             };
         }
-    }, [isTrailingBack, isReusingTrail, pathSegments, targetRoute, currentNavIndex, navDirection]);
+    }, [isTrailingBack, isReusingTrail, pathSegments, routeCoordinates, targetRoute, currentNavIndex, navDirection]);
 
     // Explicit markers for Start/End
     const startPoint = isReusingTrail && targetRoute.length > 0 
@@ -854,7 +914,7 @@ export default function ActiveTrek() {
                         pitchEnabled={true}
                         scrollEnabled={true}
                         zoomEnabled={true}
-                        onPanDrag={() => setIsFollowingUser(false)}
+                        onPanDrag={() => setMapViewMode('explore')}
                         onRegionChangeComplete={(region, gesture) => {
                             if (gesture && gesture.isGesture && mapViewMode !== 'explore') {
                                 setMapViewMode('explore');
@@ -1094,44 +1154,61 @@ export default function ActiveTrek() {
             <View style={styles.controls}>
                 {!trailFinished ? (
                     <>
-                        <View style={styles.statsCard}>
-                            <View style={styles.statsMainRow}>
-                                <View style={styles.statItem}>
-                                    <Text style={styles.statLabel}>Duration</Text>
-                                    <Text style={styles.statValue}>{formatTime(stats.duration)}</Text>
+                        {hasStarted && (
+                            <View style={styles.statsCard}>
+                                <View style={styles.statsMainRow}>
+                                    <View style={styles.statItem}>
+                                        <Text style={styles.statLabel}>Duration</Text>
+                                        <Text style={styles.statValue}>{formatTime(stats.duration)}</Text>
+                                    </View>
+                                    <View style={styles.statDivider} />
+                                    <View style={styles.statItem}>
+                                        <Text style={styles.statLabel}>Distance</Text>
+                                        <Text style={styles.statValue}>{(stats.distance / 1000).toFixed(2)} <Text style={styles.unitText}>km</Text></Text>
+                                    </View>
                                 </View>
-                                <View style={styles.statDivider} />
-                                <View style={styles.statItem}>
-                                    <Text style={styles.statLabel}>Distance</Text>
-                                    <Text style={styles.statValue}>{(stats.distance / 1000).toFixed(2)} <Text style={styles.unitText}>km</Text></Text>
-                                </View>
-                            </View>
 
-                            <View style={styles.statsSecondaryRow}>
-                                <View style={styles.statDetail}>
-                                    <Ionicons name="trending-up" size={16} color="#666" />
-                                    <Text style={styles.statDetailText}>{Math.round(stats.elevationGain || 0)}m Gain</Text>
-                                </View>
-                                <View style={styles.statDetail}>
-                                    <Ionicons name="speedometer" size={16} color="#666" />
-                                    <Text style={styles.statDetailText}>{stats.avgSpeed || 0} km/h</Text>
+                                <View style={styles.statsSecondaryRow}>
+                                    <View style={styles.statDetail}>
+                                        <Ionicons name="trending-up" size={16} color="#666" />
+                                        <Text style={styles.statDetailText}>{Math.round(stats.elevationGain || 0)}m Gain</Text>
+                                    </View>
+                                    <View style={styles.statDetail}>
+                                        <Ionicons name="speedometer" size={16} color="#666" />
+                                        <Text style={styles.statDetailText}>{stats.avgSpeed || 0} km/h</Text>
+                                    </View>
                                 </View>
                             </View>
-                        </View>
+                        )}
 
                         <View style={styles.row}>
                             {role === 'leader' && (
                                 !hasStarted ? (
-                                    <TouchableOpacity 
-                                        style={[styles.startBigBtn, { width: '100%', flexDirection: 'row', justifyContent: 'center' }]} 
-                                        onPress={startTrail}
-                                        disabled={!gpsAccuracy || gpsAccuracy > 30}
-                                    >
-                                        <Ionicons name="play" size={24} color="white" style={{ marginRight: 10 }} />
-                                        <Text style={styles.startBigBtnText}>
-                                            {(!gpsAccuracy || gpsAccuracy > 30) ? 'Waiting for GPS Lock...' : 'Start Trek'}
-                                        </Text>
-                                    </TouchableOpacity>
+                                    // PHASE 1 & 2: STARTING
+                                    isReusingTrail && distanceToTrail > 10 ? (
+                                        <TouchableOpacity 
+                                            style={[styles.actionButton, styles.trailBackBtn, { width: '100%' }]} 
+                                            onPress={() => setFlowState('goto-start')}
+                                            disabled={flowState === 'goto-start'}
+                                        >
+                                            <Ionicons name="navigate" size={24} color="white" style={{ marginRight: 10 }} />
+                                            <Text style={styles.actionButtonText}>
+                                                {flowState === 'goto-start' ? `Navigating to Start...` : 'Go to Start'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ) : (
+                                        // PHASE 3: AT START
+                                        <TouchableOpacity 
+                                            style={[styles.startBigBtn, { width: '100%', flexDirection: 'row', justifyContent: 'center' }]} 
+                                            onPress={startTrail}
+                                            disabled={!gpsAccuracy || gpsAccuracy > 30}
+                                        >
+                                            <Ionicons name="play-circle" size={24} color="white" style={{ marginRight: 10 }} />
+                                            <Text style={styles.startBigBtnText}>
+                                                {!gpsAccuracy || gpsAccuracy > 30 ? 'Waiting for GPS...' : 'Start Trail'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    )
                                 ) : (
                                     <>
                                         <TouchableOpacity style={[styles.button, styles.pauseBtn]} onPress={togglePause}>
@@ -1150,11 +1227,11 @@ export default function ActiveTrek() {
                     <View style={styles.finishedContainer}>
                         {!isTrailingBack ? (
                             <>
-                                <Text style={styles.finishedTitle}>Destination Reached</Text>
+                                <Text style={styles.finishedTitle}>You have reached your destination.</Text>
                                 <View style={styles.row}>
                                     <TouchableOpacity style={[styles.actionButton, styles.trailBackBtn]} onPress={handleTrailBack}>
                                         <Ionicons name="arrow-undo" size={24} color="white" style={{ marginRight: 8 }} />
-                                        <Text style={styles.actionButtonText}>Trail Back</Text>
+                                        <Text style={styles.actionButtonText}>Start Trek Back</Text>
                                     </TouchableOpacity>
 
                                     <TouchableOpacity style={[styles.actionButton, styles.exitBtn]} onPress={handleExit}>
