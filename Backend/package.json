@@ -29,7 +29,8 @@
     "mongodb": "^7.0.0",
     "mongoose": "^9.1.2",
     "osmtogeojson": "^3.0.0-beta.5",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "c8": "^11.0.0",

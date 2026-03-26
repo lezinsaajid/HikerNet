@@ -14,6 +14,8 @@ import WeatherWidget from '../../components/WeatherWidget';
 import { useSmartLocation } from '../../hooks/useSmartLocation';
 import { useCompass } from '../../hooks/useCompass';
 import { getDistance, getPointToPathDistance, calculateHeading, detectIntersectionLoop } from '../../utils/geoUtils';
+import io from 'socket.io-client';
+
 // icon map
 const MARKER_ICONS = [
     { name: 'water', icon: 'water', color: '#007bff', label: 'Water', tags: ['river', 'lake', 'drink', 'stream', 'wet'] },
@@ -100,6 +102,11 @@ export default function ActiveTrek() {
     const hasAlertedOffTrack = useRef(false); // To prevent alert spam
     const hasAlertedCompletion = useRef(false); // To prevent completion alert spam
     const lastStatsPointRef = useRef(null);     // For distance/stats tracking
+
+    const socketRef = useRef(null);
+    const [participants, setParticipants] = useState({}); // { userId: { location, username, isOffTrail, distanceToTrail } }
+    const { user: currentUser } = useAuth();
+
 
     const {
         location: validatedLocation,
@@ -270,7 +277,33 @@ export default function ActiveTrek() {
             // Smoother animations during walking
             mapRef.current.animateCamera(cameraOptions, { duration: 1000 });
         }
-    }, [smoothedLocation, isTrailingBack, routeCoordinates, targetRoute, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished, mapViewMode]);
+
+        // 5. GROUP TREK: REPORT LOCATION & DRIFT
+        if (mode === 'group' && socketRef.current && trailId) {
+            const isOffTrail = distance > 25;
+            socketRef.current.emit('participant-location-update', {
+                trekId: trailId,
+                userId: currentUser?._id,
+                username: currentUser?.username,
+                location: currentLoc,
+                isOffTrail: isOffTrail,
+                distanceToTrail: Math.round(distance)
+            });
+
+            if (isOffTrail && role === 'member' && !hasAlertedOffTrack.current) {
+                hasAlertedOffTrack.current = true;
+                socketRef.current.emit('drift-alert', {
+                    trekId: trailId,
+                    userId: currentUser?._id,
+                    username: currentUser?.username,
+                    distance: distance
+                });
+            } else if (!isOffTrail) {
+                hasAlertedOffTrack.current = false;
+            }
+        }
+    }, [smoothedLocation, isTrailingBack, routeCoordinates, targetRoute, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished, mapViewMode, trailId]);
+
 
     // React to validated location updates for RECORDING & STATS
     useEffect(() => {
@@ -363,15 +396,25 @@ export default function ActiveTrek() {
             return updated;
         });
 
-        // 3. INCREMENTAL SYNC TO BACKEND
-        if (trailIdRef.current) {
+        // 3. INCREMENTAL SYNC TO BACKEND & SOCKET (LEADER ONLY)
+        if (trailIdRef.current && role === 'leader') {
+             // Sync to DB
             client.put(`/treks/update/${trailIdRef.current}`, {
                 coordinates: [newPoint],
                 isNewSegment: isNewSegment
             }).catch(e => console.error("Incremental sync error", e));
-        }
 
-    }, [isTracking, validatedLocation, isPaused, trailFinished, role, isTrailingBack, isReusingTrail]);
+            // Sync to Socket
+            if (socketRef.current) {
+                socketRef.current.emit('trail-point-shared', {
+                    trekId: trailIdRef.current,
+                    point: newPoint,
+                    isNewSegment: isNewSegment
+                });
+            }
+        }
+    }, [isTracking, validatedLocation, isPaused, trailFinished, role, isTrailingBack, isReusingTrail, trailId]);
+
 
     useEffect(() => {
         (async () => {
@@ -426,78 +469,77 @@ export default function ActiveTrek() {
                     trailIdRef.current = null;
                 }
             }
-
-            // If we have a trailId (resuming) OR a name (new trail), start tracking
-            if (paramTrailId || name) {
-                if (role === 'leader') {
-                    // Manual start required unless resuming with a specific trailId
-                } else {
-                    // Member Mode: Start polling
-                    setHasStarted(true); // Members don't "start", they just join
-                    startMemberMode();
-                }
-            }
         })();
-
-        return () => {
-            if (memberPollRef.current) clearInterval(memberPollRef.current);
-        };
     }, []);
 
-    const memberPollRef = useRef(null);
 
-    const startMemberMode = () => {
-        // Poll for updates
-        memberPollRef.current = setInterval(async () => {
-            if (!trailId && paramTrailId) setTrailId(paramTrailId);
-            const currentTrailId = trailId || paramTrailId;
+    useEffect(() => {
+        if (!trailId) return;
 
-            if (currentTrailId) {
-                try {
-                    const res = await client.get(`/treks/${currentTrailId}`);
-                    const data = res.data;
+        const socketUrl = client.defaults.baseURL.replace('/api', '');
+        const socket = io(socketUrl, {
+            transports: ['websocket'],
+            jsonp: false
+        });
+        socketRef.current = socket;
 
-                    // Sync state from leader
-                    if (data.status === 'completed') {
-                        setTrailFinished(true);
-                        clearInterval(memberPollRef.current);
+        socket.emit('join-trek', { trekId: trailId, userId: currentUser?._id });
+
+        socket.on('trail-point-received', ({ point, isNewSegment }) => {
+            if (role === 'member') {
+                setPathSegments(prev => {
+                    const updated = [...prev];
+                    const targetSegmentIndex = isNewSegment || updated.length === 0 ? updated.length : updated.length - 1;
+                    
+                    if (isNewSegment || updated.length === 0) {
+                        updated.push([point]);
+                    } else {
+                        updated[targetSegmentIndex] = [...updated[targetSegmentIndex], point];
                     }
+                    pathSegmentsRef.current = updated;
+                    return updated;
+                });
+                setRouteCoordinates(prev => [...prev, point]);
+                routeRef.current = [...routeRef.current, point];
+            }
+        });
 
-                    // Path synchronization for members
-                    if (data.path && data.path.coordinates) {
-                        let mappedSegments = [];
-                        if (data.path.type === 'MultiLineString') {
-                            mappedSegments = data.path.coordinates.map(segment => 
-                                segment.map(p => ({ latitude: p[1], longitude: p[0] }))
-                            );
-                        } else {
-                            mappedSegments = [data.path.coordinates.map(p => ({
-                                latitude: p[1],
-                                longitude: p[0]
-                            }))];
-                        }
-                        setPathSegments(mappedSegments);
-                        setRouteCoordinates(mappedSegments.flat());
-                        routeRef.current = mappedSegments.flat();
-                        pathSegmentsRef.current = mappedSegments;
-                    }
+        socket.on('participant-location-received', ({ userId, username, location: pLoc, isOffTrail: pOff, distanceToTrail: pDist }) => {
+            if (role === 'leader') {
+                setParticipants(prev => ({
+                    ...prev,
+                    [userId]: { location: pLoc, username, isOffTrail: pOff, distanceToTrail: pDist }
+                }));
+            }
+        });
 
-                    // Sync Waypoints/Markers
-                    if (data.waypoints) {
-                        setMarkers(data.waypoints);
-                    }
-
-                    // Sync Stats
-                    if (data.stats) {
-                        setStats(prev => ({ ...prev, ...data.stats }));
-                    }
-
-                } catch (e) {
-                    console.error("Polling error", e);
+        socket.on('trek-control-received', ({ action }) => {
+            if (role === 'member') {
+                if (action === 'PAUSE') setIsPaused(true);
+                if (action === 'RESUME') setIsPaused(false);
+                if (action === 'STOP') {
+                    setTrailFinished(true);
+                    setIsTracking(false);
                 }
             }
-        }, 5000); // 5 seconds is safer for polling frequency
-    };
+        });
+
+        socket.on('drift-notification', ({ username: driftUser, message }) => {
+            if (role === 'leader') {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                // We show this via participant markers mostly, but toast is good
+            }
+        });
+
+        socket.on('waypoint-received', ({ waypoint }) => {
+            setMarkers(prev => [...prev, waypoint]);
+        });
+
+        return () => {
+            socket.disconnect();
+            socketRef.current = null;
+        };
+    }, [trailId]);
 
     useEffect(() => {
         trailIdRef.current = trailId;
@@ -506,6 +548,7 @@ export default function ActiveTrek() {
     useEffect(() => {
         pathSegmentsRef.current = pathSegments;
     }, [pathSegments]);
+
 
     // Fetch Uploaded (Reusable) Trail Details
     useEffect(() => {
@@ -667,9 +710,12 @@ export default function ActiveTrek() {
                             });
                         }
                     }
-
                     if (trailId) {
                         try {
+                            // Emit Stop action to room
+                            if (socketRef.current) {
+                                socketRef.current.emit('trek-control', { trekId: trailId, action: 'STOP' });
+                            }
                     // AUTOMATIC END POINT handled visually via endPoint marker
                     // We no longer push a redundant "End Point" to waypoints DB
 
@@ -731,6 +777,15 @@ export default function ActiveTrek() {
         const newPausedState = !isPaused;
         setIsPaused(newPausedState);
         pausedRef.current = newPausedState;
+
+        // Emit Pause/Resume action
+        if (socketRef.current && trailId) {
+            socketRef.current.emit('trek-control', {
+                trekId: trailId,
+                action: newPausedState ? 'PAUSE' : 'RESUME'
+            });
+        }
+
         if (!newPausedState) {
             // Unpausing
             resumedFromPauseRef.current = true;
@@ -836,6 +891,11 @@ export default function ActiveTrek() {
         // Save to backend
         if (trailId) {
             try {
+                // Emit to room
+                if (socketRef.current) {
+                    socketRef.current.emit('waypoint-added', { trekId: trailId, waypoint: newMarker });
+                }
+
                 await client.put(`/treks/update/${trailId}`, {
                     waypoints: [newMarker]
                 });
@@ -1033,6 +1093,29 @@ export default function ActiveTrek() {
                                 />
                             ))
                         }
+
+                        {/* Participant Markers for Leader */}
+                        {role === 'leader' && Object.entries(participants).map(([uid, p]) => (
+                            <Marker
+                                key={`participant-${uid}`}
+                                coordinate={p.location}
+                                title={p.username}
+                                description={p.isOffTrail ? `OFF TRAIL (${p.distanceToTrail}m)` : "On Trail"}
+                                zIndex={100}
+                            >
+                                <View style={{ alignItems: 'center' }}>
+                                    <View style={{ backgroundColor: p.isOffTrail ? '#dc3545' : '#28a745', padding: 4, borderRadius: 10, paddingHorizontal: 8, marginBottom: 2 }}>
+                                        <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>{p.username}</Text>
+                                    </View>
+                                    <Ionicons name="person" size={24} color={p.isOffTrail ? '#dc3545' : '#28a745'} />
+                                    {p.isOffTrail && (
+                                        <View style={{ position: 'absolute', top: 15, right: -5, backgroundColor: '#dc3545', borderRadius: 10, padding: 2, borderWidth: 1, borderColor: 'white' }}>
+                                            <Ionicons name="warning" size={10} color="white" />
+                                        </View>
+                                    )}
+                                </View>
+                            </Marker>
+                        ))}
                     </NativeMap >
 
                     {isTrailingBack && (
@@ -1182,7 +1265,7 @@ export default function ActiveTrek() {
                         )}
 
                         <View style={styles.row}>
-                            {role === 'leader' && (
+                            {role === 'leader' ? (
                                 !hasStarted ? (
                                     // PHASE 1 & 2: STARTING
                                     isReusingTrail && distanceToTrail > 10 ? (
@@ -1219,8 +1302,15 @@ export default function ActiveTrek() {
                                         </TouchableOpacity>
                                     </>
                                 )
+                            ) : (
+                                <View style={{ width: '100%', alignItems: 'center', padding: 10, backgroundColor: isPaused ? '#ffc107' : '#28a745', borderRadius: 12 }}>
+                                    <Text style={{ color: 'white', fontWeight: 'bold' }}>
+                                        {isPaused ? "LEADER HAS PAUSED TREK" : "FOLLOWING LEADER LIVE"}
+                                    </Text>
+                                </View>
                             )}
                         </View>
+
                     </>
                 ) : (
                     // Trail Finished / Trail Back Mode

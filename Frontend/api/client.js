@@ -5,11 +5,14 @@ import { getItem } from '../utils/platformStorage';
 // For Android Emulator use 'http://10.0.2.2:3000/api'
 // For iOS Simulator use 'http://localhost:3000/api'
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 // Priorities: 
 // 1. .env variable (EXPO_PUBLIC_PREFIX)
 // 2. Fallback to a common development IP or localhost
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://localhost:3000/api`;
+// Smarter fallback for Android Emulator
+const localIp = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://${localIp}:3000/api`;
 
 const client = axios.create({
     baseURL: BASE_URL,
@@ -27,6 +30,8 @@ client.interceptors.request.use(async (config) => {
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
+        // Essential for ngrok: avoid the landing page 'Welcome to ngrok'
+        config.headers['ngrok-skip-browser-warning'] = 'true';
     } catch (error) {
         console.error("[API] Token retrieval failed", error);
     }
