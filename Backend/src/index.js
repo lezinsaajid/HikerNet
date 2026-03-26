@@ -20,10 +20,25 @@ import chatRoutes from "./routes/chat.js";
 import { connectDB } from "./lib/db.js";
 import errorMiddleware from "./middleware/error.middleware.js";
 
+import { createServer } from "http";
+import { Server } from "socket.io";
+import { initSocket } from "./services/socketService.js";
+
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 
 console.log("Hikernet Backend Starting...");
+
+// Initialize Socket Service
+initSocket(io);
 
 job.start();
 
@@ -55,7 +70,7 @@ if (process.env.COLLECT_COVERAGE === 'true') {
 // Error Handling Middleware (must be last)
 app.use(errorMiddleware);
 
-app.listen(PORT, '0.0.0.0', () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     connectDB();
-});
+});
