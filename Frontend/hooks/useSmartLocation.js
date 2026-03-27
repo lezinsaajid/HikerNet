@@ -115,17 +115,17 @@ export const useSmartLocation = (isTracking) => {
 
                         if (isInitialLock || (lastValidatedLoc.current && distFromLast >= 5)) {
                             // Secondary check: Are we actually walking? (If pedometer is available)
-                            // If pedometer says we haven't moved in 10s, but GPS says 5m, it might be drift.
                             const timeSinceLastStep = Date.now() - lastStepTime.current;
                             if (lastValidatedLoc.current && timeSinceLastStep > 10000 && distFromLast < 10) {
-                                // console.log("[SmartLocation] Stationary drift suspected. Skipping point.");
                                 return;
                             }
 
                             const validPoint = { latitude, longitude, accuracy, altitude, timestamp: newLoc.timestamp };
-                            console.log(`[SmartLocation] VALIDATED: ${isInitialLock ? 'Start' : distFromLast.toFixed(1) + 'm'} move.`);
                             lastValidatedLoc.current = validPoint;
                             setLocation(validPoint);
+                        } else if (!location && accuracy <= 30) {
+                            // Fallback for map initialization: Show SOMETHING even if accuracy isn't perfect for recording yet
+                            setLocation({ latitude, longitude, accuracy, altitude, timestamp: newLoc.timestamp });
                         }
                     }
                 );
