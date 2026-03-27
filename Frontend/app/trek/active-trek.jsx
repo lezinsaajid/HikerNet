@@ -65,6 +65,7 @@ export default function ActiveTrek() {
     const [routeCoordinates, setRouteCoordinates] = useState([]); 
     const routeRef = useRef([]);
     const [targetRoute, setTargetRoute] = useState([]); 
+    const [navigationPolyline, setNavigationPolyline] = useState([]); // Unified path for guidance
     const resumedFromPauseRef = useRef(false);
     const [currentNavIndex, setCurrentNavIndex] = useState(0);
     const [navDirection, setNavDirection] = useState('forward'); 
@@ -130,18 +131,8 @@ export default function ActiveTrek() {
         let displayLoc = currentLoc;
 
         // Logic for Navigation (Unified Engine)
-        const flatRoute = pathSegments.flat();
-        let navigationPolyline = [];
-        let navigationDirection = navDirection;
-
-        if (isTrailingBack) {
-            // When trailing back, use targetRoute if available, otherwise use recorded path
-            navigationPolyline = isReusingTrail ? targetRoute : pathSegments.flat();
-            navigationDirection = 'backward';
-        } else if (isReusingTrail) {
-            navigationPolyline = targetRoute;
-            navigationDirection = 'forward';
-        }
+        // navigationPolyline is now a state variable initialized at start/trek-back
+        const navigationDirection = 'forward'; // Engine always moves forward relative to its target polyline
 
         // 1. PRE-PROCESS NAVIGATION (DISTANCE & SNAPPING)
         let distance = Infinity;
@@ -239,17 +230,26 @@ export default function ActiveTrek() {
                 }
 
                 // SUB-PHASE: DESTINATION REACHED?
-                if (!trailFinished && !isTrailingBack) {
-                    const endTargetIndex = navigationDirection === 'forward' ? navigationPolyline.length - 1 : 0;
-                    const finalPoint = navigationPolyline[endTargetIndex];
-                    const distToEnd = getDistance(currentLoc.latitude, currentLoc.longitude, finalPoint.latitude, finalPoint.longitude);
-                    
-                    if (distToEnd < 10 && hasReachedMidpoint && !hasAlertedCompletion.current) {
-                        hasAlertedCompletion.current = true;
-                        setNavGuidance("You have reached your destination.");
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        // Force transition to completion state for UI buttons
-                        setTrailFinished(true); // User said "Reaching destination -> Show button 'Start Trek Back'"
+                if (!trailFinished && navigationPolyline.length > 0) {
+                    const finalPoint = navigationPolyline[navigationPolyline.length - 1];
+                    if (finalPoint) {
+                        const distToGoal = getDistance(currentLoc.latitude, currentLoc.longitude, finalPoint.latitude, finalPoint.longitude);
+                        
+                        if (distToGoal < 10 && hasReachedMidpoint && !hasAlertedCompletion.current) {
+                            hasAlertedCompletion.current = true;
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+                            if (isTrailingBack) {
+                                Alert.alert("Trek Completed", "You have reached the starting point of the trail.");
+                                setIsTrailingBack(false);
+                                setNavigationPolyline([]);
+                                setFlowState('idle');
+                                setNavGuidance("Trek Completed!");
+                            } else {
+                                setNavGuidance("You have reached your destination.");
+                                setTrailFinished(true); 
+                            }
+                        }
                     }
                 }
 
@@ -302,12 +302,12 @@ export default function ActiveTrek() {
                 hasAlertedOffTrack.current = false;
             }
         }
-    }, [smoothedLocation, isTrailingBack, routeCoordinates, targetRoute, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished, mapViewMode, trailId]);
+    }, [smoothedLocation, isTrailingBack, navigationPolyline, routeCoordinates, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished, mapViewMode, trailId]);
 
 
-    // React to validated location updates for RECORDING & STATS
     useEffect(() => {
-        if (!isTracking || !validatedLocation || trailFinished || isPaused || role !== 'leader') return;
+        // Allow stats tracking during trek-back even if isTracking is false
+        if ((!isTracking && !isTrailingBack) || !validatedLocation || trailFinished || isPaused || role !== 'leader') return;
 
         const { latitude, longitude, altitude } = validatedLocation;
         const newPoint = { latitude, longitude };
@@ -336,65 +336,67 @@ export default function ActiveTrek() {
         
         lastStatsPointRef.current = { latitude, longitude, altitude };
 
-        // 2. PATH STORAGE
-        setRouteCoordinates(prev => {
-            const updated = [...prev, newPoint];
-            routeRef.current = updated;
-            return updated;
-        });
+        // 2. PATH STORAGE & SEGMENT MANAGEMENT (Skip if trekking back to prevent overlapping new points)
+        if (!isTrailingBack) {
+            setRouteCoordinates(prev => {
+                const updated = [...prev, newPoint];
+                routeRef.current = updated;
+                return updated;
+            });
 
-        const segments = pathSegmentsRef.current;
-        const lastSeg = segments[segments.length - 1];
-        let isNewSegment = false;
-        
-        if (lastSeg && lastSeg.length > 0) {
-            const lastPathPoint = lastSeg[lastSeg.length - 1];
-            const distFromLastPath = getDistance(latitude, longitude, lastPathPoint.latitude, lastPathPoint.longitude);
+            const segments = pathSegmentsRef.current;
+            const lastSeg = segments[segments.length - 1];
+            let isNewSegment = false;
             
-            if (resumedFromPauseRef.current) {
-                if (distFromLastPath > 20) {
-                    Alert.alert("Resumed Tracking", `You are ${Math.round(distFromLastPath)}m away from the previous trail point. Starting a new trail segment.`);
-                    isNewSegment = true;
+            if (lastSeg && lastSeg.length > 0) {
+                const lastPathPoint = lastSeg[lastSeg.length - 1];
+                const distFromLastPath = getDistance(latitude, longitude, lastPathPoint.latitude, lastPathPoint.longitude);
+                
+                if (resumedFromPauseRef.current) {
+                    if (distFromLastPath > 20) {
+                        Alert.alert("Resumed Tracking", `You are ${Math.round(distFromLastPath)}m away from the previous trail point. Starting a new trail segment.`);
+                        isNewSegment = true;
+                    }
+                    resumedFromPauseRef.current = false;
                 }
-                resumedFromPauseRef.current = false;
+            } else if (segments.length === 0 || (segments.length === 1 && segments[0].length === 0)) {
+                 isNewSegment = true; // First ever point
             }
-        } else if (segments.length === 0 || (segments.length === 1 && segments[0].length === 0)) {
-             isNewSegment = true; // First ever point
+
+            setPathSegments(prev => {
+                let updated = [...prev];
+                let targetSegmentIndex = updated.length - 1;
+
+                if (isNewSegment && updated.length > 0 && updated[updated.length - 1].length > 0) {
+                    updated.push([newPoint]);
+                    targetSegmentIndex++;
+                } else {
+                    if(updated.length === 0) {
+                        updated.push([]);
+                        targetSegmentIndex = 0;
+                    }
+                    
+                    const currentSegment = [...updated[targetSegmentIndex]];
+                    
+                    // Advanced Loop Detection
+                    const loopData = detectIntersectionLoop(newPoint, currentSegment, currentSegment.length);
+                    if (loopData && loopData.isLoop) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                        Alert.alert(
+                            "⚠️ Loop Detected",
+                            "Redundant path segment safely removed to maintain trail integrity.",
+                            [{ text: "OK" }]
+                        );
+                        currentSegment.splice(loopData.loopStartIndex + 1); // Erase loop points
+                    }
+
+                    currentSegment.push(newPoint);
+                    updated[targetSegmentIndex] = currentSegment;
+                }
+                pathSegmentsRef.current = updated;
+                return updated;
+            });
         }
-
-        setPathSegments(prev => {
-            let updated = [...prev];
-            let targetSegmentIndex = updated.length - 1;
-
-            if (isNewSegment && updated.length > 0 && updated[updated.length - 1].length > 0) {
-                updated.push([newPoint]);
-                targetSegmentIndex++;
-            } else {
-                if(updated.length === 0) {
-                    updated.push([]);
-                    targetSegmentIndex = 0;
-                }
-                
-                const currentSegment = [...updated[targetSegmentIndex]];
-                
-                // Advanced Loop Detection
-                const loopData = detectIntersectionLoop(newPoint, currentSegment, currentSegment.length);
-                if (loopData && loopData.isLoop) {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                    Alert.alert(
-                        "⚠️ Loop Detected",
-                        "Redundant path segment safely removed to maintain trail integrity.",
-                        [{ text: "OK" }]
-                    );
-                    currentSegment.splice(loopData.loopStartIndex + 1); // Erase loop points
-                }
-
-                currentSegment.push(newPoint);
-                updated[targetSegmentIndex] = currentSegment;
-            }
-            pathSegmentsRef.current = updated;
-            return updated;
-        });
 
         // 3. INCREMENTAL SYNC TO BACKEND & SOCKET (LEADER ONLY)
         if (trailIdRef.current && role === 'leader') {
@@ -450,6 +452,7 @@ export default function ActiveTrek() {
                         setRouteCoordinates(mappedSegments.flat());
                         routeRef.current = mappedSegments.flat();
                         setTargetRoute(mappedSegments.flat());
+                        setNavigationPolyline(mappedSegments.flat());
                         pathSegmentsRef.current = mappedSegments;
                     }
 
@@ -644,6 +647,7 @@ export default function ActiveTrek() {
             hasAlertedCompletion.current = false;
             setCurrentNavIndex(0);
             setNavDirection('forward');
+            setNavigationPolyline(isReusingTrail ? targetRoute : []);
             setHasJoinedTrail(false);
             setHasReachedMidpoint(false);
             setOffTrackWarning(false);
@@ -756,17 +760,37 @@ export default function ActiveTrek() {
     };
 
     const handleTrailBack = () => {
+        // Snapshot the current path for trek-back
+        let sourcePath = [];
+        if (isReusingTrail && targetRoute.length > 0) {
+            sourcePath = [...targetRoute];
+        } else if (routeCoordinates.length > 0) {
+            sourcePath = [...routeCoordinates];
+        } else if (pathSegments.flat().length > 0) {
+            sourcePath = pathSegments.flat();
+        }
+
+        if (sourcePath.length < 2) {
+            Alert.alert("Trek Back Error", "Not enough trail data to generate a return journey.");
+            return;
+        }
+
+        const reversedPath = [...sourcePath].reverse();
+        
         setIsTrailingBack(true);
-        setNavDirection('backward');
+        setNavDirection('forward'); // Forward relative to the reversed path
         setFlowState('trekback');
+        setNavigationPolyline(reversedPath);
+        setCurrentNavIndex(0); 
+        
         hasAlertedOffTrack.current = false;
         hasAlertedCompletion.current = false;
-        setHasJoinedTrail(true); // Already on trail
-        setHasReachedMidpoint(false);
-        setNavGuidance("Trek back mode active.");
+        setHasJoinedTrail(true); 
+        setTrailFinished(false); 
+        setIsPaused(false); // Ensure unpaused
+        setNavGuidance("Trek back mode active. Follow the path back.");
         
-        // Ensure tracking is active but in "back" mode
-        pausedRef.current = true; // Stop recording original path points
+        pausedRef.current = false; // Start immediate tracking
     };
 
     const handleExit = () => {
@@ -912,36 +936,20 @@ export default function ActiveTrek() {
     };
 
     const { visibleRoute, fadedRoute } = useMemo(() => {
-        let sourcePolyline = [];
-        if (isTrailingBack) {
-            sourcePolyline = routeCoordinates; // Use recorded path for backtrack
-        } else if (isReusingTrail) {
-            sourcePolyline = targetRoute; // Use uploaded path
-        } else {
-            sourcePolyline = routeCoordinates; // Standard sessionrecording
-        }
-
+        const sourcePolyline = navigationPolyline.length > 0 ? navigationPolyline : routeCoordinates;
+        
         if (sourcePolyline.length === 0) {
             return { visibleRoute: [], fadedRoute: [] };
         }
         
         const safeIndex = Math.max(0, Math.min(currentNavIndex, sourcePolyline.length - 1));
         
-        const navDir = isTrailingBack ? 'backward' : navDirection;
-
-        if (navDir === 'forward') {
-            return {
-                fadedRoute: sourcePolyline.slice(0, safeIndex + 1),
-                visibleRoute: sourcePolyline.slice(safeIndex)
-            };
-        } else {
-            // Backward: Faded is from End down to current index
-            return {
-                fadedRoute: sourcePolyline.slice(safeIndex),
-                visibleRoute: sourcePolyline.slice(0, safeIndex + 1)
-            };
-        }
-    }, [isTrailingBack, isReusingTrail, pathSegments, routeCoordinates, targetRoute, currentNavIndex, navDirection]);
+        // Fading is always relative to currentNavIndex on the active navigationPolyline
+        return {
+            fadedRoute: sourcePolyline.slice(0, safeIndex + 1),
+            visibleRoute: sourcePolyline.slice(safeIndex)
+        };
+    }, [isTrailingBack, isReusingTrail, navigationPolyline, routeCoordinates, currentNavIndex]);
 
     // Explicit markers for Start/End
     const startPoint = isReusingTrail && targetRoute.length > 0 
@@ -981,7 +989,7 @@ export default function ActiveTrek() {
                             }
                         }}
                     >
-                        {!isReusingTrail && pathSegments.map((segment, idx) => (
+                        {!isReusingTrail && !isTrailingBack && pathSegments.map((segment, idx) => (
                             segment.length > 0 ? (
                                 <Polyline
                                     key={`seg-${idx}`}
