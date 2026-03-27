@@ -115,7 +115,7 @@ export default function ActiveTrek() {
         gpsAccuracy,
         accuracyStatus,
         error: locationError
-    } = useSmartLocation(isTracking || isTrailingBack || (!hasStarted && role === 'leader'));
+    } = useSmartLocation(isTracking || isTrailingBack || (!hasStarted && role === 'leader') || (role === 'member' && !!trailId));
 
     const userHeading = useCompass(!trailFinished); // Ensure compass runs anytime you're tracking or preparing to track
 
@@ -279,24 +279,30 @@ export default function ActiveTrek() {
         }
 
         // 5. GROUP TREK: REPORT LOCATION & DRIFT
-        if (mode === 'group' && socketRef.current && trailId) {
-            const isOffTrail = distance > 25;
-            socketRef.current.emit('participant-location-update', {
+        if (socketRef.current && trailId) {
+            const isOffTrail = distance > 10;
+            const driftData = {
                 trekId: trailId,
                 userId: currentUser?._id,
                 username: currentUser?.username,
                 location: currentLoc,
                 isOffTrail: isOffTrail,
                 distanceToTrail: Math.round(distance)
-            });
+            };
 
-            if (isOffTrail && role === 'member' && !hasAlertedOffTrack.current) {
+            socketRef.current.emit('participant-location-update', driftData);
+
+            if (isOffTrail && !hasAlertedOffTrack.current) {
                 hasAlertedOffTrack.current = true;
-                socketRef.current.emit('drift-alert', {
+                if (role === 'member') {
+                    setNavGuidance("You have moved away from the trail");
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                }
+                socketRef.current.emit('drift-notification', {
                     trekId: trailId,
                     userId: currentUser?._id,
                     username: currentUser?.username,
-                    distance: distance
+                    isOffTrail: true
                 });
             } else if (!isOffTrail) {
                 hasAlertedOffTrack.current = false;
@@ -378,16 +384,26 @@ export default function ActiveTrek() {
                     
                     const currentSegment = [...updated[targetSegmentIndex]];
                     
-                    // Advanced Loop Detection
-                    const loopData = detectIntersectionLoop(newPoint, currentSegment, currentSegment.length);
+                    // Advanced Global Loop Detection
+                    // We check the new point against the ENTIRE flattened path history
+                    const fullPath = updated.flat();
+                    const loopData = detectIntersectionLoop(newPoint, fullPath, fullPath.length);
+                    
                     if (loopData && loopData.isLoop) {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                         Alert.alert(
                             "⚠️ Loop Detected",
-                            "Redundant path segment safely removed to maintain trail integrity.",
+                            "Redundant trail loop safely removed to maintain path integrity.",
                             [{ text: "OK" }]
                         );
-                        currentSegment.splice(loopData.loopStartIndex + 1); // Erase loop points
+                        
+                        // We need to trim the correct segment
+                        // This is tricky if it spans multiple segments, but usually it's in the current one
+                        // For now, we trim the current segment to avoid complex cross-segment deletion
+                        const relativeIndex = loopData.loopStartIndex - (fullPath.length - currentSegment.length);
+                        if (relativeIndex >= 0) {
+                            currentSegment.splice(relativeIndex + 1);
+                        }
                     }
 
                     currentSegment.push(newPoint);
@@ -396,23 +412,23 @@ export default function ActiveTrek() {
                 pathSegmentsRef.current = updated;
                 return updated;
             });
-        }
 
-        // 3. INCREMENTAL SYNC TO BACKEND & SOCKET (LEADER ONLY)
-        if (trailIdRef.current && role === 'leader') {
-             // Sync to DB
-            client.put(`/treks/update/${trailIdRef.current}`, {
-                coordinates: [newPoint],
-                isNewSegment: isNewSegment
-            }).catch(e => console.error("Incremental sync error", e));
-
-            // Sync to Socket
-            if (socketRef.current) {
-                socketRef.current.emit('trail-point-shared', {
-                    trekId: trailIdRef.current,
-                    point: newPoint,
+            // 3. INCREMENTAL SYNC TO BACKEND & SOCKET (LEADER ONLY)
+            if (trailIdRef.current && role === 'leader') {
+                 // Sync to DB
+                client.put(`/treks/update/${trailIdRef.current}`, {
+                    coordinates: [newPoint],
                     isNewSegment: isNewSegment
-                });
+                }).catch(e => console.error("Incremental sync error", e));
+
+                // Sync to Socket
+                if (socketRef.current) {
+                    socketRef.current.emit('trail-point-shared', {
+                        trekId: trailIdRef.current,
+                        point: newPoint,
+                        isNewSegment: isNewSegment
+                    });
+                }
             }
         }
     }, [isTracking, validatedLocation, isPaused, trailFinished, role, isTrailingBack, isReusingTrail, trailId]);
@@ -486,7 +502,7 @@ export default function ActiveTrek() {
         });
         socketRef.current = socket;
 
-        socket.emit('join-trek', { trekId: trailId, userId: currentUser?._id });
+        socket.emit('join-trek', { trekId: trailId, userId: currentUser?._id, username: currentUser?.username });
 
         socket.on('trail-point-received', ({ point, isNewSegment }) => {
             if (role === 'member') {
@@ -507,8 +523,26 @@ export default function ActiveTrek() {
             }
         });
 
-        socket.on('participant-location-received', ({ userId, username, location: pLoc, isOffTrail: pOff, distanceToTrail: pDist }) => {
+        socket.on('participant-joined', ({ username }) => {
             if (role === 'leader') {
+                Alert.alert("New Participant", `${username} has joined the trek.`);
+            }
+        });
+
+        socket.on('participant-left', ({ username }) => {
+            if (role === 'leader') {
+                Alert.alert("Participant Left", `${username} has left the trek.`);
+            }
+            setParticipants(prev => {
+                const updated = { ...prev };
+                // Find and remove by username or we might need userId from server
+                return updated;
+            });
+        });
+
+        socket.on('participant-location-received', ({ userId, username, location: pLoc, isOffTrail: pOff, distanceToTrail: pDist }) => {
+            // Everyone should see everyone else
+            if (userId !== currentUser?._id) { 
                 setParticipants(prev => ({
                     ...prev,
                     [userId]: { location: pLoc, username, isOffTrail: pOff, distanceToTrail: pDist }
@@ -518,19 +552,33 @@ export default function ActiveTrek() {
 
         socket.on('trek-control-received', ({ action }) => {
             if (role === 'member') {
+                if (action === 'START') {
+                    setHasStarted(true);
+                    setIsTracking(true);
+                    setNavGuidance("Trek started by leader.");
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+                if (action === 'TREKBACK') {
+                    handleTrailBack(true); // Call with remote flag
+                }
                 if (action === 'PAUSE') setIsPaused(true);
                 if (action === 'RESUME') setIsPaused(false);
                 if (action === 'STOP') {
                     setTrailFinished(true);
                     setIsTracking(false);
+                    setNavGuidance("Trek finished by leader.");
                 }
             }
         });
 
-        socket.on('drift-notification', ({ username: driftUser, message }) => {
+        socket.on('drift-notification', ({ userId: driftUserId, username: driftUser, isOffTrail }) => {
+            if (driftUserId === currentUser?._id) return; // Self alert handled locally
+
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             if (role === 'leader') {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                // We show this via participant markers mostly, but toast is good
+                setNavGuidance(`${driftUser} has moved away from the trail!`);
+            } else {
+                setNavGuidance(`${driftUser} is off the trail.`);
             }
         });
 
@@ -680,6 +728,16 @@ export default function ActiveTrek() {
                 setMapViewMode('navigation');
                 setNavGuidance("Trek started.");
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+                // Emit START action to room
+                if (socketRef.current) {
+                    socketRef.current.emit('trek-control', { trekId: newId, action: 'START' });
+                }
+            } else {
+                 // If already has trailId (e.g. from params), just start and emit
+                 if (socketRef.current) {
+                    socketRef.current.emit('trek-control', { trekId: trailId, action: 'START' });
+                }
             }
 
             // await startLocationTracking(); // Handled by hook
@@ -759,7 +817,7 @@ export default function ActiveTrek() {
         ]);
     };
 
-    const handleTrailBack = () => {
+    const handleTrailBack = (isRemote = false) => {
         // Snapshot the current path for trek-back
         let sourcePath = [];
         if (isReusingTrail && targetRoute.length > 0) {
@@ -771,26 +829,52 @@ export default function ActiveTrek() {
         }
 
         if (sourcePath.length < 2) {
-            Alert.alert("Trek Back Error", "Not enough trail data to generate a return journey.");
+            if (!isRemote) Alert.alert("Trek Back Error", "Not enough trail data to generate a return journey.");
             return;
         }
 
         const reversedPath = [...sourcePath].reverse();
         
         setIsTrailingBack(true);
-        setNavDirection('forward'); // Forward relative to the reversed path
+        setNavDirection('forward'); 
         setFlowState('trekback');
         setNavigationPolyline(reversedPath);
         setCurrentNavIndex(0); 
         
+        setStats({
+            distance: 0,
+            duration: 0,
+            elevationGain: 0,
+            avgSpeed: 0,
+            maxAltitude: -Infinity
+        });
+        lastStatsPointRef.current = null;
+
         hasAlertedOffTrack.current = false;
         hasAlertedCompletion.current = false;
         setHasJoinedTrail(true); 
         setTrailFinished(false); 
-        setIsPaused(false); // Ensure unpaused
-        setNavGuidance("Trek back mode active. Follow the path back.");
+        setIsPaused(false); 
+        setIsTracking(true);
+        setHasStarted(true);
+        setNavGuidance(isRemote ? "Leader started Trek Back." : "Trek back mode active. Follow the path back.");
         
-        pausedRef.current = false; // Start immediate tracking
+        pausedRef.current = false; 
+
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = setInterval(() => {
+            if (!pausedRef.current && !trailFinished) {
+                setStats(prev => ({ ...prev, duration: prev.duration + 1 }));
+            }
+        }, 1000);
+
+        // Emit to room if I am the leader and this wasn't a remote call
+        if (!isRemote && role === 'leader' && socketRef.current && trailId) {
+            socketRef.current.emit('trek-control', {
+                trekId: trailId,
+                action: 'TREKBACK'
+            });
+        }
     };
 
     const handleExit = () => {
@@ -1102,8 +1186,8 @@ export default function ActiveTrek() {
                             ))
                         }
 
-                        {/* Participant Markers for Leader */}
-                        {role === 'leader' && Object.entries(participants).map(([uid, p]) => (
+                        {/* Participant Markers - Visible to All */}
+                        {Object.entries(participants).map(([uid, p]) => (
                             <Marker
                                 key={`participant-${uid}`}
                                 coordinate={p.location}
@@ -1296,7 +1380,7 @@ export default function ActiveTrek() {
                                         >
                                             <Ionicons name="play-circle" size={24} color="white" style={{ marginRight: 10 }} />
                                             <Text style={styles.startBigBtnText}>
-                                                {!gpsAccuracy || gpsAccuracy > 30 ? 'Waiting for GPS...' : 'Start Trail'}
+                                                {!gpsAccuracy || gpsAccuracy > 30 ? 'Waiting for GPS...' : (isTrailingBack ? 'Start Trek Back' : 'Start Trail')}
                                             </Text>
                                         </TouchableOpacity>
                                     )
