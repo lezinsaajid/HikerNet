@@ -146,7 +146,7 @@ export default function SoloTrek() {
             setDistanceToTrail(Math.round(distance));
 
             // Map user index progress
-            if (segmentIndex >= 0) {
+            if (segmentIndex >= 0 && distance <= 15) {
                 setCurrentNavIndex(segmentIndex);
                 
                 // MIDPOINT GUARD: Mark if user reached 50% progress
@@ -158,7 +158,7 @@ export default function SoloTrek() {
             }
 
             // Trail Snapping Logic
-            if (hasJoinedTrail && !offTrackWarning && distance > 2 && distance < 12) {
+            if (hasJoinedTrail && !offTrackWarning && distance > 2 && distance < 12 && !isTrailingBack) {
                 displayLoc = {
                     latitude: currentLoc.latitude + (snappedPoint.latitude - currentLoc.latitude) * 0.5,
                     longitude: currentLoc.longitude + (snappedPoint.longitude - currentLoc.longitude) * 0.5
@@ -197,7 +197,10 @@ export default function SoloTrek() {
             }
 
             if (hasJoinedTrail) {
-                if (distance > 15) {
+                const offTrackThreshold = 15;
+                const onTrackThreshold = 10;
+                
+                if (distance > offTrackThreshold) {
                     if (!offTrackWarning) {
                         setOffTrackWarning(true);
                         setNavGuidance(`Off trail! Head back to the path.`);
@@ -206,7 +209,7 @@ export default function SoloTrek() {
                     setReroutePath([currentLoc, snappedPoint]);
                     const bearing = calculateHeading(currentLoc, snappedPoint);
                     setTargetBearing(bearing);
-                } else if (offTrackWarning && distance <= 10) {
+                } else if (offTrackWarning && distance <= onTrackThreshold) {
                     setOffTrackWarning(false);
                     setNavGuidance("Back on track.");
                     setReroutePath([]);
@@ -258,7 +261,7 @@ export default function SoloTrek() {
         }
 
         // 5. DRIFT ALERTS (Local only for solo)
-        const isOffTrail = distance > 10;
+        const isOffTrail = distance > 15;
         if (isOffTrail && !hasAlertedOffTrack.current) {
             hasAlertedOffTrack.current = true;
             setNavGuidance("You have moved away from the trail");
@@ -649,26 +652,26 @@ export default function SoloTrek() {
         
         setIsTrailingBack(true);
         setNavDirection('forward'); 
+        // UI and tracking states
         setFlowState('trekback');
+        setMapViewMode('navigation');
+        setIsNavMode(true);
         setNavigationPolyline(reversedPath);
         setCurrentNavIndex(0); 
         
         setStats({
             distance: 0,
             duration: 0,
-            elevationGain: 0,
             avgSpeed: 0,
-            maxAltitude: -Infinity
+            elevationGain: 0,
+            lastElevation: null
         });
-        lastStatsPointRef.current = null;
 
-        hasAlertedOffTrack.current = false;
-        hasAlertedCompletion.current = false;
-        setHasJoinedTrail(true); 
-        setTrailFinished(false); 
-        setIsPaused(false); 
         setIsTracking(true);
         setHasStarted(true);
+        setHasJoinedTrail(true); 
+        setTrailFinished(false);
+        setIsPaused(false);
         setNavGuidance("Trek back mode active. Follow the path back.");
         pausedRef.current = false; 
     };
@@ -803,7 +806,7 @@ export default function SoloTrek() {
 
     const endPoint = isReusingTrail && targetRoute.length > 0
         ? targetRoute[targetRoute.length - 1]
-        : (trailFinished && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 
+        : ((trailFinished || isTrailingBack) && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 
             ? pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1] 
             : null);
 
@@ -874,17 +877,17 @@ export default function SoloTrek() {
                         
                         {(smoothedLocation || location) && (
                             <Marker
-                                coordinate={smoothedLocation || location}
+                                coordinate={smoothedLocation || location || { latitude: 0, longitude: 0 }}
                                 anchor={{ x: 0.5, y: 0.5 }}
-                                rotation={userHeading}
+                                rotation={userHeading || 0}
                                 flat={true}
-                                zIndex={999}
+                                zIndex={9999}
                             >
                                 <View style={styles.userMarkerContainer}>
                                     <View style={[styles.userMarkerPulse, { transform: [{ scale: 1.2 }] }]} />
                                     <View style={[styles.userMarkerPulse, { transform: [{ scale: 1.5 }], opacity: 0.2 }]} />
                                     
-                                    <View style={[styles.userMarkerContainerInner, { transform: [{ rotate: `${userHeading || 0}deg` }] }]}>
+                                    <View style={styles.userMarkerContainerInner}>
                                         <View style={styles.userMarkerDot} />
                                         <Ionicons name="caret-up" size={24} color="#007bff" style={styles.userMarkerArrow} />
                                     </View>
@@ -915,14 +918,14 @@ export default function SoloTrek() {
                         {reroutePath.length > 0 && (
                             <Polyline
                                 coordinates={reroutePath}
-                                strokeWidth={4}
-                                strokeColor="#dc3545"
-                                lineDashPattern={[10, 10]}
+                                strokeWidth={getPolylineWidth(mapZoomLevel)}
+                                strokeColor="#9c27b0"
                                 geodesic={true}
+                                zIndex={150}
                             />
                         )}
 
-                        {baseWaypoints.filter(m => m.title !== "Start Point" && m.title !== "End Point").map((m, i) => (
+                        {baseWaypoints.filter(m => m.type !== "Start Point" && m.type !== "End Point").map((m, i) => (
                             <Marker
                                 key={`base-${i}`}
                                 coordinate={{ latitude: m.latitude, longitude: m.longitude }}
@@ -931,7 +934,7 @@ export default function SoloTrek() {
                             />
                         ))}
 
-                        {markers.filter(m => m.title !== "Start Point" && m.title !== "End Point").map((m, i) => (
+                        {markers.filter(m => m.type !== "Start Point" && m.type !== "End Point").map((m, i) => (
                             <Marker
                                 key={i}
                                 coordinate={{ latitude: m.latitude, longitude: m.longitude }}
@@ -1093,6 +1096,11 @@ export default function SoloTrek() {
                                     <TouchableOpacity style={[styles.button, styles.stopBtn]} onPress={handleStopTrail}>
                                         <Ionicons name="stop" size={32} color="white" />
                                     </TouchableOpacity>
+                                    {isPaused && !isTrailingBack && (
+                                        <TouchableOpacity style={[styles.button, styles.trailBackBtn]} onPress={handleTrailBack}>
+                                            <Ionicons name="arrow-undo" size={32} color="white" />
+                                        </TouchableOpacity>
+                                    )}
                                 </>
                             )}
                         </View>

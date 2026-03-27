@@ -180,12 +180,12 @@ export default function GroupTrek() {
             segmentIndex = result.segmentIndex;
             setDistanceToTrail(Math.round(distance));
 
-            if (segmentIndex >= 0) {
+            if (segmentIndex >= 0 && distance <= 15) {
                 setCurrentNavIndex(segmentIndex);
                 if (segmentIndex > navigationPolyline.length * 0.5) setHasReachedMidpoint(true);
             }
 
-            if (hasJoinedTrail && !offTrackWarning && distance > 2 && distance < 12) {
+            if (hasJoinedTrail && !offTrackWarning && distance > 2 && distance < 12 && !isTrailingBack) {
                 displayLoc = {
                     latitude: currentLoc.latitude + (snappedPoint.latitude - currentLoc.latitude) * 0.5,
                     longitude: currentLoc.longitude + (snappedPoint.longitude - currentLoc.longitude) * 0.5
@@ -209,7 +209,10 @@ export default function GroupTrek() {
                 }
                 setDistanceToTrail(Math.round(distToStart));
             } else if (hasJoinedTrail) {
-                if (distance > 15) {
+                const offTrackThreshold = 15;
+                const onTrackThreshold = 10;
+                
+                if (distance > offTrackThreshold) {
                     if (!offTrackWarning) {
                         setOffTrackWarning(true);
                         setNavGuidance("Off trail!");
@@ -217,7 +220,7 @@ export default function GroupTrek() {
                         emitDrift(true);
                     }
                     setReroutePath([currentLoc, snappedPoint]);
-                } else if (offTrackWarning && distance <= 10) {
+                } else if (offTrackWarning && distance <= onTrackThreshold) {
                     setOffTrackWarning(false);
                     setNavGuidance("On track.");
                     setReroutePath([]);
@@ -454,6 +457,16 @@ export default function GroupTrek() {
         return { fadedRoute: source.slice(0, idx + 1), visibleRoute: source.slice(idx) };
     }, [navigationPolyline, routeCoordinates, currentNavIndex]);
 
+    const startPoint = isReusingTrail && targetRoute.length > 0 
+        ? targetRoute[0] 
+        : (pathSegments.length > 0 && pathSegments[0].length > 0 ? pathSegments[0][0] : null);
+
+    const endPoint = isReusingTrail && targetRoute.length > 0
+        ? targetRoute[targetRoute.length - 1]
+        : ((trailFinished || isTrailingBack) && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 
+            ? pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1] 
+            : null);
+
     return (
         <View style={styles.container}>
             {location ? (
@@ -508,8 +521,29 @@ export default function GroupTrek() {
                             </Marker>
                         ))}
 
-                        {baseWaypoints.map((m, i) => <Marker key={`b-${i}`} coordinate={m} pinColor="indigo" />)}
-                        {markers.map((m, i) => <Marker key={i} coordinate={m} pinColor={MARKER_ICONS.find(ic => ic.name === m.icon)?.color || 'red'} />)}
+                        {startPoint && (
+                            <Marker coordinate={startPoint} anchor={{x: 0.5, y: 1}}>
+                                <View style={{ alignItems: 'center' }}>
+                                    <View style={{ backgroundColor: '#28a745', padding: 4, borderRadius: 4, marginBottom: 2 }}>
+                                        <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>Start</Text>
+                                    </View>
+                                    <Ionicons name="location" size={30} color="#28a745" />
+                                </View>
+                            </Marker>
+                        )}
+                        {endPoint && (
+                            <Marker coordinate={endPoint} anchor={{x: 0.5, y: 1}}>
+                                <View style={{ alignItems: 'center' }}>
+                                    <View style={{ backgroundColor: '#dc3545', padding: 4, borderRadius: 4, marginBottom: 2 }}>
+                                        <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>End</Text>
+                                    </View>
+                                    <Ionicons name="location" size={30} color="#dc3545" />
+                                </View>
+                            </Marker>
+                        )}
+
+                        {baseWaypoints.filter(m => m.type !== "Start Point" && m.type !== "End Point").map((m, i) => <Marker key={`b-${i}`} coordinate={m} pinColor="indigo" />)}
+                        {markers.filter(m => m.type !== "Start Point" && m.type !== "End Point").map((m, i) => <Marker key={i} coordinate={m} pinColor={MARKER_ICONS.find(ic => ic.name === m.icon)?.color || 'red'} />)}
                     </NativeMap >
 
                     {offTrackWarning && (
