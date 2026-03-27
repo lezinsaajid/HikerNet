@@ -193,8 +193,11 @@ router.put("/update/:id", protectRoute, async (req, res) => {
             return res.status(404).json({ message: "Trek not found or unauthorized" });
         }
 
-        if (coordinates && Array.isArray(coordinates)) {
-            // If API sends objects {latitude, longitude}, convert to [lng, lat]
+        if (req.body.path) {
+            // Full path replacement (e.g. after loop detection or segment manipulation)
+            trek.path = req.body.path;
+        } else if (coordinates && Array.isArray(coordinates)) {
+            // Incremental append logic (existing)
             const newPoints = coordinates.map(p => {
                 if (Array.isArray(p)) return p;
                 if (p.latitude && p.longitude) return [p.longitude, p.latitude];
@@ -202,7 +205,6 @@ router.put("/update/:id", protectRoute, async (req, res) => {
             }).filter(p => p !== null);
 
             if (!trek.path || !trek.path.coordinates || trek.path.coordinates.length === 0) {
-                // Initialize path as MultiLineString by default to support segments
                 if (newPoints.length === 1) {
                     const p1 = newPoints[0];
                     const p2 = [p1[0] + 0.000001, p1[1]];
@@ -212,14 +214,12 @@ router.put("/update/:id", protectRoute, async (req, res) => {
                 }
             } else {
                 if (trek.path.type === 'LineString') {
-                    // Convert old LineString to MultiLineString format on the fly
                     trek.path = { type: 'MultiLineString', coordinates: [trek.path.coordinates] };
                 }
 
                 if (req.body.isNewSegment) {
                     trek.path.coordinates.push(newPoints);
                 } else {
-                    // Append points to the last segment
                     const lastSegmentIndex = trek.path.coordinates.length - 1;
                     trek.path.coordinates[lastSegmentIndex].push(...newPoints);
                 }

@@ -40,9 +40,12 @@ export const useCompass = (isEnabled) => {
                     }
 
                     const smoothed = (lastHeading.current + alpha * diff + 360) % 360;
+                    const rounded = Math.round(smoothed);
 
-                    lastHeading.current = smoothed;
-                    setHeading(Math.round(smoothed));
+                    if (rounded !== Math.round(lastHeading.current)) {
+                        lastHeading.current = smoothed;
+                        setHeading(rounded);
+                    }
                 });
             } catch (error) {
                 console.warn("[Compass] Hardware Compass isn't supported or failed:", error);
