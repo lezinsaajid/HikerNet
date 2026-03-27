@@ -40,7 +40,8 @@ export default function ActiveTrek() {
     const router = useRouter();
     const params = useLocalSearchParams();
     useKeepAwake(); // Prevent screen from sleeping while tracking
-    const { name, description, location: initialLocation, mode, trailId: paramTrailId, role = 'leader', uploadedTrailId } = params;
+    const { name, description, location: initialLocation, mode, trailId: paramTrailId, role: paramRole, leaderId, uploadedTrailId } = params;
+    const role = (paramRole || 'leader').toLowerCase();
 
     const [location, setLocation] = useState(null);
     const [isTracking, setIsTracking] = useState(false);
@@ -279,34 +280,34 @@ export default function ActiveTrek() {
         }
 
         // 5. GROUP TREK: REPORT LOCATION & DRIFT
-        if (socketRef.current && trailId) {
-            const isOffTrail = distance > 10;
-            const driftData = {
+        const isOffTrail = distance > 10;
+        
+        // Broadcast location to room (All Roles)
+        if (mode === 'group' && socketRef.current) {
+            socketRef.current.emit('participant-location-update', {
                 trekId: trailId,
                 userId: currentUser?._id,
                 username: currentUser?.username,
-                location: currentLoc,
-                isOffTrail: isOffTrail,
+                location: { latitude: currentLoc.latitude, longitude: currentLoc.longitude },
+                isOffTrail,
                 distanceToTrail: Math.round(distance)
-            };
+            });
+        }
 
-            socketRef.current.emit('participant-location-update', driftData);
-
-            if (isOffTrail && !hasAlertedOffTrack.current) {
-                hasAlertedOffTrack.current = true;
-                if (role === 'member') {
-                    setNavGuidance("You have moved away from the trail");
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                }
-                socketRef.current.emit('drift-notification', {
-                    trekId: trailId,
-                    userId: currentUser?._id,
-                    username: currentUser?.username,
-                    isOffTrail: true
-                });
-            } else if (!isOffTrail) {
-                hasAlertedOffTrack.current = false;
+        if (isOffTrail && !hasAlertedOffTrack.current) {
+            hasAlertedOffTrack.current = true;
+            if (role === 'member') {
+                setNavGuidance("You have moved away from the trail");
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             }
+            socketRef.current.emit('drift-notification', {
+                trekId: trailId,
+                userId: currentUser?._id,
+                username: currentUser?.username,
+                isOffTrail: true
+            });
+        } else if (!isOffTrail) {
+            hasAlertedOffTrack.current = false;
         }
     }, [smoothedLocation, isTrailingBack, navigationPolyline, routeCoordinates, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished, mapViewMode, trailId]);
 
@@ -540,13 +541,21 @@ export default function ActiveTrek() {
             });
         });
 
-        socket.on('participant-location-received', ({ userId, username, location: pLoc, isOffTrail: pOff, distanceToTrail: pDist }) => {
-            // Everyone should see everyone else
-            if (userId !== currentUser?._id) { 
-                setParticipants(prev => ({
-                    ...prev,
-                    [userId]: { location: pLoc, username, isOffTrail: pOff, distanceToTrail: pDist }
-                }));
+        socket.on("participant-location-received", ({ userId, username, location: ploc, isOffTrail, distanceToTrail }) => {
+            setParticipants(prev => ({
+                ...prev,
+                [userId]: { username, location: ploc, isOffTrail, distanceToTrail, lastUpdate: Date.now() }
+            }));
+
+            // Auto-follow leader for members
+            const currentLeaderId = leaderId || trailId; // Fallback to trailId if leaderId not passed
+            if (role === 'member' && userId === currentLeaderId && mapViewMode === 'navigation') {
+                mapRef.current?.animateToRegion({
+                    latitude: ploc.latitude,
+                    longitude: ploc.longitude,
+                    latitudeDelta: 0.005,
+                    longitudeDelta: 0.005
+                }, 1000);
             }
         });
 

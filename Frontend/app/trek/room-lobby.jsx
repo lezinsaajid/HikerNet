@@ -87,9 +87,10 @@ export default function RoomLobby() {
                 router.replace({
                     pathname: '/trek/active-trek',
                     params: {
-                        trailId: roomId,
+                        trailId: data.trekId,
                         mode: 'group',
-                        role: 'member' // or logic for leader
+                        role: role, // Use current role
+                        leaderId: data.leader?._id
                     }
                 });
             }
@@ -182,8 +183,19 @@ export default function RoomLobby() {
                 return;
             }
 
-            await client.post('/rooms/start', { roomId });
-            // Navigation handled by polling check
+            const res = await client.post('/rooms/start', { roomId });
+            const { trekId } = res.data;
+
+            if (pollingRef.current) clearInterval(pollingRef.current);
+            router.replace({
+                pathname: '/trek/active-trek',
+                params: {
+                    trailId: trekId,
+                    mode: 'group',
+                    role: 'leader',
+                    leaderId: currentUser?._id
+                }
+            });
         } catch (error) {
             console.error(error);
             Alert.alert("Error", error.response?.data?.message || "Failed to start trail");
