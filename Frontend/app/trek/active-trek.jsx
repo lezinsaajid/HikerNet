@@ -283,8 +283,8 @@ export default function ActiveTrek() {
         const isOffTrail = distance > 10;
         
         // Broadcast location to room (All Roles)
-        if (mode === 'group' && socketRef.current) {
-            socketRef.current.emit('participant-location-update', {
+        if (mode === 'group' && socketRef.current && trailId) {
+            socket.emit('participant-location-update', {
                 trekId: trailId,
                 userId: currentUser?._id,
                 username: currentUser?.username,
@@ -503,7 +503,20 @@ export default function ActiveTrek() {
         });
         socketRef.current = socket;
 
+        setParticipants({}); // Reset participants for the new session
         socket.emit('join-trek', { trekId: trailId, userId: currentUser?._id, username: currentUser?.username });
+
+        // Immediate first emission to show marker quickly
+        if (location) {
+            socket.emit('participant-location-update', {
+                trekId: trailId,
+                userId: currentUser?._id,
+                username: currentUser?.username,
+                location: { latitude: location.latitude, longitude: location.longitude },
+                isOffTrail: false,
+                distanceToTrail: 0
+            });
+        }
 
         socket.on('trail-point-received', ({ point, isNewSegment }) => {
             if (role === 'member') {
@@ -542,6 +555,8 @@ export default function ActiveTrek() {
         });
 
         socket.on("participant-location-received", ({ userId, username, location: ploc, isOffTrail, distanceToTrail }) => {
+            if (userId === currentUser?._id) return; // Don't add ourselves to participants list
+            
             setParticipants(prev => ({
                 ...prev,
                 [userId]: { username, location: ploc, isOffTrail, distanceToTrail, lastUpdate: Date.now() }
@@ -1082,7 +1097,8 @@ export default function ActiveTrek() {
                             }
                         }}
                     >
-                        {!isReusingTrail && !isTrailingBack && pathSegments.map((segment, idx) => (
+                        {/* Live Recorded Path (Always Visible if Tracking) */}
+                        {!isTrailingBack && pathSegments.map((segment, idx) => (
                             segment.length > 0 ? (
                                 <Polyline
                                     key={`seg-${idx}`}
@@ -1092,7 +1108,7 @@ export default function ActiveTrek() {
                                     lineCap="round"
                                     lineJoin="round"
                                     geodesic={true}
-                                    zIndex={100} // Force on top of tiles
+                                    zIndex={110} // Higher than target route
                                 />
                             ) : null
                         ))}
