@@ -6,26 +6,30 @@ let io;
 export const initSocket = (socketIo) => {
     io = socketIo;
 
+    const socketToUser = new Map(); // socket.id -> { trekId, userId, username }
+
     io.on("connection", (socket) => {
         console.log("New client connected:", socket.id);
-
+ 
         // Join a specific trek room
-        socket.on("join-trek", ({ trekId, userId }) => {
-            socket.join(`trek_${trekId}`);
-            console.log(`User ${userId} joined room trek_${trekId}`);
+        socket.on("join-trek", ({ trekId, userId, username }) => {
+            const roomName = `trek_${trekId}`;
+            socket.join(roomName);
+            
+            socketToUser.set(socket.id, { trekId, userId, username });
+            
+            // Notify others
+            socket.to(roomName).emit("participant-joined", { userId, username });
+            console.log(`User ${username} (${userId}) joined room ${roomName}`);
         });
-
+ 
         // Leader: Shared absolute trail point
         socket.on("trail-point-shared", ({ trekId, point, isNewSegment }) => {
-            // Broadcast to all participants in the room
             socket.to(`trek_${trekId}`).emit("trail-point-received", { point, isNewSegment });
         });
-
-        // Participant: Share current location to leader
+ 
+        // Participant: Share current location
         socket.on("participant-location-update", ({ trekId, userId, username, location, isOffTrail, distanceToTrail }) => {
-            // Send only to the room, but client-side logic will ensure only leader processes it or 
-            // we could emit to a leader-specific event. 
-            // For simplicity, we broadcast to the room, and other members filter it out.
             socket.to(`trek_${trekId}`).emit("participant-location-received", {
                 userId,
                 username,
@@ -34,28 +38,34 @@ export const initSocket = (socketIo) => {
                 distanceToTrail
             });
         });
-
-        // Leader: Broadcast control actions (Pause, Stop, Start)
+ 
+        // Leader: Broadcast control actions
         socket.on("trek-control", ({ trekId, action }) => {
             socket.to(`trek_${trekId}`).emit("trek-control-received", { action });
         });
-
+ 
         // Real-time Waypoint (Pin) Sync
         socket.on("waypoint-added", ({ trekId, waypoint }) => {
             socket.to(`trek_${trekId}`).emit("waypoint-received", { waypoint });
         });
-
-        // Drift alert specifically for Leader's attention
-        socket.on("drift-alert", ({ trekId, userId, username, distance }) => {
+ 
+        // Drift notification broadcast
+        socket.on("drift-notification", ({ trekId, userId, username, isOffTrail }) => {
             socket.to(`trek_${trekId}`).emit("drift-notification", {
                 userId,
                 username,
-                distance,
-                message: `${username} has left the trail (${Math.round(distance)}m off).`
+                isOffTrail
             });
         });
-
+ 
         socket.on("disconnect", () => {
+            const userData = socketToUser.get(socket.id);
+            if (userData) {
+                const { trekId, username } = userData;
+                socket.to(`trek_${trekId}`).emit("participant-left", { username });
+                socketToUser.delete(socket.id);
+                console.log(`User ${username} left room trek_${trekId}`);
+            }
             console.log("Client disconnected:", socket.id);
         });
     });
