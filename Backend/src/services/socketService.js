@@ -27,6 +27,11 @@ export const initSocket = (socketIo) => {
         socket.on("trail-point-shared", ({ trekId, point, isNewSegment }) => {
             socket.to(`trek_${trekId}`).emit("trail-point-received", { point, isNewSegment });
         });
+
+        // Leader: Full path replacement (e.g. loop removed)
+        socket.on("trail-path-replaced", ({ trekId, path }) => {
+            socket.to(`trek_${trekId}`).emit("trail-path-received", { path });
+        });
  
         // Participant: Share current location
         socket.on("participant-location-update", ({ trekId, userId, username, location, isOffTrail, distanceToTrail }) => {
