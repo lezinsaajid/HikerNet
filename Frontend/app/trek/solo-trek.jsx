@@ -13,7 +13,8 @@ import { useAuth } from '../../context/AuthContext';
 import WeatherWidget from '../../components/WeatherWidget';
 import { useSmartLocation } from '../../hooks/useSmartLocation';
 import { useCompass } from '../../hooks/useCompass';
-import { getDistance, getPointToPathDistance, calculateHeading, detectIntersectionLoop } from '../../utils/geoUtils';
+import { getDistance, getPointToPathDistance, calculateHeading } from '../../utils/geoUtils';
+import { detectIntersectionLoop } from '../../utils/trekUtils';
 
 // icon map
 const MARKER_ICONS = [
@@ -49,6 +50,12 @@ export default function SoloTrek() {
     const [hasStarted, setHasStarted] = useState(false);
     const [hasJoinedTrail, setHasJoinedTrail] = useState(!uploadedTrailId && !paramTrailId);
     const [hasReachedMidpoint, setHasReachedMidpoint] = useState(false);
+    const [offTrailPath, setOffTrailPath] = useState([]); // Temporary drift path
+
+    const [isSimulating, setIsSimulating] = useState(false);
+    const [simLocation, setSimLocation] = useState(null); // Private RAW simulation data
+    const [simPhase, setSimPhase] = useState("Initializing..."); // Current testing stage
+    const simIntervalRef = useRef(null);
 
     const [stats, setStats] = useState({
         distance: 0,
@@ -61,8 +68,8 @@ export default function SoloTrek() {
     // Session ID
     const [trailId, setTrailId] = useState(paramTrailId && paramTrailId !== uploadedTrailId ? String(paramTrailId) : null);
     const [pathSegments, setPathSegments] = useState([[]]); 
+    const [ghostSegments, setGhostSegments] = useState([]); 
     const [routeCoordinates, setRouteCoordinates] = useState([]); 
-    const routeRef = useRef([]);
     const [targetRoute, setTargetRoute] = useState([]); 
     const [navigationPolyline, setNavigationPolyline] = useState([]); // Unified path for guidance
     const resumedFromPauseRef = useRef(false);
@@ -92,14 +99,39 @@ export default function SoloTrek() {
 
     // Timer Ref
     const autoFollowTimerRef = useRef(null);
+    const loopCooldownRef = useRef(0); // Cooldown for loop detection (points since last loop)
     const pausedRef = useRef(false);
 
     const trailIdRef = useRef(trailId);
     const pathSegmentsRef = useRef([[]]);
+    const routeRef = useRef([]); 
     const lastLocationRef = useRef(null); // For EMA smoothing filter
     const hasAlertedOffTrack = useRef(false); // To prevent alert spam
     const hasAlertedCompletion = useRef(false); // To prevent completion alert spam
     const lastStatsPointRef = useRef(null);     // For distance/stats tracking
+    const trailingBackRef = useRef(isTrailingBack);
+    const navPolylineRef = useRef(navigationPolyline);
+    const simStepRef = useRef(0);
+    const simReturnIdxRef = useRef(-1); // Start at -1 to trigger initialization
+
+    useEffect(() => { 
+        trailingBackRef.current = isTrailingBack; 
+        if (isTrailingBack) simReturnIdxRef.current = -1; // Reset to -1 for trigger
+    }, [isTrailingBack]);
+    useEffect(() => { navPolylineRef.current = navigationPolyline; }, [navigationPolyline]);
+    
+    // AUTO-START SIMULATION
+    const hasAutoStarted = useRef(false);
+    useEffect(() => {
+        if (params.simulate === 'true' && !hasAutoStarted.current) {
+            hasAutoStarted.current = true;
+            // Delay slightly to ensure layout and map are ready
+            setTimeout(() => {
+                runSimulation();
+                startTrail();
+            }, 1000);
+        }
+    }, [params.simulate]);
 
     const { user: currentUser } = useAuth();
 
@@ -115,10 +147,10 @@ export default function SoloTrek() {
 
     // React to smart location updates
     useEffect(() => {
-        if (!smoothedLocation) return;
-
-        const { latitude, longitude } = smoothedLocation;
-        const currentLoc = { latitude, longitude };
+        // Source of truth for current RAW input
+        const rawLoc = isSimulating ? simLocation : smoothedLocation;
+        if (!rawLoc) return;
+        const currentLoc = { latitude: rawLoc.latitude, longitude: rawLoc.longitude };
 
         let displayLoc = currentLoc;
 
@@ -179,7 +211,7 @@ export default function SoloTrek() {
                     setNavGuidance("You have reached the starting point.");
                     setReroutePath([]);
                     if (flowState === 'goto-start') {
-                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                         if (Platform.OS !== 'android') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     }
                 } else if (flowState === 'goto-start') {
                     if (reroutePath.length === 0 && distanceToRealStart > 50) {
@@ -193,10 +225,7 @@ export default function SoloTrek() {
                     setReroutePath([]); 
                 }
                 setDistanceToTrail(Math.round(distanceToRealStart));
-                return;
-            }
-
-            if (hasJoinedTrail) {
+            } else if (hasJoinedTrail) {
                 const offTrackThreshold = 15;
                 const onTrackThreshold = 10;
                 
@@ -204,15 +233,19 @@ export default function SoloTrek() {
                     if (!offTrackWarning) {
                         setOffTrackWarning(true);
                         setNavGuidance(`Off trail! Head back to the path.`);
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        if (Platform.OS !== 'android') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                     }
                     setReroutePath([currentLoc, snappedPoint]);
                     const bearing = calculateHeading(currentLoc, snappedPoint);
                     setTargetBearing(bearing);
+                    
+                    // Record temporary drift path
+                    setOffTrailPath(prev => [...prev, currentLoc]);
                 } else if (offTrackWarning && distance <= onTrackThreshold) {
                     setOffTrackWarning(false);
                     setNavGuidance("Back on track.");
                     setReroutePath([]);
+                    setOffTrailPath([]); // Clear drift path once back on track
                 }
 
                 if (!trailFinished && navigationPolyline.length > 0) {
@@ -222,7 +255,7 @@ export default function SoloTrek() {
                         
                         if (distToGoal < 10 && hasReachedMidpoint && !hasAlertedCompletion.current) {
                             hasAlertedCompletion.current = true;
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            if (Platform.OS !== 'android') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
                             if (isTrailingBack) {
                                 Alert.alert("Trek Completed", "You have reached the starting point of the trail.");
@@ -265,44 +298,50 @@ export default function SoloTrek() {
         if (isOffTrail && !hasAlertedOffTrack.current) {
             hasAlertedOffTrack.current = true;
             setNavGuidance("You have moved away from the trail");
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            if (Platform.OS !== 'android') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         } else if (!isOffTrail) {
             hasAlertedOffTrack.current = false;
         }
-    }, [smoothedLocation, isTrailingBack, navigationPolyline, routeCoordinates, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished, mapViewMode, trailId]);
+    }, [smoothedLocation, simLocation, isSimulating, isTrailingBack, navigationPolyline, routeCoordinates, isNavMode, userHeading, hasJoinedTrail, offTrackWarning, trailFinished, mapViewMode, trailId]);
 
 
     useEffect(() => {
-        if ((!isTracking && !isTrailingBack) || !validatedLocation || trailFinished || isPaused) return;
+        if ((!isTracking && !isTrailingBack) || trailFinished || isPaused) return;
+        
+        // Priority: Simulation location if active, otherwise real validated location
+        const activeLocation = isSimulating ? simLocation : validatedLocation;
+        if (!activeLocation) return;
 
-        const { latitude, longitude, altitude } = validatedLocation;
+        const { latitude, longitude, altitude } = activeLocation;
         const newPoint = { latitude, longitude };
         
-        // 1. STATS CALCULATION
-        let distMeters = 0;
-        const lastPoint = lastStatsPointRef.current;
-        if (lastPoint) {
-            distMeters = getDistance(latitude, longitude, lastPoint.latitude, lastPoint.longitude);
+        // 1. STATS CALCULATION (ONLY WHILE TRACKING FORWARD)
+        if (!isTrailingBack) {
+            let distMeters = 0;
+            const lastPoint = lastStatsPointRef.current;
+            if (lastPoint) {
+                distMeters = getDistance(latitude, longitude, lastPoint.latitude, lastPoint.longitude);
+            }
+
+            setStats(prev => {
+                const newDistance = prev.distance + distMeters;
+                let elevationGain = prev.elevationGain;
+                if (lastPoint && altitude && lastPoint.altitude && altitude > lastPoint.altitude) {
+                    elevationGain += (altitude - lastPoint.altitude);
+                }
+                return {
+                    ...prev,
+                    distance: newDistance,
+                    elevationGain: elevationGain,
+                    maxAltitude: (prev.maxAltitude === -Infinity) ? (altitude || 0) : Math.max(prev.maxAltitude, altitude || 0),
+                    avgSpeed: prev.duration > 0 ? parseFloat(((newDistance / 1000) / (prev.duration / 3600)).toFixed(1)) : 0
+                };
+            });
+            
+            lastStatsPointRef.current = { latitude, longitude, altitude };
         }
 
-        setStats(prev => {
-            const newDistance = prev.distance + distMeters;
-            let elevationGain = prev.elevationGain;
-            if (lastPoint && altitude && lastPoint.altitude && altitude > lastPoint.altitude) {
-                elevationGain += (altitude - lastPoint.altitude);
-            }
-            return {
-                ...prev,
-                distance: newDistance,
-                elevationGain: elevationGain,
-                maxAltitude: (prev.maxAltitude === -Infinity) ? (altitude || 0) : Math.max(prev.maxAltitude, altitude || 0),
-                avgSpeed: prev.duration > 0 ? parseFloat(((newDistance / 1000) / (prev.duration / 3600)).toFixed(1)) : 0
-            };
-        });
-        
-        lastStatsPointRef.current = { latitude, longitude, altitude };
-
-        // 2. PATH STORAGE & SEGMENT MANAGEMENT
+        // 2. PATH STORAGE & SEGMENT MANAGEMENT (ONLY WHILE TRACKING FORWARD)
         if (!isTrailingBack) {
             setRouteCoordinates(prev => {
                 const updated = [...prev, newPoint];
@@ -329,71 +368,96 @@ export default function SoloTrek() {
                   isNewSegment = true; 
             }
 
-            setPathSegments(prev => {
-                let updated = [...prev];
-                let targetSegmentIndex = updated.length - 1;
+            // --- LOOP DETECTION BLOCK (OUTSIDE SETTERS) ---
+            let activeSegments = [...segments];
+            const canDetectLoop = loopCooldownRef.current <= 0;
+            let loopDetectedNow = false;
+            
+            if (!isNewSegment && activeSegments.length > 0 && canDetectLoop) {
+                const fullPath = activeSegments.flat();
+                const loopData = detectIntersectionLoop(newPoint, fullPath, fullPath.length, {
+                    minPoints: 40,      // Need more history
+                    ignoreLast: 25,     // Ignore last ~12 seconds of walking
+                    maxDistance: 15,    // Proximity threshold
+                    maxHeadingDiff: 90  // Stricter directionality (max perpendicular-ish)
+                });
 
-                if (isNewSegment && updated.length > 0 && updated[updated.length - 1].length > 0) {
-                    updated.push([newPoint]);
-                    targetSegmentIndex++;
-                } else {
-                    if(updated.length === 0) {
-                        updated.push([]);
-                        targetSegmentIndex = 0;
-                    }
-                    
-                    const currentSegment = [...updated[targetSegmentIndex]];
-                    
-                    const fullPath = updated.flat();
-                    const loopData = isTrailingBack ? null : detectIntersectionLoop(newPoint, fullPath, fullPath.length);
-                    
-                    if (loopData && loopData.isLoop) {
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                        Alert.alert(
-                            "⚠️ Loop Detected",
-                            "Redundant trail loop safely removed to maintain path integrity.",
-                            [{ text: "OK" }]
-                        );
-                        
-                        const loopStartGlobal = loopData.loopStartIndex;
-                        let count = 0;
-                        const prunedSegments = [];
-                        for (const seg of updated) {
-                            if (count + seg.length > loopStartGlobal) {
-                                const relativeIdx = loopStartGlobal - count;
-                                prunedSegments.push(seg.slice(0, relativeIdx + 1));
-                                break; 
-                            }
-                            prunedSegments.push(seg);
-                            count += seg.length;
-                        }
-                        
-                        updated = prunedSegments;
-                        targetSegmentIndex = updated.length - 1;
+                if (loopData && loopData.isLoop) {
+                    loopDetectedNow = true;
+                    loopCooldownRef.current = 30; // MANDATORY COOLDOWN: No loops for next 30 points (~15s)
+                    if (Platform.OS !== 'android') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    Alert.alert(
+                        "⚠️ Loop Detected",
+                        "Redundant trail loop safely removed to maintain path integrity.",
+                        [{ text: "OK" }]
+                    );
 
-                        if (trailIdRef.current) {
-                            client.put(`/treks/update/${trailIdRef.current}`, {
-                                path: { type: 'MultiLineString', coordinates: updated.map(seg => seg.map(p => [p.longitude, p.latitude])) }
-                            }).catch(e => console.error("Full path sync error", e));
+                    const loopStartGlobal = loopData.loopStartIndex;
+                    let acc = 0;
+                    const prunedParts = [];
+                    const ghostPart = [];
+                    
+                    for (const seg of activeSegments) {
+                        const start = acc;
+                        const end = acc + seg.length;
+                        if (end <= loopStartGlobal) {
+                            prunedParts.push(seg);
+                        } else if (start <= loopStartGlobal && end > loopStartGlobal) {
+                            const splitIdx = loopStartGlobal - start;
+                            prunedParts.push(seg.slice(0, splitIdx + 1));
+                            ghostPart.push(...seg.slice(splitIdx));
+                        } else {
+                            ghostPart.push(...seg);
                         }
+                        acc = end;
                     }
 
-                    currentSegment.push(newPoint);
-                    updated[targetSegmentIndex] = currentSegment;
+                    if (ghostPart.length > 0) {
+                        setGhostSegments(prev => [...prev, ghostPart]);
+                    }
+                    activeSegments = prunedParts;
+                    setRouteCoordinates(prunedParts.flat()); // SYNC ROUTE COORDINATES IMMEDIATELY
+
+                    // Sync full pruned path to backend if needed
+                    if (trailIdRef.current && !isSimulating) {
+                        client.put(`/treks/update/${trailIdRef.current}`, {
+                            path: { type: 'MultiLineString', coordinates: activeSegments.map(seg => seg.map(p => [p.longitude, p.latitude])) }
+                        }).catch(e => console.error("Full path sync error", e));
+                    }
                 }
-                pathSegmentsRef.current = updated;
-                return updated;
-            });
+            }
 
-            // 3. INCREMENTAL SYNC TO BACKEND
-            if (trailIdRef.current) {
+            // Final Update to Path State
+            const updated = [...activeSegments];
+            let targetIdx = updated.length - 1;
+
+            // Continuity Fix: Don't force new segment for loops, let it bridge naturally
+            if (isNewSegment && updated.length > 0 && updated[updated.length - 1].length > 0) {
+                updated.push([newPoint]);
+                targetIdx++;
+            } else {
+                if (updated.length === 0) {
+                    updated.push([newPoint]);
+                    targetIdx = 0;
+                } else {
+                    const currentSeg = [...updated[targetIdx], newPoint];
+                    updated[targetIdx] = currentSeg;
+                }
+            }
+            
+            setPathSegments(updated);
+            pathSegmentsRef.current = updated;
+            if (loopCooldownRef.current > 0) loopCooldownRef.current--; // Decrement cooldown
+
+            // 3. INCREMENTAL SYNC TO BACKEND (DISABLED 4 SIMULATION)
+            if (trailIdRef.current && !isSimulating) {
                 client.put(`/treks/update/${trailIdRef.current}`, {
                     coordinates: [newPoint],
                     isNewSegment: isNewSegment
                 }).catch(e => console.error("Incremental sync error", e));
             }
         }
-    }, [isTracking, validatedLocation, isPaused, trailFinished, isTrailingBack, isReusingTrail, trailId]);
+    }, [isTracking, validatedLocation, isPaused, trailFinished, isTrailingBack, isReusingTrail, trailId, isSimulating, simLocation]);
 
 
     useEffect(() => {
@@ -546,36 +610,42 @@ export default function SoloTrek() {
             setOffTrackWarning(false);
             setNavGuidance("Initializing...");
 
-            if (!trailId) {
+            if (!trailId && !isSimulating) {
                 const res = await client.post('/treks/start', {
-                    name: name || `New Trail ${new Date().toLocaleDateString()}`,
-                    description: description || '',
-                    location: initialLocation || '',
+                    name: params.name || `New Trail ${new Date().toLocaleDateString()}`,
+                    description: params.description || '',
+                    location: params.location || '',
                     mode: 'solo'
                 });
                 const newId = res.data._id;
                 setTrailId(newId);
                 trailIdRef.current = newId;
                 setStats(prev => ({ ...prev, startName: res.data.name }));
-                
-                setHasJoinedTrail(true);
-                setFlowState('trekking');
-                setMapViewMode('navigation');
-                setNavGuidance("Trek started.");
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } else if (isSimulating) {
+                // For simulation, use a fake ID to avoid UI issues
+                setTrailId("sim-session");
+                trailIdRef.current = "sim-session";
+                setStats(prev => ({ ...prev, startName: "Simulation" }));
+            }
 
-                const startLoc = validatedLocation || location;
-                if (startLoc) {
-                    const startMarker = {
-                        latitude: startLoc.latitude,
-                        longitude: startLoc.longitude,
-                        icon: 'flag',
-                        type: 'Start Point',
-                        description: 'Trek Started Here',
-                        timestamp: new Date()
-                    };
-                    setMarkers([startMarker]);
-                }
+            // SHARED STATE UPDATES
+            setHasJoinedTrail(true);
+            setFlowState('trekking');
+            setMapViewMode('navigation');
+            setNavGuidance(isSimulating ? "Simulation Active" : "Trek started.");
+            if (Platform.OS !== 'android') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+            const startLoc = validatedLocation || location;
+            if (startLoc) {
+                const startMarker = {
+                    latitude: startLoc.latitude,
+                    longitude: startLoc.longitude,
+                    icon: 'flag',
+                    type: 'Start Point',
+                    description: 'Trek Started Here',
+                    timestamp: new Date()
+                };
+                setMarkers([startMarker]);
             }
         } catch (error) {
             console.error("Failed to start trail", error);
@@ -603,10 +673,14 @@ export default function SoloTrek() {
                     }
                     if (trailId) {
                         try {
-                            await client.put(`/treks/update/${trailId}`, { 
-                                status: 'completed',
-                                stats: stats
-                            });
+                            // FINISH TREK ON BACKEND (DISABLED 4 SIMULATION)
+                            if (trailId && !isSimulating) {
+                                await client.put(`/treks/update/${trailId}`, { 
+                                    isCompleted: true, 
+                                    stats,
+                                    endTime: new Date()
+                                });
+                            }
                             Alert.alert(
                                 "Share Trail?",
                                 "Would you like to share this achievement to your feed?",
@@ -616,10 +690,18 @@ export default function SoloTrek() {
                                         text: "Share Now",
                                         onPress: async () => {
                                             try {
-                                                await client.post('/posts/create', {
-                                                    caption: `Just finished trailing "${name || 'a new path'}"! 🏔️`,
-                                                    trekId: trailId
-                                                });
+                                                const postData = {
+                                                    type: 'trek',
+                                                    trekId: trailId,
+                                                    media: waypointImages,
+                                                    title: `Finished Trek: ${stats.startName || 'My Trail'}`,
+                                                    description: `Completed a ${stats.distance.toFixed(2)}m trek!`
+                                                };
+                                                
+                                                // Post to feed (ONLY IF NOT SIMULATING)
+                                                if (!isSimulating) {
+                                                    await client.post('/posts/create', postData);
+                                                }
                                                 Alert.alert("Shared!", "Your trail is now on the feed.");
                                             } catch (e) {}
                                         }
@@ -652,8 +734,7 @@ export default function SoloTrek() {
         
         setIsTrailingBack(true);
         setNavDirection('forward'); 
-        // UI and tracking states
-        setFlowState('trekback');
+        setFlowState('goto-start'); // Use goto-start to guide user to the reversed path start
         setMapViewMode('navigation');
         setIsNavMode(true);
         setNavigationPolyline(reversedPath);
@@ -664,15 +745,16 @@ export default function SoloTrek() {
             duration: 0,
             avgSpeed: 0,
             elevationGain: 0,
-            lastElevation: null
+            maxAltitude: -Infinity
         });
+        lastStatsPointRef.current = null;
 
         setIsTracking(true);
         setHasStarted(true);
-        setHasJoinedTrail(true); 
+        setHasJoinedTrail(false); // Let it join naturally when close
         setTrailFinished(false);
         setIsPaused(false);
-        setNavGuidance("Trek back mode active. Follow the path back.");
+        setNavGuidance("Heading to the return path...");
         pausedRef.current = false; 
     };
 
@@ -777,7 +859,7 @@ export default function SoloTrek() {
         setWaypointDescription('');
         setIconSearchQuery('');
         setWaypointImages([]);
-        if (trailId) {
+        if (trailId && !isSimulating) {
             try {
                 await client.put(`/treks/update/${trailId}`, { waypoints: [newMarker] });
             } catch (e) {}
@@ -788,6 +870,144 @@ export default function SoloTrek() {
         const mins = Math.floor(seconds / 60);
         const secs = seconds % 60;
         return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    };
+
+    const runSimulation = () => {
+        if (isSimulating) {
+            clearInterval(simIntervalRef.current);
+            setIsSimulating(false);
+            simStepRef.current = 0;
+            return;
+        }
+
+        setIsSimulating(true);
+        setIsTracking(true);
+        setHasStarted(true);
+        
+        simStepRef.current = 0;
+        // Use current location if available, otherwise a fallback to avoid "boom"
+        const startLat = location?.latitude || 11.7818;
+        const startLon = location?.longitude || 75.8826;
+        
+        const centerX = startLat;
+        const centerY = startLon;
+        const radius = 0.0006; 
+
+        // Immediate set to prevent initial null render
+        setSimLocation({ latitude: startLat, longitude: startLon, accuracy: 5, timestamp: Date.now() });
+
+        simIntervalRef.current = setInterval(() => {
+            let nextPoint;
+            simStepRef.current += 1;
+            
+            // 3-MINUTE HIGH-PRECISION SCRIPT (360 steps * 500ms = 180s)
+            
+            // COORDINATE MATH: 0.00001 deg ~= 1.1m
+            const step = simStepRef.current;
+
+            if (!isTrailingBack) {
+                if (step <= 40) {
+                    // STAGE 1: MOVING FORWARD (30m North)
+                    setSimPhase("Stage 1: Moving Forward (30m)");
+                    nextPoint = {
+                        latitude: centerX + (step * 0.00001), 
+                        longitude: centerY,
+                        accuracy: 5, altitude: 100, timestamp: Date.now()
+                    };
+                }
+                else if (step <= 90) {
+                    // STAGE 2: MAKING A LOOP (Circle back to step 15)
+                    setSimPhase("Stage 2: Making a Loop (Detection Test)");
+                    const angle = (step - 40) * (Math.PI / 25); // Full circle in 50 steps
+                    const r = 0.00015;
+                    nextPoint = {
+                        latitude: (centerX + 0.0004) + r * Math.sin(angle),
+                        longitude: centerY + r * (Math.cos(angle) - 1),
+                        accuracy: 5, altitude: 100, timestamp: Date.now()
+                    };
+                }
+                else if (step <= 150) {
+                    // STAGE 3: GOING FORWARD 50M MORE
+                    setSimPhase("Stage 3: Moving Forward (Additional 50m)");
+                    const progression = step - 90;
+                    nextPoint = {
+                        latitude: (centerX + 0.0004) + (progression * 0.00001), 
+                        longitude: centerY,
+                        accuracy: 5, altitude: 100, timestamp: Date.now()
+                    };
+                }
+                else {
+                    // STAGE 4: STOP AT 50M
+                    setSimPhase("Forward Trek Complete (50m extension). Stop & Finish manually now!");
+                    clearInterval(simIntervalRef.current);
+                    setIsSimulating(false);
+                    nextPoint = { 
+                        latitude: (centerX + 0.0004) + (60 * 0.00001), 
+                        longitude: centerY,
+                        accuracy: 5, altitude: 100, timestamp: Date.now() 
+                    };
+                }
+            } else {
+                // TREK BACK MODE (Manual Start)
+                if (simReturnIdxRef.current === -1) {
+                    simReturnIdxRef.current = 0; // Initialize return index
+                    setSimPhase("Stage 5: Starting Trek-Back Navigation...");
+                }
+                
+                const poly = navPolylineRef.current;
+
+                if (poly.length > 0) {
+                    if (simReturnIdxRef.current < poly.length * 0.4) {
+                        // STAGE 6: DRIFT (25m East)
+                        setSimPhase("Stage 6: Trek-Back (Off-Trail Test - 25m Drift)");
+                        simReturnIdxRef.current = Math.min(simReturnIdxRef.current + 2, poly.length - 1);
+                        const target = poly[simReturnIdxRef.current];
+                        nextPoint = {
+                            latitude: target.latitude,
+                            longitude: target.longitude + 0.00025, 
+                            accuracy: 5, altitude: 100, timestamp: Date.now()
+                        };
+                    } else if (simReturnIdxRef.current < poly.length * 0.7) {
+                        // STAGE 7: RECOVERY
+                        setSimPhase("Stage 7: Recovery (Returning to Path)");
+                        simReturnIdxRef.current = Math.min(simReturnIdxRef.current + 2, poly.length - 1);
+                        const target = poly[simReturnIdxRef.current];
+                        
+                        // Close drift over the next 30% of the route
+                        const recoveryFactor = (poly.length * 0.7 - simReturnIdxRef.current) / (poly.length * 0.3);
+                        nextPoint = {
+                            latitude: target.latitude,
+                            longitude: target.longitude + (0.00025 * Math.max(0, recoveryFactor)),
+                            accuracy: 5, altitude: 100, timestamp: Date.now()
+                        };
+                    } else if (simReturnIdxRef.current < poly.length - 1) {
+                        // STAGE 8: FINISH
+                        setSimPhase("Stage 8: Finishing Trek-Back");
+                        simReturnIdxRef.current = Math.min(simReturnIdxRef.current + 2, poly.length - 1);
+                        const target = poly[simReturnIdxRef.current];
+                        nextPoint = {
+                            latitude: target.latitude,
+                            longitude: target.longitude,
+                            accuracy: 5, altitude: 100, timestamp: Date.now()
+                        };
+                    } else {
+                        // END OF RETURN SIMULATION
+                        setSimPhase("Stage 8: Trek-Back Simulation Complete.");
+                        clearInterval(simIntervalRef.current);
+                        setIsSimulating(false);
+                        nextPoint = { latitude: simLocation?.latitude, longitude: simLocation?.longitude, accuracy: 5, altitude: 100, timestamp: Date.now() };
+                    }
+                } else {
+                    nextPoint = { 
+                        latitude: simLocation?.latitude || centerX, 
+                        longitude: simLocation?.longitude || centerY, 
+                        accuracy: 5, altitude: 100, timestamp: Date.now() 
+                    };
+                }
+            }
+            
+            setSimLocation(nextPoint);
+        }, 500);
     };
 
     const { visibleRoute, fadedRoute } = useMemo(() => {
@@ -814,6 +1034,14 @@ export default function SoloTrek() {
         <View style={styles.container}>
             {location ? (
                 <View style={styles.mapContainer}>
+                    <View style={styles.topButtonsContainer}>
+                        <TouchableOpacity 
+                            style={[styles.mapIconButton, isSimulating && styles.mapIconButtonActive]} 
+                            onPress={runSimulation}
+                        >
+                            <Ionicons name="flask" size={24} color={isSimulating ? "white" : "#007bff"} />
+                        </TouchableOpacity>
+                    </View>
                     <NativeMap
                         ref={mapRef}
                         initialRegion={{
@@ -837,7 +1065,8 @@ export default function SoloTrek() {
                             }
                         }}
                     >
-                        {!isTrailingBack && pathSegments.map((segment, idx) => (
+                        {/* Always show recorded trail for context */}
+                        {pathSegments.map((segment, idx) => (
                             segment.length > 0 ? (
                                 <Polyline
                                     key={`seg-${idx}`}
@@ -874,10 +1103,24 @@ export default function SoloTrek() {
                                 zIndex={99}
                             />
                         )}
+
+                        {ghostSegments.map((segment, idx) => (
+                            <Polyline
+                                key={`ghost-${idx}`}
+                                coordinates={segment}
+                                strokeWidth={getPolylineWidth(mapZoomLevel) - 2}
+                                strokeColor="rgba(0, 0, 0, 0.2)"
+                                lineCap="round"
+                                lineJoin="round"
+                                lineDashPattern={[10, 10]}
+                                geodesic={true}
+                                zIndex={90}
+                            />
+                        ))}
                         
                         {(smoothedLocation || location) && (
                             <Marker
-                                coordinate={smoothedLocation || location || { latitude: 0, longitude: 0 }}
+                                coordinate={isSimulating ? location : (smoothedLocation || location)}
                                 anchor={{ x: 0.5, y: 0.5 }}
                                 rotation={userHeading || 0}
                                 flat={true}
@@ -922,6 +1165,16 @@ export default function SoloTrek() {
                                 strokeColor="#9c27b0"
                                 geodesic={true}
                                 zIndex={150}
+                            />
+                        )}
+                        
+                        {offTrailPath.length > 1 && (
+                            <Polyline
+                                coordinates={offTrailPath}
+                                strokeWidth={getPolylineWidth(mapZoomLevel) + 1}
+                                strokeColor="#9c27b0"
+                                geodesic={true}
+                                zIndex={160}
                             />
                         )}
 
@@ -978,13 +1231,41 @@ export default function SoloTrek() {
                 </View>
             )}
 
-            {mapViewMode === 'explore' && location && (
-                <TouchableOpacity 
-                    style={styles.recenterBtn} 
-                    onPress={() => setMapViewMode(isNavMode ? 'navigation' : 'top-down')}
-                >
-                    <Ionicons name="locate" size={24} color="#007bff" />
-                </TouchableOpacity>
+            {(mapViewMode === 'explore' || isSimulating) && location && (
+                <View style={[styles.recenterBtn, { bottom: isSimulating ? 150 : 80 }]}>
+                    <TouchableOpacity 
+                        style={styles.recenterBtnInner} 
+                        onPress={() => setMapViewMode(isNavMode ? 'navigation' : 'top-down')}
+                    >
+                        <Ionicons name="locate" size={24} color="#007bff" />
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            {(isSimulating || (isTrailingBack && simReturnIdxRef.current === -1)) && (
+                <View style={[styles.simOverlay, { bottom: 100 }]}>
+                    <View style={[styles.simBanner, { paddingBottom: (isTrailingBack && !isSimulating) ? 15 : 10 }]}>
+                        <View style={styles.simHeader}>
+                            <Ionicons name="flask" size={20} color="white" />
+                            <Text style={styles.simTitle}>SIMULATION: {isTrailingBack ? 'PART 2 (NAVIGATION)' : 'PART 1 (TRACKING)'}</Text>
+                        </View>
+                        
+                        <Text style={styles.simPhaseText}>
+                            {isSimulating ? simPhase : "Tracking Complete. Manual Trek-Back detected."}
+                        </Text>
+
+                        {(isTrailingBack && !isSimulating) && (
+                            <TouchableOpacity 
+                                style={[styles.simReturnBtn, { width: '100%', marginTop: 10, justifyContent: 'center', height: 45 }]} 
+                                onPress={runSimulation}
+                                activeOpacity={0.8}
+                            >
+                                <Ionicons name="play-circle" size={24} color="white" />
+                                <Text style={[styles.simReturnBtnText, { fontSize: 16 }]}>START RETURN SIMULATION</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </View>
             )}
 
             {(isTrailingBack || targetRoute.length > 0) && (
@@ -1210,6 +1491,26 @@ const styles = StyleSheet.create({
     topButtonsContainer: { position: 'absolute', top: 110, left: 20, zIndex: 10 },
     mapIconButton: { backgroundColor: 'white', borderRadius: 25, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', elevation: 5, marginBottom: 10 },
     mapIconButtonActive: { backgroundColor: '#28a745' },
+    simReturnBtn: {
+        backgroundColor: '#673ab7',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 20,
+        marginLeft: 8,
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 1.41,
+    },
+    simReturnBtnText: {
+        color: 'white',
+        fontSize: 12,
+        fontWeight: 'bold',
+        marginLeft: 4,
+    },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     controls: { position: 'absolute', bottom: 30, left: 20, right: 20, alignItems: 'center' },
     statsCard: { backgroundColor: 'rgba(255,255,255,0.95)', padding: 15, borderRadius: 20, marginBottom: 20, width: '100%', elevation: 5 },
@@ -1259,7 +1560,16 @@ const styles = StyleSheet.create({
     navUnit: { fontSize: 12, fontWeight: 'normal' },
     navStatus: { color: 'white', fontSize: 14 },
     navClose: { padding: 5 },
-    recenterBtn: { position: 'absolute', bottom: 270, right: 20, backgroundColor: 'white', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', elevation: 6 },
+    recenterBtn: { position: 'absolute', bottom: 270, right: 20, alignItems: 'center', zIndex: 1002 },
+    recenterBtnInner: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center', elevation: 6 },
+    simBadge: { position: 'absolute', top: -30, backgroundColor: '#28a745', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, elevation: 4 },
+    simBadgeText: { color: 'white', fontSize: 10, fontWeight: 'bold', marginLeft: 4 },
+    simOverlay: { position: 'absolute', top: 60, left: 20, right: 20, zIndex: 2000 },
+    simBanner: { backgroundColor: '#6f42c1', padding: 15, borderRadius: 15, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5 },
+    simHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
+    simTitle: { color: 'white', fontWeight: 'bold', fontSize: 16, marginLeft: 10, flex: 1 },
+    simTimer: { color: 'rgba(255,255,255,0.9)', fontWeight: 'bold', fontSize: 14 },
+    simPhaseText: { color: 'white', fontSize: 13, opacity: 0.9 },
     mediaButtonsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 15 },
     mediaBtn: { backgroundColor: '#6c757d', padding: 10, borderRadius: 8, flex: 0.48, alignItems: 'center' },
     mediaBtnText: { color: 'white', fontWeight: 'bold' },

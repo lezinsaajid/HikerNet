@@ -13,7 +13,8 @@ import { useAuth } from '../../context/AuthContext';
 import WeatherWidget from '../../components/WeatherWidget';
 import { useSmartLocation } from '../../hooks/useSmartLocation';
 import { useCompass } from '../../hooks/useCompass';
-import { getDistance, getPointToPathDistance, calculateHeading, detectIntersectionLoop } from '../../utils/geoUtils';
+import { getDistance, getPointToPathDistance, calculateHeading } from '../../utils/geoUtils';
+import { detectIntersectionLoop } from '../../utils/trekUtils';
 import { useGroupSync } from '../../hooks/useGroupSync';
 
 // icon map
@@ -294,7 +295,11 @@ export default function GroupTrek() {
                     targetIdx = updated.length - 1;
                     
                     const fullPath = updated.flat();
-                    const loopData = detectIntersectionLoop(newPoint, fullPath, fullPath.length);
+                    const loopData = isTrailingBack ? null : detectIntersectionLoop(newPoint, fullPath, fullPath.length, {
+                        minPoints: 20,
+                        ignoreLast: 12,
+                        maxDistance: 15
+                    });
                     if (loopData && loopData.isLoop) {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                         Alert.alert("Loop Removed", "Redundant trail loop removed.");
@@ -407,12 +412,31 @@ export default function GroupTrek() {
         const sourcePath = navigationPolyline.length > 0 ? navigationPolyline : pathSegments.flat();
         if (sourcePath.length < 2) return;
         const reversed = [...sourcePath].reverse();
+        
         setIsTrailingBack(true);
+        setNavDirection('forward');
+        setFlowState('goto-start');
+        setMapViewMode('navigation');
+        setIsNavMode(true);
         setNavigationPolyline(reversed);
         setCurrentNavIndex(0);
-        setTrailFinished(false);
+        
+        setStats({
+            distance: 0,
+            duration: 0,
+            avgSpeed: 0,
+            elevationGain: 0,
+            maxAltitude: -Infinity
+        });
+        lastStatsPointRef.current = null;
+
         setIsTracking(true);
         setHasStarted(true);
+        setHasJoinedTrail(false);
+        setTrailFinished(false);
+        setIsPaused(false);
+        setNavGuidance("Heading to the return path...");
+        
         if (!remote) emitControl('TREKBACK');
     };
 

@@ -6,9 +6,14 @@ import * as Device from 'expo-device';
 
 let Notifications;
 try {
-    Notifications = require('expo-notifications');
+    const { Platform } = require('react-native');
+    if (Platform.OS !== 'android') {
+        Notifications = require('expo-notifications');
+    } else {
+        Notifications = null;
+    }
 } catch (e) {
-    console.warn("expo-notifications disabled for Expo Go compatibility.");
+    console.warn("expo-notifications disabled for compatibility.");
     Notifications = null;
 }
 import Constants from 'expo-constants';

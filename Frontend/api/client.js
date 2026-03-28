@@ -12,11 +12,12 @@ import { Platform } from 'react-native';
 // 2. Fallback to a common development IP or localhost
 // Smarter fallback for Android Emulator
 const localIp = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+// TIP: If you see "Network Error" on a real device, replace 'localIp' with your computer's actual IP address (e.g., '192.168.1.5')
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://${localIp}:3000/api`;
 
 const client = axios.create({
     baseURL: BASE_URL,
-    timeout: 15000, // 15 seconds is a good balance
+    timeout: 25000, // 15 seconds is a good balance
 });
 
 // Debug logging
@@ -42,7 +43,7 @@ client.interceptors.response.use(
     response => response,
     async (error) => {
         const { config, response, message } = error;
-        
+
         // Log details safely
         const url = config?.url || 'unknown';
         if (response) {
@@ -52,7 +53,7 @@ client.interceptors.response.use(
         } else {
             console.error(`[API Crash] ${message}`);
         }
-        
+
         // --- Added Retry Logic for Timeouts / Network Errors ---
         if (!config || !config.url) {
             return Promise.reject(error);
@@ -63,17 +64,17 @@ client.interceptors.response.use(
         const maxRetries = 2; // Only try 2 times to prevent infinite loops
 
         // Retry only on Network Errors or 5xx Server Errors (not 400s)
-        const shouldRetry = (!response && message.includes('timeout')) || 
-                           (!response && message.includes('Network Error')) || 
-                           (response && response.status >= 500);
+        const shouldRetry = (!response && message.includes('timeout')) ||
+            (!response && message.includes('Network Error')) ||
+            (response && response.status >= 500);
 
         if (shouldRetry && config.__retryCount < maxRetries) {
             config.__retryCount += 1;
             console.log(`[API Retry] Retrying request to ${url} (Attempt ${config.__retryCount} of ${maxRetries})...`);
-            
+
             // Wait 1 second before retrying (exponential backoff could be used here)
             await new Promise(resolve => setTimeout(resolve, 1000 * config.__retryCount));
-            
+
             // Retry the same configuration
             return client(config);
         }
