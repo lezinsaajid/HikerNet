@@ -8,21 +8,27 @@ const POLL_INTERVAL = 30000;
 
 let Notifications;
 try {
-    Notifications = require('expo-notifications');
-    // Foreground notification behavior
-    Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-            shouldShowAlert: true,
-            shouldPlaySound: true,
-            shouldSetBadge: true,
-        }),
-    });
+    const { Platform } = require('react-native');
+    if (Platform.OS !== 'android') {
+        Notifications = require('expo-notifications');
+        // Foreground notification behavior
+        Notifications.setNotificationHandler({
+            handleNotification: async () => ({
+                shouldShowAlert: true,
+                shouldPlaySound: true,
+                shouldSetBadge: true,
+            }),
+        });
+    } else {
+        Notifications = null;
+    }
 } catch (e) {
-    console.warn("expo-notifications disabled for Expo Go compatibility.");
+    console.warn("expo-notifications disabled for compatibility.");
     Notifications = null;
 }
 
 export default function NotificationManager() {
+    if (require('react-native').Platform.OS === 'android') return null;
     const { user } = useAuth();
     const router = useRouter();
 

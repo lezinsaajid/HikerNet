@@ -80,8 +80,8 @@ export default function CreateTrailScreen() {
         }
     };
 
-    const handleStart = (mode) => {
-        if (mode === 'solo' && !name.trim()) {
+    const handleStart = (mode, simulate = false) => {
+        if (!simulate && mode === 'solo' && !name.trim()) {
             Alert.alert("Missing Information", "Please enter a trail name.");
             return;
         }
@@ -89,10 +89,11 @@ export default function CreateTrailScreen() {
         router.push({
             pathname: '/trek/active-trek',
             params: {
-                name,
-                description,
+                name: simulate ? "Test Simulation" : name,
+                description: simulate ? "Automated test tour" : description,
                 location: locationName,
-                mode // 'solo' or 'group'
+                mode,
+                simulate: simulate ? 'true' : 'false'
             }
         });
     };
@@ -177,6 +178,17 @@ export default function CreateTrailScreen() {
                             <View style={styles.buttonContent}>
                                 <Text style={styles.buttonTitle}>Group Trail</Text>
                                 <Text style={styles.buttonSubtitle}>Invite friends to join</Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.actionButton, styles.simButton]}
+                            onPress={() => handleStart('solo', true)}
+                        >
+                            <Ionicons name="flask" size={24} color="white" />
+                            <View style={styles.buttonContent}>
+                                <Text style={styles.buttonTitle}>Simulate Trek</Text>
+                                <Text style={styles.buttonSubtitle}>Run automated test tour</Text>
                             </View>
                         </TouchableOpacity>
                     </View>
@@ -271,6 +283,9 @@ const styles = StyleSheet.create({
     },
     groupButton: {
         backgroundColor: '#17a2b8',
+    },
+    simButton: {
+        backgroundColor: '#6f42c1', // Purple for simulation
     },
     buttonContent: {
         marginLeft: 15,

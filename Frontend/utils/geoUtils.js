@@ -103,39 +103,3 @@ export const calculateHeading = (start, end) => {
     return (bearing + 360) % 360;
 };
 
-/**
- * Detects if the current point intersects an older part of the path, creating a true loop.
- * Avoids false positives (switchbacks) by enforcing a strict segment gap history buffer and distance thresholds.
- */
-export const detectIntersectionLoop = (currentPoint, path, currentIndex) => {
-    if (currentIndex < 15) return null; // Need enough history to form a notable loop (lowered for faster detection)
-
-    // 1. Sliding window: check past points, but ignore the immediate history (e.g., last 10 points) to avoid switchback false-positives
-    for (let i = 0; i < currentIndex - 8; i++) { // Slightly smaller buffer for tighter loops
-        const oldPoint = path[i];
-
-        // 2. Distance check: intersecting?
-        const dist = getDistance(currentPoint.latitude, currentPoint.longitude, oldPoint.latitude, oldPoint.longitude);
-        if (dist <= 15) { // 15 meters leeway for GPS inaccuracy (increased for better detection)
-            // 3. Bearing check: Distinguish loop from switchback/backtrack
-            // If movement directions are nearly opposite (> 135 deg), it's likely a switchback, not a loop.
-            // A loop implies returning to the same spot while moving in a similar direction.
-            const currentHeading = calculateHeading(path[currentIndex - 1] || currentPoint, currentPoint);
-            const oldHeading = calculateHeading(path[i > 0 ? i - 1 : 0] || oldPoint, oldPoint);
-            
-            const headingDiff = Math.abs(currentHeading - oldHeading);
-            const normalizedDiff = headingDiff > 180 ? 360 - headingDiff : headingDiff;
-
-            if (normalizedDiff < 90) { // Same general direction = True Loop
-                return {
-                    isLoop: true,
-                    loopStartIndex: i,
-                    loopEndIndex: currentIndex,
-                    currentHeading,
-                    oldHeading
-                };
-            }
-        }
-    }
-    return null;
-};
