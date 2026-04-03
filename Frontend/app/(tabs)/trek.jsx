@@ -21,12 +21,23 @@ export default function TrailExploreScreen() {
 
     useEffect(() => {
         (async () => {
+            let locCoords = null;
             let { status } = await Location.requestForegroundPermissionsAsync();
             if (status === 'granted') {
-                let loc = await Location.getCurrentPositionAsync({});
-                setLocation(loc.coords);
+                try {
+                    let loc = await Location.getLastKnownPositionAsync({});
+                    if (!loc) {
+                        loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                    }
+                    if (loc) {
+                        locCoords = loc.coords;
+                        setLocation(locCoords);
+                    }
+                } catch(e) {
+                    console.log("Error finding location:", e);
+                }
             }
-            loadTrails();
+            loadTrails(locCoords);
         })();
     }, []);
     useEffect(() => {
@@ -53,11 +64,25 @@ export default function TrailExploreScreen() {
         }
     };
 
-    const loadTrails = async () => {
+    const loadTrails = async (locCoords) => {
         setIsLoading(true);
         try {
-            const res = await client.get('/treks/feed/public');
-            setTrails(res.data);
+            if (locCoords) {
+                const res = await client.get(`/treks/nearby?lat=${locCoords.latitude}&lon=${locCoords.longitude}&radius=50000`);
+                if (res.data && res.data.length > 0) {
+                    const mappedTrails = res.data.map(t => ({
+                        ...t,
+                        distance: typeof t.distanceConfig !== 'undefined' ? t.distanceConfig.toFixed(1) : undefined
+                    }));
+                    setTrails(mappedTrails);
+                } else {
+                    const fallbackRes = await client.get('/treks/feed/public');
+                    setTrails(fallbackRes.data);
+                }
+            } else {
+                const res = await client.get('/treks/feed/public');
+                setTrails(res.data);
+            }
         } catch (error) {
             console.error("Failed to load trails", error);
         } finally {
@@ -123,7 +148,7 @@ export default function TrailExploreScreen() {
                 />
                 <View style={styles.cardBadge}>
                     <Ionicons name={isOSM ? "shield-checkmark" : "people"} size={12} color="#FFF" />
-                    <Text style={styles.badgeText}>{isOSM ? "Verified" : "Community"}</Text>
+                    <Text style={styles.badgeText}>{isOSM ? "Verified" : (item.user ? `By ${item.user.username}` : "Community")}</Text>
                 </View>
 
                 {item.difficulty && (
@@ -171,7 +196,11 @@ export default function TrailExploreScreen() {
         );
     });
 
-    const combinedResults = [...filteredTrails, ...discoveredTrails];
+    const combinedResults = [...filteredTrails, ...discoveredTrails].sort((a, b) => {
+        const distA = parseFloat(a.distance) || Infinity;
+        const distB = parseFloat(b.distance) || Infinity;
+        return distA - distB;
+    });
 
     return (
         <SafeScreen style={styles.container}>

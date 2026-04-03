@@ -136,7 +136,9 @@ router.get("/nearby", async (req, res) => {
         // we'll fetch just enough to get the start point.
         const allTreks = await Trek.find({
             "path.coordinates": { $exists: true, $not: { $size: 0 } }
-        }).select("name location path.coordinates stats user images description createdAt status");
+        })
+        .select("name location path.coordinates stats user images description createdAt status")
+        .populate("user", "username profileImage");
 
         const nearbyTreks = allTreks.filter(trek => {
             if (!trek.path || !trek.path.coordinates || trek.path.coordinates.length === 0) return false;

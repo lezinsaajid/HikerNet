@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native';
+import * as Location from 'expo-location';
 import client from '../api/client';
 
 export default function UpcomingTreks() {
@@ -9,9 +10,30 @@ export default function UpcomingTreks() {
     useEffect(() => {
         const fetchTreks = async () => {
             try {
-                // Fetch nearby (or just generic) treks. 
-                // Since this is generic "Upcoming", let's just fetch some treks.
-                const res = await client.get('/treks/nearby?lat=11.6854&lon=76.1320&radius=100'); // Wayanad coords default
+                let status = await Location.getForegroundPermissionsAsync();
+                if (status.status !== 'granted') {
+                    status = await Location.requestForegroundPermissionsAsync();
+                }
+
+                let lat = 11.6854;
+                let lon = 76.1320;
+
+                if (status.status === 'granted') {
+                    try {
+                        let loc = await Location.getLastKnownPositionAsync({});
+                        if (!loc) {
+                            loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                        }
+                        if (loc) {
+                            lat = loc.coords.latitude;
+                            lon = loc.coords.longitude;
+                        }
+                    } catch (e) {
+                         console.log("Could not get location for UpcomingTreks", e);
+                    }
+                }
+
+                const res = await client.get(`/treks/nearby?lat=${lat}&lon=${lon}&radius=100`); 
                 if (Array.isArray(res.data)) {
                     setTreks(res.data.slice(0, 5));
                 } else {
