@@ -47,5 +47,5 @@ export function usePathProcessor(state, dispatch, location) {
 
         if (loopCooldownRef.current > 0) loopCooldownRef.current--;
 
-    }, [location, state.pathSegments, state.isTracking]);
+    }, [location, state.isTracking]);
 }

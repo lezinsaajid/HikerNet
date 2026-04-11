@@ -20,7 +20,8 @@ export default function MapLayer({
     userHeading,
     onMarkerPress,
     retraceFadedIndex,
-    isTrailingBack
+    isTrailingBack,
+    trailFinished
 }) {
     // Memoize the faded route logic for performance
     const renderNavPaths = useMemo(() => {
@@ -118,8 +119,8 @@ export default function MapLayer({
             {renderNavPaths}
             {renderTrekPaths}
 
-            {/* Trek Start & End Markers */}
-            {pathSegments.length > 0 && pathSegments[0].length > 0 && (
+            {/* Trek Start & End Markers (Only shown post-trek) */}
+            {trailFinished && pathSegments.length > 0 && pathSegments[0].length > 0 && (
                 <Marker coordinate={pathSegments[0][0]}>
                     <View style={styles.brandedMarker}>
                         <Ionicons name="location" size={45} color="#fc4c02" />
@@ -130,7 +131,7 @@ export default function MapLayer({
                 </Marker>
             )}
 
-            {pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 && (
+            {trailFinished && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 && (
                 <Marker coordinate={pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1]}>
                     <View style={styles.brandedMarker}>
                         <Ionicons name="location" size={45} color="#28a745" />

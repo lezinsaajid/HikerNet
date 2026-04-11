@@ -54,12 +54,12 @@ export const useGroupSync = ({
             });
         });
 
-        socket.on("participant-location-received", ({ userId, username, location, isOffTrail, distanceToTrail }) => {
+        socket.on("participant-location-received", ({ userId, username, profileImage, location, isOffTrail, distanceToTrail }) => {
             if (userId === currentUser?._id) return;
             
             setParticipants(prev => ({
                 ...prev,
-                [userId]: { username, location, isOffTrail, distanceToTrail, lastUpdate: Date.now() }
+                [userId]: { username, profileImage, location, isOffTrail, distanceToTrail, lastUpdate: Date.now() }
             }));
 
             // Process leader-specific logic (e.g. auto-follow) handled by parent via participants state
@@ -133,6 +133,7 @@ export const useGroupSync = ({
                 trekId: String(trailId),
                 userId: currentUser?._id,
                 username: currentUser?.username,
+                profileImage: currentUser?.profileImage,
                 location: { latitude: location.latitude, longitude: location.longitude },
                 isOffTrail,
                 distanceToTrail

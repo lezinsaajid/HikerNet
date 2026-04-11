@@ -5,8 +5,16 @@ import { TREK_CONFIG, ACTIONS } from '../_utils/constants';
 
 export function useTrackingEngine(state, dispatch, location) {
     const lastStatsPointRef = useRef(null);
+    const lastSyncRef = useRef(0);
+    const startTimeRef = useRef(Date.now());
 
-    // 1. Stats Counter Effect
+    // 🔥 STATE REF (prevents stale state issues)
+    const stateRef = useRef(state);
+    useEffect(() => {
+        stateRef.current = state;
+    }, [state]);
+
+    // 1. Stats Counter
     useEffect(() => {
         let timer = null;
 
@@ -14,7 +22,9 @@ export function useTrackingEngine(state, dispatch, location) {
             timer = setInterval(() => {
                 dispatch({
                     type: ACTIONS.UPDATE_STATS,
-                    payload: { duration: state.stats.duration + 1 }
+                    payload: {
+                        duration: stateRef.current.stats.duration + 1
+                    }
                 });
             }, 1000);
         }
@@ -22,25 +32,46 @@ export function useTrackingEngine(state, dispatch, location) {
         return () => {
             if (timer) clearInterval(timer);
         };
-    }, [state.isTracking, state.isPaused, state.trailFinished, state.stats.duration]);
+    }, [state.isTracking, state.isPaused, state.trailFinished]);
 
-    // 2. Tracking Core Effect
+    // 2. Tracking Core
     useEffect(() => {
-        if (!state.isTracking || state.isPaused || state.trailFinished || state.isTrailingBack) return;
+        const currentState = stateRef.current;
+
+        if (
+            !currentState.isTracking ||
+            currentState.isPaused ||
+            currentState.trailFinished ||
+            currentState.isTrailingBack
+        ) return;
+
         if (!location) return;
 
         const { latitude, longitude, altitude } = location;
         const newPoint = { latitude, longitude };
 
-        // Clone segments safely
-        let segments = [...state.pathSegments];
+        // 🔥 Stabilization phase (ignore first 5s)
+        if (Date.now() - startTimeRef.current < 5000) {
+            lastStatsPointRef.current = { latitude, longitude, altitude };
+            return;
+        }
+
+        // 🔥 Deep clone segments
+        let segments = currentState.pathSegments.map(seg => [...seg]);
+
+        // 🔥 Handle empty segments safely
+        if (segments.length === 0) {
+            segments = [[newPoint]];
+        }
+
         const lastSegIdx = segments.length - 1;
-        const lastSeg = segments[lastSegIdx] || [];
+        const lastSeg = segments[lastSegIdx];
 
         let isNewSegment = false;
 
         if (lastSeg.length > 0) {
             const lastPoint = lastSeg[lastSeg.length - 1];
+
             const dist = getDistance(
                 latitude,
                 longitude,
@@ -48,8 +79,10 @@ export function useTrackingEngine(state, dispatch, location) {
                 lastPoint.longitude
             );
 
-            // Use config instead of hardcoded value
-            if (state.resumedFromPause && dist > TREK_CONFIG.NEW_SEGMENT_THRESHOLD) {
+            if (
+                currentState.resumedFromPause &&
+                dist > TREK_CONFIG.NEW_SEGMENT_THRESHOLD
+            ) {
                 isNewSegment = true;
 
                 dispatch({
@@ -59,19 +92,15 @@ export function useTrackingEngine(state, dispatch, location) {
             }
         }
 
-        // Segment handling
-        if (isNewSegment || (segments.length === 1 && segments[0].length === 0)) {
-            if (segments.length === 1 && segments[0].length === 0) {
-                segments[0] = [newPoint];
-            } else {
-                segments.push([newPoint]);
-            }
+        // 🔥 Segment update
+        if (isNewSegment) {
+            segments.push([newPoint]);
         } else {
             segments[lastSegIdx] = [...lastSeg, newPoint];
         }
 
-        // Stats calculation
-        const newStats = { ...state.stats };
+        // 🔥 Stats calculation
+        const newStats = { ...currentState.stats };
 
         let distM = 0;
 
@@ -84,23 +113,34 @@ export function useTrackingEngine(state, dispatch, location) {
             );
         }
 
-        newStats.distance += distM;
+        // 🔥 JITTER FILTER (CRITICAL)
+        if (distM > 2) {
+            newStats.distance += distM;
+        }
 
+        // 🔥 Altitude-safe logic
         if (
-            lastStatsPointRef.current &&
+            altitude != null &&
+            lastStatsPointRef.current?.altitude != null &&
             altitude > lastStatsPointRef.current.altitude
         ) {
             newStats.elevationGain +=
                 altitude - lastStatsPointRef.current.altitude;
         }
 
-        newStats.maxAltitude = Math.max(newStats.maxAltitude, altitude || 0);
+        newStats.maxAltitude = Math.max(
+            newStats.maxAltitude,
+            altitude || 0
+        );
 
+        // 🔥 Avg speed
         newStats.avgSpeed =
             newStats.duration > 0
                 ? parseFloat(
-                    ((newStats.distance / 1000) /
-                        (newStats.duration / 3600)).toFixed(1)
+                    (
+                        (newStats.distance / 1000) /
+                        (newStats.duration / 3600)
+                    ).toFixed(1)
                 )
                 : 0;
 
@@ -115,24 +155,25 @@ export function useTrackingEngine(state, dispatch, location) {
             }
         });
 
-        // Backend sync
-        if (state.trailId && !state.simulation?.isActive) {
-            TrekService.updateTrek(state.trailId, {
+        // 🔥 THROTTLED BACKEND SYNC (every 5 sec)
+        const now = Date.now();
+
+        if (
+            currentState.trailId &&
+            !currentState.simulation?.isActive &&
+            now - lastSyncRef.current > 5000
+        ) {
+            lastSyncRef.current = now;
+
+            TrekService.updateTrek(currentState.trailId, {
                 coordinates: [newPoint],
                 isNewSegment
             }).catch((e) =>
                 console.error('Tracking sync error', e)
             );
         }
-    }, [
-        location,
-        state.isTracking,
-        state.isPaused,
-        state.trailFinished,
-        state.isTrailingBack,
-        state.resumedFromPause,
-        state.pathSegments
-    ]);
+
+    }, [location]);
 
     return {};
 }

@@ -34,10 +34,11 @@ export const initSocket = (socketIo) => {
         });
  
         // Participant: Share current location
-        socket.on("participant-location-update", ({ trekId, userId, username, location, isOffTrail, distanceToTrail }) => {
+        socket.on("participant-location-update", ({ trekId, userId, username, profileImage, location, isOffTrail, distanceToTrail }) => {
             socket.to(`trek_${trekId}`).emit("participant-location-received", {
                 userId,
                 username,
+                profileImage,
                 location,
                 isOffTrail,
                 distanceToTrail

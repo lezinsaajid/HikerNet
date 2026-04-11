@@ -98,7 +98,7 @@ export function useNavigationEngine(state, dispatch, location) {
 
         dispatch({ type: 'UPDATE_NAVIGATION', payload: navUpdates });
 
-    }, [location, state.navigationPolyline, state.isTracking]);
+    }, [location, state.isTracking, state.hasJoinedTrail, state.isTrailingBack]);
 
     const retracePath = () => {
         const source = state.targetRoute.length > 0 ? state.targetRoute : state.routeCoordinates;

@@ -540,7 +540,7 @@ export default function Profile() {
                                         </View>
                                     ) : (
                                         <Image
-                                            source={{ uri: userData?.profileImage || 'https://via.placeholder.com/150' }}
+                                            source={{ uri: userData?.profileImage || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=200&h=200&auto=format&fit=crop' }}
                                             style={styles.avatar}
                                         />
                                     )}

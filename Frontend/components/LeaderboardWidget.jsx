@@ -55,7 +55,7 @@ export default function LeaderboardWidget() {
                                 <View key={user._id} style={[styles.hikerItem, isFirst && styles.hikerItemFirst]}>
                                     <View style={[styles.avatarContainer, { borderColor: color }]}>
                                         <Image
-                                            source={{ uri: user.profileImage || 'https://via.placeholder.com/150' }}
+                                            source={{ uri: user.profileImage || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=200&h=200&auto=format&fit=crop' }}
                                             style={[styles.avatar, isFirst && styles.avatarFirst]}
                                         />
                                         <View style={[styles.rankBadge, { backgroundColor: color }]}>

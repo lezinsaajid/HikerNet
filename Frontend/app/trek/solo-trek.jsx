@@ -33,6 +33,7 @@ export default function SoloTrek() {
         mapRef,
         userHeading,
         accuracyStatus,
+        locationError,
         startTrek,
         stopTrek,
         retracePath,
@@ -131,8 +132,26 @@ export default function SoloTrek() {
     if (!state.location && !state.simulation.isActive) {
         return (
             <View style={styles.centered}>
-                <ActivityIndicator size="large" color="#007bff" />
-                <Text style={{ marginTop: 15, color: '#666', fontWeight: 'bold' }}>Locking GPS Satellites...</Text>
+                {locationError ? (
+                    <>
+                        <Ionicons name="alert-circle" size={50} color="#c62828" />
+                        <Text style={{ marginTop: 15, color: '#c62828', fontWeight: 'bold', textAlign: 'center', paddingHorizontal: 20 }}>
+                            {locationError}
+                        </Text>
+                        <TouchableOpacity 
+                            style={[styles.startTrekPill, { marginTop: 20, backgroundColor: '#666' }]}
+                            onPress={() => router.back()}
+                        >
+                            <Text style={styles.startTrekText}>Go Back</Text>
+                        </TouchableOpacity>
+                    </>
+                ) : (
+                    <>
+                        <ActivityIndicator size="large" color="#2e7d32" />
+                        <Text style={{ marginTop: 15, color: '#2e7d32', fontWeight: 'bold' }}>Locking GPS Satellites...</Text>
+                        <Text style={{ marginTop: 5, color: '#999', fontSize: 12 }}>Ensure you are outdoors with a clear view of the sky</Text>
+                    </>
+                )}
             </View>
         );
     }
@@ -156,6 +175,7 @@ export default function SoloTrek() {
                 onMarkerPress={setSelectedPinDetails}
                 retraceFadedIndex={state.retraceFadedIndex}
                 isTrailingBack={state.isTrailingBack}
+                trailFinished={state.trailFinished}
             />
 
             {/* 2. Overlays - Top Bar */}

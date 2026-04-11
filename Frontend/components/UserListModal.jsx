@@ -117,7 +117,7 @@ export default function UserListModal({ visible, onClose, userId, type, mode = '
         return (
             <TouchableOpacity style={styles.userItem} onPress={() => handleUserPress(item)}>
                 <Image
-                    source={{ uri: item.profileImage || 'https://via.placeholder.com/150' }}
+                    source={{ uri: item.profileImage || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=100&h=100&auto=format&fit=crop' }}
                     style={styles.avatar}
                 />
                 <View style={styles.userInfo}>

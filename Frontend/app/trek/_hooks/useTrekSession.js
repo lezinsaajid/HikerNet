@@ -32,7 +32,8 @@ export function useTrekSession(params) {
         location: validatedLocation, 
         smoothedLocation, 
         gpsAccuracy, 
-        accuracyStatus 
+        accuracyStatus,
+        error: locationError
     } = useSmartLocation(state.isTracking || state.isTrailingBack || !state.hasStarted);
     
     const userHeading = useCompass(!state.trailFinished);
@@ -123,14 +124,22 @@ export function useTrekSession(params) {
     useTrekBack(state, dispatch);
     useOffTrailAlerts(state);
 
-    // 5. Shared UI Updates (Camera & Location Rendering)
+    // 5. Shared UI Updates (Location Sync)
+    useEffect(() => {
+        if (!activeLocation) return;
+        dispatch({ 
+            type: ACTIONS.UI_ACTION, 
+            payload: { location: { latitude: activeLocation.latitude, longitude: activeLocation.longitude } } 
+        });
+    }, [activeLocation]);
+
+    // 6. Camera & Map Interactions
     useEffect(() => {
         if (!activeLocation || !mapRef.current) return;
 
         if (state.trailFinished) {
-            // When trek is finished, zoom out to show the entire recorded path
             const fullPath = state.pathSegments.flat();
-            if (fullPath.length > 0 && mapRef.current) {
+            if (fullPath.length > 0) {
                 mapRef.current.fitToCoordinates(fullPath, {
                     edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
                     animated: true
@@ -148,8 +157,6 @@ export function useTrekSession(params) {
                 zoom: 18
             }, { duration: 1000 });
         }
-        
-        dispatch({ type: ACTIONS.UI_ACTION, payload: { location: { latitude: activeLocation.latitude, longitude: activeLocation.longitude } } });
     }, [activeLocation, state.mapViewMode, userHeading, state.trailFinished]);
 
     // 6. Master Functional Logic
@@ -220,6 +227,7 @@ export function useTrekSession(params) {
         mapRef,
         userHeading,
         accuracyStatus,
+        locationError,
         startTrek,
         stopTrek,
         togglePause,

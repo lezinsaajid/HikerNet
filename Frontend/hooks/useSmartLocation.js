@@ -4,8 +4,8 @@ import { Pedometer } from 'expo-sensors';
 import { getDistance } from '../utils/geoUtils';
 
 export const useSmartLocation = (isTracking) => {
-    const [location, setLocation] = useState(null); // Validated location for recording
-    const [smoothedLocation, setSmoothedLocation] = useState(null); // EMA smoothed for map display
+    const [location, setLocation] = useState(null);
+    const [smoothedLocation, setSmoothedLocation] = useState(null);
     const [isWalking, setIsWalking] = useState(false);
     const [gpsAccuracy, setGpsAccuracy] = useState(0);
     const [error, setError] = useState(null);
@@ -20,11 +20,12 @@ export const useSmartLocation = (isTracking) => {
 
     const accuracyStatus = getAccuracyStatus(gpsAccuracy);
 
-    // Refs for logic
+    // Refs
     const lastValidatedLoc = useRef(null);
     const lastRawLoc = useRef(null);
     const stepCount = useRef(0);
     const lastStepTime = useRef(0);
+    const isGpsLocked = useRef(false); // 🔥 NEW
 
     useEffect(() => {
         let locationSub = null;
@@ -33,14 +34,14 @@ export const useSmartLocation = (isTracking) => {
 
         const startTracking = async () => {
             try {
-                // 1. Permission Check
+                // 1. Permission
                 const { status } = await Location.requestForegroundPermissionsAsync();
                 if (status !== 'granted') {
-                    setError('Permission to access location was denied');
+                    setError('Permission denied');
                     return;
                 }
 
-                // 2. Pedometer Subscription
+                // 2. Pedometer
                 const isPedometerAvailable = await Pedometer.isAvailableAsync();
                 if (isPedometerAvailable) {
                     pedometerSub = Pedometer.watchStepCount(result => {
@@ -48,55 +49,77 @@ export const useSmartLocation = (isTracking) => {
                         lastStepTime.current = Date.now();
                         setIsWalking(true);
 
-                        // Auto-reset "walking" state if no steps for 3 seconds
                         if (walkTimer) clearTimeout(walkTimer);
                         walkTimer = setTimeout(() => setIsWalking(false), 3000);
                     });
                 }
 
-                // 3. Location Subscription
+                // 3. Location tracking
                 locationSub = await Location.watchPositionAsync(
                     {
-                        accuracy: Location.Accuracy.BestForNavigation,
-                        timeInterval: 2000, // 2 seconds between pulls
-                        distanceInterval: 2, // MUST physically move 2 meters to trigger an update (crushes stationary drift)
+                        accuracy: Location.Accuracy.BestForNavigation, // 🔥 IMPORTANT
+                        timeInterval: 1000,
+                        distanceInterval: 0,
                     },
                     (newLoc) => {
                         const { latitude, longitude, accuracy, altitude } = newLoc.coords;
                         setGpsAccuracy(accuracy || 0);
 
-                        // --- ADVANCED GEOLOCATION PIPELINE ---
+                        console.log(`[GPS] acc=${accuracy?.toFixed(1)}`);
 
-                        // 1. Pre-Filter (Accuracy Gate)
-                        // If accuracy is too poor, don't even process movement logic
-                        // In trekking, anything > 20m starts to become questionable for path tracking
-                        if (accuracy > 25) return;
+                        // 🔥 Detect GPS lock
+                        if (accuracy <= 25) {
+                            isGpsLocked.current = true;
+                        }
 
-                        // 2. Dynamics Filter (Speed Spike Rejection)
-                        // Mountainous terrain can have multipath errors causing 100m jumps in 1s.
+                        // 1. Pre-filter
+                        if (accuracy > 1000) return;
+
+                        // 2. Speed spike rejection
                         if (lastRawLoc.current) {
                             const timeDiff = (newLoc.timestamp - lastRawLoc.current.timestamp) / 1000;
-                            const dist = getDistance(lastRawLoc.current.latitude, lastRawLoc.current.longitude, latitude, longitude);
-                            const calcSpeed = dist / (timeDiff || 1);
+                            const dist = getDistance(
+                                lastRawLoc.current.latitude,
+                                lastRawLoc.current.longitude,
+                                latitude,
+                                longitude
+                            );
 
-                            // 10m/s (36km/h) is the limit for a fast trekker/runner. Reject spikes.
-                            if (calcSpeed > 10 && timeDiff > 0) {
-                                console.log(`[SmartLocation] SPIKE REJECT: ${calcSpeed.toFixed(1)}m/s`);
+                            const speed = dist / (timeDiff || 1);
+
+                            if (speed > 25 && accuracy < 50) {
+                                console.log(`[REJECT] Spike: ${speed.toFixed(1)} m/s`);
                                 return;
                             }
                         }
+
                         lastRawLoc.current = { latitude, longitude, timestamp: newLoc.timestamp };
 
-                        // 3. EMA Smoothing + Deadzone (For Visual Map Positioning)
-                        // This prevents the marker from jumping around when standing still
+                        // 🔥 FIRST POINT (CRITICAL FIX)
+                        if (!lastValidatedLoc.current) {
+                            const firstPoint = {
+                                latitude,
+                                longitude,
+                                accuracy,
+                                altitude,
+                                timestamp: newLoc.timestamp
+                            };
+
+                            lastValidatedLoc.current = firstPoint;
+                            setLocation(firstPoint);
+                        }
+
+                        // 3. EMA smoothing (map only)
                         setSmoothedLocation(prev => {
                             if (!prev) return { latitude, longitude, accuracy };
 
-                            // Deadzone: If the raw GPS point moved less than 2 meters from our visual marker, ignore it
-                            const driftDist = getDistance(prev.latitude, prev.longitude, latitude, longitude);
-                            if (driftDist < 2) return prev;
+                            const drift = getDistance(prev.latitude, prev.longitude, latitude, longitude);
+                            const deadzone = accuracy > 50 ? 5 : 1;
 
-                            const alpha = 0.4; // Slightly more smoothing (0.4 instead of 0.5)
+                            if (drift < deadzone) return prev;
+
+                            const alpha = accuracy > 50 ? 0.2 : 0.4;
+
                             return {
                                 latitude: alpha * latitude + (1 - alpha) * prev.latitude,
                                 longitude: alpha * longitude + (1 - alpha) * prev.longitude,
@@ -104,33 +127,54 @@ export const useSmartLocation = (isTracking) => {
                             };
                         });
 
-                        // 4. Movement Gating (Recording Logic)
-                        // Prevent "ghost" points when user is stationary or moving slightly
+                        // 4. Movement gating
                         const distFromLast = lastValidatedLoc.current
-                            ? getDistance(lastValidatedLoc.current.latitude, lastValidatedLoc.current.longitude, latitude, longitude)
+                            ? getDistance(
+                                lastValidatedLoc.current.latitude,
+                                lastValidatedLoc.current.longitude,
+                                latitude,
+                                longitude
+                            )
                             : Infinity;
 
-                        // Initial lock requirement: accuracy <= 15m (High)
-                        const isInitialLock = !lastValidatedLoc.current && accuracy <= 15;
+                        // 🔥 Relaxed accuracy until GPS lock
+                        const isHighAccuracy = isGpsLocked.current
+                            ? accuracy <= 30
+                            : accuracy <= 100;
 
-                        if (isInitialLock || (lastValidatedLoc.current && distFromLast >= 5)) {
-                            // Secondary check: Are we actually walking? (If pedometer is available)
+                        if (isHighAccuracy && distFromLast >= 5) {
                             const timeSinceLastStep = Date.now() - lastStepTime.current;
-                            if (lastValidatedLoc.current && timeSinceLastStep > 10000 && distFromLast < 10) {
+
+                            if (timeSinceLastStep > 10000 && distFromLast < 10) {
                                 return;
                             }
 
-                            const validPoint = { latitude, longitude, accuracy, altitude, timestamp: newLoc.timestamp };
+                            const validPoint = {
+                                latitude,
+                                longitude,
+                                accuracy,
+                                altitude,
+                                timestamp: newLoc.timestamp
+                            };
+
                             lastValidatedLoc.current = validPoint;
                             setLocation(validPoint);
-                        } else if (!location && accuracy <= 30) {
-                            // Fallback for map initialization: Show SOMETHING even if accuracy isn't perfect for recording yet
-                            setLocation({ latitude, longitude, accuracy, altitude, timestamp: newLoc.timestamp });
+                        }
+
+                        // 🔥 Indoor fallback
+                        else if (!location && accuracy <= 300) {
+                            setLocation({
+                                latitude,
+                                longitude,
+                                accuracy,
+                                altitude,
+                                timestamp: newLoc.timestamp
+                            });
                         }
                     }
                 );
             } catch (err) {
-                console.error('[SmartLocation] Error:', err);
+                console.error('[SmartLocation]', err);
                 setError(err.message);
             }
         };
@@ -144,7 +188,14 @@ export const useSmartLocation = (isTracking) => {
             if (pedometerSub) pedometerSub.remove();
             if (walkTimer) clearTimeout(walkTimer);
         };
-    }, [isTracking]); // Only restart if tracking status changes
+    }, [isTracking]);
 
-    return { location, smoothedLocation, isWalking, gpsAccuracy, accuracyStatus, error };
+    return {
+        location,
+        smoothedLocation,
+        isWalking,
+        gpsAccuracy,
+        accuracyStatus,
+        error
+    };
 };

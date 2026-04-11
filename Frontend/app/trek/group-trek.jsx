@@ -481,13 +481,13 @@ export default function GroupTrek() {
         return { fadedRoute: source.slice(0, idx + 1), visibleRoute: source.slice(idx) };
     }, [navigationPolyline, routeCoordinates, currentNavIndex]);
 
-    const startPoint = isReusingTrail && targetRoute.length > 0 
+    const startPoint = trailFinished && isReusingTrail && targetRoute.length > 0 
         ? targetRoute[0] 
-        : (pathSegments.length > 0 && pathSegments[0].length > 0 ? pathSegments[0][0] : null);
+        : (trailFinished && pathSegments.length > 0 && pathSegments[0].length > 0 ? pathSegments[0][0] : null);
 
-    const endPoint = isReusingTrail && targetRoute.length > 0
+    const endPoint = trailFinished && isReusingTrail && targetRoute.length > 0
         ? targetRoute[targetRoute.length - 1]
-        : ((trailFinished || isTrailingBack) && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 
+        : (trailFinished && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 
             ? pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1] 
             : null);
 
@@ -536,11 +536,24 @@ export default function GroupTrek() {
                         
                         {Object.entries(participants).map(([uid, p]) => (
                             <Marker key={`p-${uid}`} coordinate={p.location} title={p.username} zIndex={100}>
-                                <View style={{ alignItems: 'center' }}>
-                                    <View style={{ backgroundColor: p.isOffTrail ? '#dc3545' : '#28a745', padding: 2, borderRadius: 10, paddingHorizontal: 6, marginBottom: 2 }}>
-                                        <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>{p.username}</Text>
+                                <View style={styles.participantMarkerContainer}>
+                                    <View style={[styles.participantAvatarWrapper, { borderColor: p.isOffTrail ? '#dc3545' : '#28a745' }]}>
+                                        {p.profileImage ? (
+                                            <Image source={{ uri: p.profileImage }} style={styles.participantAvatar} />
+                                        ) : (
+                                            <View style={styles.participantAvatarPlaceholder}>
+                                                <Text style={styles.participantAvatarInitial}>{p.username?.[0]?.toUpperCase()}</Text>
+                                            </View>
+                                        )}
+                                        {p.isOffTrail && (
+                                            <View style={styles.offTrailIndicator}>
+                                                <Ionicons name="warning" size={10} color="white" />
+                                            </View>
+                                        )}
                                     </View>
-                                    <Ionicons name="person" size={20} color={p.isOffTrail ? '#dc3545' : '#28a745'} />
+                                    <View style={[styles.participantLabel, { backgroundColor: p.isOffTrail ? '#dc3545' : '#28a745' }]}>
+                                        <Text style={styles.participantLabelText}>{p.username}</Text>
+                                    </View>
                                 </View>
                             </Marker>
                         ))}
@@ -582,7 +595,29 @@ export default function GroupTrek() {
                         <View style={styles.accuracyBadge}><View style={[styles.accuracyDot, { backgroundColor: accuracyStatus === 'high' ? '#28a745' : '#ffc107' }]} /><Text style={styles.accuracyText}>{gpsAccuracy ? Math.round(gpsAccuracy) : '--'}m</Text></View>
                     </View>
                 </View>
-            ) : <View style={styles.centered}><ActivityIndicator size="large" color="#28a745" /></View>}
+            ) : (
+                <View style={styles.centered}>
+                    {locationError ? (
+                        <>
+                            <Ionicons name="alert-circle" size={50} color="#dc3545" />
+                            <Text style={{ marginTop: 15, color: '#dc3545', fontWeight: 'bold', textAlign: 'center', paddingHorizontal: 20 }}>
+                                {locationError}
+                            </Text>
+                            <TouchableOpacity 
+                                style={[styles.startBigBtn, { marginTop: 20, backgroundColor: '#666', width: 'auto', paddingHorizontal: 30 }]}
+                                onPress={() => router.back()}
+                            >
+                                <Text style={styles.actionButtonText}>Go Back</Text>
+                            </TouchableOpacity>
+                        </>
+                    ) : (
+                        <>
+                            <ActivityIndicator size="large" color="#28a745" />
+                            <Text style={{ marginTop: 15, color: '#28a745', fontWeight: 'bold' }}>Locking GPS Satellites...</Text>
+                        </>
+                    )}
+                </View>
+            )}
 
             <View style={styles.controls}>
                 {!trailFinished ? (
@@ -642,5 +677,47 @@ const styles = StyleSheet.create({
     userMarkerPulse: { position: 'absolute', width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,123,255,0.4)' },
     userMarkerContainerInner: { alignItems: 'center', justifyContent: 'center', width: 40, height: 40 },
     userMarkerDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#007bff', borderWidth: 3, borderColor: 'white' },
-    userMarkerArrow: { position: 'absolute', top: -6 }
+    userMarkerArrow: { position: 'absolute', top: -6 },
+
+    // Participant Markers
+    participantMarkerContainer: { alignItems: 'center', justifyContent: 'center' },
+    participantAvatarWrapper: { 
+        width: 40, 
+        height: 40, 
+        borderRadius: 20, 
+        borderWidth: 2, 
+        backgroundColor: 'white', 
+        overflow: 'hidden', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2
+    },
+    participantAvatar: { width: '100%', height: '100%' },
+    participantAvatarPlaceholder: { width: '100%', height: '100%', backgroundColor: '#f0f4f0', justifyContent: 'center', alignItems: 'center' },
+    participantAvatarInitial: { color: '#28a745', fontWeight: 'bold', fontSize: 16 },
+    participantLabel: { 
+        paddingHorizontal: 8, 
+        paddingVertical: 2, 
+        borderRadius: 10, 
+        marginTop: 4,
+        elevation: 2 
+    },
+    participantLabelText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
+    offTrailIndicator: { 
+        position: 'absolute', 
+        top: 0, 
+        right: 0, 
+        backgroundColor: '#dc3545', 
+        width: 14, 
+        height: 14, 
+        borderRadius: 7, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'white'
+    }
 });
