@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react';
 import { Alert, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { getDistance, getPointToPathDistance, calculateHeading } from '../../../utils/geoUtils';
-import { TrekService } from '../services/trekService';
-import { NAVIGATION_CONFIG, ACTIONS } from '../utils/constants';
+import { TrekService } from '../_services/trekService';
+import { NAVIGATION_CONFIG, ACTIONS } from '../_utils/constants';
 
 export function useNavigationEngine(state, dispatch, location) {
     const hasAlertedOffTrack = useRef(false);

@@ -7,17 +7,19 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 // Feature Components
-import MapLayer from './components/MapLayer';
-import StatsCard from './components/StatsCard';
-import NavigationBanner from './components/NavigationBanner';
-import TrekControls from './components/TrekControls';
-import MarkerModal from './components/MarkerModal';
-import PinDetailsModal from './components/PinDetailsModal';
+import MapLayer from './_components/MapLayer';
+import StatsCard from './_components/StatsCard';
+import NavigationBanner from './_components/NavigationBanner';
+import TrekControls from './_components/TrekControls';
+import MarkerModal from './_components/MarkerModal';
+import PinDetailsModal from './_components/PinDetailsModal';
+import RestModal from './_components/RestModal';
 import WeatherWidget from '../../components/WeatherWidget';
 
 // Orchestrator Hook and Data Layer
-import { useTrekSession } from './hooks/useTrekSession';
-import { ACTIONS } from './utils/constants';
+import { useTrekSession } from './_hooks/useTrekSession';
+import { useRestMode } from './_hooks/useRestMode';
+import { ACTIONS } from './_utils/constants';
 
 export default function SoloTrek() {
     const router = useRouter();
@@ -37,13 +39,35 @@ export default function SoloTrek() {
         togglePause
     } = useTrekSession(params);
 
+    const {
+        isResting,
+        restTimeLeft,
+        warningMode,
+        warningTimeLeft,
+        startRest,
+        endRest
+    } = useRestMode(state.location);
+
     // Local UI only state
     const [showMarkerModal, setShowMarkerModal] = useState(false);
+    const [showRestModal, setShowRestModal] = useState(false);
     const [selectedIcon, setSelectedIcon] = useState(null);
     const [waypointDescription, setWaypointDescription] = useState('');
     const [iconSearchQuery, setIconSearchQuery] = useState('');
     const [waypointImages, setWaypointImages] = useState([]);
     const [selectedPinDetails, setSelectedPinDetails] = useState(null);
+
+    const handleRestSelect = (minutes) => {
+        startRest(minutes);
+        setShowRestModal(true); // Keep it open to show timer
+        dispatch({ type: ACTIONS.REST_START });
+    };
+
+    const handleEndRest = () => {
+        endRest();
+        setShowRestModal(false);
+        dispatch({ type: ACTIONS.REST_END });
+    };
 
     // Media Handlers
     const compressImage = async (uri) => {
@@ -130,20 +154,46 @@ export default function SoloTrek() {
                 mapViewMode={state.mapViewMode}
                 userHeading={userHeading}
                 onMarkerPress={setSelectedPinDetails}
+                retraceFadedIndex={state.retraceFadedIndex}
+                isTrailingBack={state.isTrailingBack}
             />
 
-            {/* 2. Overlays */}
-            <View style={styles.weatherOverlay}>
-                <WeatherWidget />
+            {/* 2. Overlays - Top Bar */}
+            <StatsCard 
+                stats={state.stats} 
+                formatDuration={formatDuration} 
+            />
+
+            {/* 3. Floating Tool Stacks */}
+            {/* Left Tools */}
+            <View style={styles.leftToolStack}>
+                <TouchableOpacity style={styles.toolButton}>
+                    <Ionicons name="expand" size={24} color="#666" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                    style={styles.toolButton}
+                    onPress={() => mapRef.current?.animateCamera({ center: state.location, zoom: 18 })}
+                >
+                    <Ionicons name="navigate" size={24} color="#2e7d32" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                    style={styles.toolButton} 
+                    onPress={() => dispatch({ type: 'UI_ACTION', payload: { mapType: state.mapType === 'satellite' ? 'standard' : 'satellite' } })}
+                >
+                    <Ionicons name="layers" size={24} color="#666" />
+                </TouchableOpacity>
             </View>
 
-            <View style={styles.statusOverlay}>
-                <View style={[styles.statusBadge, { opacity: accuracyStatus === 'Poor' ? 1 : 0.8 }]}>
-                    <View style={[styles.accuracyDot, { backgroundColor: accuracyStatus === 'Excellent' ? '#28a745' : '#ffc107' }]} />
-                    <Text style={styles.statusText}>{accuracyStatus} GPS</Text>
-                </View>
+            {/* Right Tools */}
+            <View style={styles.rightToolStack}>
+                <TouchableOpacity 
+                    style={[styles.toolButton, styles.cameraBtn]}
+                    onPress={() => setShowMarkerModal(true)}
+                >
+                    <Ionicons name="camera" size={28} color="white" />
+                </TouchableOpacity>
             </View>
-            
+
             {state.navigationPolyline.length > 0 && state.hasStarted && !state.trailFinished && (
                  <NavigationBanner 
                     navigation={state.navigation}
@@ -151,21 +201,6 @@ export default function SoloTrek() {
                     onToggleNavMode={() => dispatch({ type: 'UI_ACTION', payload: { mapViewMode: state.mapViewMode === 'navigation' ? 'explore' : 'navigation' } })}
                  />
             )}
-
-            <View style={styles.topButtonsContainer}>
-                <TouchableOpacity 
-                    style={styles.mapIconButton} 
-                    onPress={() => dispatch({ type: 'UI_ACTION', payload: { mapType: state.mapType === 'satellite' ? 'standard' : 'satellite' } })}
-                >
-                    <Ionicons name="layers" size={24} color="#555" />
-                </TouchableOpacity>
-                <TouchableOpacity 
-                    style={styles.mapIconButton} 
-                    onPress={() => setShowMarkerModal(true)}
-                >
-                    <Ionicons name="add" size={24} color="#555" />
-                </TouchableOpacity>
-            </View>
 
             {state.simulation.isActive && (
                 <View style={styles.simOverlay}>
@@ -176,9 +211,14 @@ export default function SoloTrek() {
                 </View>
             )}
 
-            {/* 3. Logic-Driven UI Controls */}
-            <View style={styles.bottomOverlay}>
-                <StatsCard stats={state.stats} formatDuration={formatDuration} />
+            {/* 4. Primary Actions */}
+            {!state.hasStarted ? (
+                <View style={styles.bottomActionContainer}>
+                    <TouchableOpacity style={styles.startTrekPill} onPress={startTrek}>
+                        <Text style={styles.startTrekText}>Start Trek</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : (
                 <TrekControls 
                     isTracking={state.isTracking}
                     isPaused={state.isPaused}
@@ -186,13 +226,28 @@ export default function SoloTrek() {
                     isTrailingBack={state.isTrailingBack}
                     onStart={startTrek}
                     onStop={stopTrek}
-                    onPause={togglePause}
+                    onPause={() => {
+                        togglePause();
+                        if (!state.isPaused) setShowRestModal(true);
+                    }}
                     onExit={() => router.replace('/(tabs)/trek')}
                     onTrailBack={retracePath}
+                    onRest={() => setShowRestModal(true)}
                 />
-            </View>
+            )}
 
             {/* 4. Isolated Modals */}
+            <RestModal
+                visible={showRestModal}
+                onClose={() => setShowRestModal(false)}
+                onSelect={handleRestSelect}
+                isResting={isResting}
+                timeLeft={restTimeLeft}
+                warningMode={warningMode}
+                warningTimeLeft={warningTimeLeft}
+                onEndRest={handleEndRest}
+            />
+
             <MarkerModal
                 visible={showMarkerModal}
                 onClose={() => setShowMarkerModal(false)}
@@ -218,17 +273,45 @@ export default function SoloTrek() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1 },
+    container: { flex: 1, backgroundColor: '#f0f4f0' },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    weatherOverlay: { position: 'absolute', top: 40, right: 20, zIndex: 10 },
-    statusOverlay: { position: 'absolute', top: 80, width: '100%', alignItems: 'center', zIndex: 20 },
-    statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-    statusText: { marginLeft: 6, fontSize: 14, fontWeight: 'bold', color: '#007bff' },
-    accuracyDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-    topButtonsContainer: { position: 'absolute', top: 110, left: 20, zIndex: 10 },
-    mapIconButton: { backgroundColor: 'white', borderRadius: 25, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', elevation: 5, marginBottom: 10 },
-    bottomOverlay: { position: 'absolute', bottom: 0, left: 20, right: 20, zIndex: 100 },
-    simOverlay: { position: 'absolute', top: 121, width: '100%', alignItems: 'center' },
+    
+    // Tool Stacks
+    leftToolStack: { position: 'absolute', left: 20, bottom: 120, zIndex: 100 },
+    rightToolStack: { position: 'absolute', right: 20, bottom: 120, zIndex: 100 },
+    toolButton: { 
+        backgroundColor: 'white', 
+        width: 50, 
+        height: 50, 
+        borderRadius: 25, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        marginBottom: 15,
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 3
+    },
+    cameraBtn: { backgroundColor: '#c62828' },
+
+    // Simulation
+    simOverlay: { position: 'absolute', top: 121, width: '100%', alignItems: 'center', zIndex: 500 },
     simBadge: { backgroundColor: '#6f42c1', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 25, flexDirection: 'row', alignItems: 'center', elevation: 10 },
-    simBadgeText: { color: 'white', fontWeight: 'bold', fontSize: 12, marginLeft: 8 }
+    simBadgeText: { color: 'white', fontWeight: 'bold', fontSize: 12, marginLeft: 8 },
+
+    // Bottom Action
+    bottomActionContainer: { position: 'absolute', bottom: 30, left: 20, right: 20, alignItems: 'center', zIndex: 1000 },
+    startTrekPill: { 
+        backgroundColor: '#1b5e20', 
+        paddingVertical: 15, 
+        paddingHorizontal: 40, 
+        borderRadius: 30,
+        elevation: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 5
+    },
+    startTrekText: { color: 'white', fontSize: 18, fontWeight: 'bold' }
 });

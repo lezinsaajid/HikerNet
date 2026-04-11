@@ -103,3 +103,29 @@ export const calculateHeading = (start, end) => {
     return (bearing + 360) % 360;
 };
 
+/**
+ * Calculates a map region that fits all provided coordinates with some padding
+ */
+export const getRegionForCoordinates = (points, paddingMultiplier = 1.15) => {
+    if (!points || points.length === 0) return null;
+    let minLat, maxLat, minLng, maxLng;
+
+    points.forEach((point) => {
+        const lat = point.latitude;
+        const lng = point.longitude;
+        minLat = minLat === undefined ? lat : Math.min(minLat, lat);
+        maxLat = maxLat === undefined ? lat : Math.max(maxLat, lat);
+        minLng = minLng === undefined ? lng : Math.min(minLng, lng);
+        maxLng = maxLng === undefined ? lng : Math.max(maxLng, lng);
+    });
+
+    const latDelta = (maxLat - minLat) * paddingMultiplier; 
+    const lngDelta = (maxLng - minLng) * paddingMultiplier;
+
+    return {
+        latitude: (minLat + maxLat) / 2,
+        longitude: (minLng + maxLng) / 2,
+        latitudeDelta: Math.max(latDelta, 0.002),
+        longitudeDelta: Math.max(lngDelta, 0.002),
+    };
+};

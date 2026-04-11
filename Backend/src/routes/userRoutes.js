@@ -41,13 +41,47 @@ router.get("/profile/:id", async (req, res) => {
 
         const totalActivity = treksCount + adventuresCount;
 
-        // Rank calculation (optional/expensive - omitted for performance optimization)
-        // To restore rank, we would need a proper stored score field.
-        const rank = 0;
+        // Rank calculation - Count users with higher total activity than current user
+        // Using aggregation to match the leaderboard's logic exactly
+        const rank = await User.aggregate([
+            {
+                $lookup: {
+                    from: "treks",
+                    localField: "_id",
+                    foreignField: "user",
+                    as: "userTreks"
+                }
+            },
+            {
+                $lookup: {
+                    from: "adventures",
+                    localField: "_id",
+                    foreignField: "user",
+                    as: "userAdventures"
+                }
+            },
+            {
+                $addFields: {
+                    activity: { $add: [{ $size: "$userTreks" }, { $size: "$userAdventures" }] },
+                    distance: { $sum: "$userTreks.stats.distance" }
+                }
+            },
+            {
+                $match: {
+                    $or: [
+                        { activity: { $gt: totalActivity } },
+                        { activity: totalActivity, distance: { $gt: totalDistance } }
+                    ]
+                }
+            },
+            { $count: "higherRankCount" }
+        ]);
+
+        const finalRank = rank.length > 0 ? rank[0].higherRankCount + 1 : 1;
 
         res.json({
             ...user.toObject(),
-            rank: rank,
+            rank: finalRank,
             treksCount: totalActivity,
             totalDistance: totalDistance,
             tier: getHikerTier(totalActivity),
@@ -153,9 +187,11 @@ router.get("/suggested", protectRoute, async (req, res) => {
         const currentUser = await User.findById(req.user._id);
         const users = await User.find({
             _id: { $ne: req.user._id, $nin: currentUser.following },
+            email: { $ne: "system@hikernet.com" } // Exclude system accounts
         })
-            .select("username profileImage bio")
-            .limit(10);
+            .select("username profileImage bio location createdAt")
+            .sort({ createdAt: -1 }) // Show newest users first
+            .limit(50); // Increased limit for better discovery
 
         res.json(users);
     } catch (error) {

@@ -3,8 +3,8 @@ import { Alert, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 
-import { trekReducer, INITIAL_STATE } from '../store/trekReducer';
-import { TrekService } from '../services/trekService';
+import { trekReducer, INITIAL_STATE } from '../_store/trekReducer';
+import { TrekService } from '../_services/trekService';
 import { useSmartLocation } from '../../../hooks/useSmartLocation';
 import { useCompass } from '../../../hooks/useCompass';
 
@@ -13,7 +13,10 @@ import { useTrackingEngine } from './useTrackingEngine';
 import { useNavigationEngine } from './useNavigationEngine';
 import { usePathProcessor } from './usePathProcessor';
 import { useSimulationEngine } from './useSimulationEngine';
-import { TREK_CONFIG, ACTIONS } from '../utils/constants';
+import { useTrekBack } from './useTrekBack';
+import { useOffTrailAlerts } from './useOffTrailAlerts';
+import { TREK_CONFIG, ACTIONS } from '../_utils/constants';
+import { getRegionForCoordinates } from '../../../utils/geoUtils';
 
 export function useTrekSession(params) {
     const [state, dispatch] = useReducer(trekReducer, {
@@ -115,10 +118,28 @@ export function useTrekSession(params) {
     usePathProcessor(state, dispatch, activeLocation);
     const { retracePath } = useNavigationEngine(state, dispatch, activeLocation);
     const { toggleSimulation } = useSimulationEngine(state, dispatch);
+    
+    // Feature Hooks (Separated as requested)
+    useTrekBack(state, dispatch);
+    useOffTrailAlerts(state);
 
     // 5. Shared UI Updates (Camera & Location Rendering)
     useEffect(() => {
-        if (activeLocation && mapRef.current && state.mapViewMode !== 'explore') {
+        if (!activeLocation || !mapRef.current) return;
+
+        if (state.trailFinished) {
+            // When trek is finished, zoom out to show the entire recorded path
+            const fullPath = state.pathSegments.flat();
+            if (fullPath.length > 0 && mapRef.current) {
+                mapRef.current.fitToCoordinates(fullPath, {
+                    edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+                    animated: true
+                });
+            }
+            return;
+        }
+
+        if (state.mapViewMode !== 'explore') {
              mapRef.current.animateCamera({
                 center: { latitude: activeLocation.latitude, longitude: activeLocation.longitude },
                 pitch: state.mapViewMode === 'navigation' ? 45 : 0, 
@@ -127,10 +148,9 @@ export function useTrekSession(params) {
                 zoom: 18
             }, { duration: 1000 });
         }
-        if (activeLocation) {
-             dispatch({ type: ACTIONS.UI_ACTION, payload: { location: { latitude: activeLocation.latitude, longitude: activeLocation.longitude } } });
-        }
-    }, [activeLocation, state.mapViewMode, userHeading]);
+        
+        dispatch({ type: ACTIONS.UI_ACTION, payload: { location: { latitude: activeLocation.latitude, longitude: activeLocation.longitude } } });
+    }, [activeLocation, state.mapViewMode, userHeading, state.trailFinished]);
 
     // 6. Master Functional Logic
     const startTrek = async () => {

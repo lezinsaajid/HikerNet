@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import client from '../../api/client';
 import { getTrailImage } from '../../utils/imageUtils';
 import NativeMap, { Polyline, Marker } from '../../components/NativeMap';
+import PathPreviewMap from './_components/PathPreviewMap';
 
 const MARKER_ICONS = [
     { name: 'water', icon: 'water', color: '#007bff', label: 'Water' },
@@ -163,49 +164,10 @@ export default function TrailDetailsScreen() {
                     <View style={styles.mapPreviewContainer}>
                         <Text style={styles.sectionTitle}>Recorded Path</Text>
                         <View style={styles.mapWrapper}>
-                            <NativeMap
-                                initialRegion={{
-                                    latitude: trail.coordinates[0].latitude,
-                                    longitude: trail.coordinates[0].longitude,
-                                    latitudeDelta: 0.01,
-                                    longitudeDelta: 0.01,
-                                }}
-                                scrollEnabled={true}
-                                zoomEnabled={true}
-                                showsUserLocation={false}
-                            >
-                                <Polyline
-                                    coordinates={trail.coordinates}
-                                    strokeWidth={4}
-                                    strokeColor="#fc4c02"
-                                />
-                                {/* Start Point Marker */}
-                                <Marker
-                                    coordinate={trail.coordinates[0]}
-                                    title="Start Point"
-                                    pinColor="#28a745"
-                                />
-
-                                {/* End Point Marker (if completed) */}
-                                {trail.status === 'completed' && trail.coordinates.length > 1 && (
-                                    <Marker
-                                        coordinate={trail.coordinates[trail.coordinates.length - 1]}
-                                        title="Finish Point"
-                                        pinColor="#c62828"
-                                    />
-                                )}
-
-                                {/* Waypoints/Checkpoints */}
-                                {trail.waypoints && trail.waypoints.filter(w => w.title !== "Start Point" && w.title !== "End Point").map((m, i) => (
-                                    <Marker
-                                        key={`waypoint-${i}`}
-                                        coordinate={{ latitude: m.latitude, longitude: m.longitude }}
-                                        title={m.title || m.type}
-                                        description={m.description}
-                                        pinColor={MARKER_ICONS.find(ic => ic.name === m.icon)?.color || '#00838f'}
-                                    />
-                                ))}
-                            </NativeMap>
+                            <PathPreviewMap 
+                                coordinates={trail.coordinates} 
+                                waypoints={trail.waypoints}
+                            />
                         </View>
                     </View>
                 )}

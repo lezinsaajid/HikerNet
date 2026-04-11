@@ -2,13 +2,13 @@ import { useEffect, useReducer, useRef, useCallback } from 'react';
 import { Alert, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
-import { trekReducer, INITIAL_STATE, ACTIONS } from '../store/trekReducer';
-import { TrekService } from '../services/trekService';
+import { trekReducer, INITIAL_STATE, ACTIONS } from '../_store/trekReducer';
+import { TrekService } from '../_services/trekService';
 import { useSmartLocation } from '../../../hooks/useSmartLocation';
 import { useCompass } from '../../../hooks/useCompass';
 import { getDistance, getPointToPathDistance, calculateHeading } from '../../../utils/geoUtils';
 import { detectIntersectionLoop } from '../../../utils/trekUtils';
-import { TREK_CONFIG, NAVIGATION_CONFIG } from '../utils/constants';
+import { TREK_CONFIG, NAVIGATION_CONFIG } from '../_utils/constants';
 
 export function useTrekLogic(params) {
     const [state, dispatch] = useReducer(trekReducer, {

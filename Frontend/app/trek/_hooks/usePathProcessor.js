@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { detectIntersectionLoop } from '../../../utils/trekUtils';
-import { TREK_CONFIG, ACTIONS } from '../utils/constants';
+import { TREK_CONFIG, ACTIONS } from '../_utils/constants';
 
 export function usePathProcessor(state, dispatch, location) {
     const loopCooldownRef = useRef(0);

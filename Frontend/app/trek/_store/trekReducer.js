@@ -1,4 +1,4 @@
-import { ACTIONS } from '../utils/constants';
+import { ACTIONS } from '../_utils/constants';
 
 export const INITIAL_STATE = {
     // Session status
@@ -7,7 +7,8 @@ export const INITIAL_STATE = {
     trailFinished: false,
     isTrailingBack: false,
     hasStarted: false,
-    hasJoinedTrail: true, // will be updated based on params
+    hasJoinedTrail: true, 
+    isResting: false,
     hasReachedMidpoint: false,
     flowState: 'idle', // 'idle', 'trekking', 'goto-start'
 
@@ -22,6 +23,7 @@ export const INITIAL_STATE = {
     baseWaypoints: [],
     offTrailPath: [],
     reroutePath: [],
+    retraceFadedIndex: -1,
 
     // Stats
     stats: {
@@ -113,6 +115,21 @@ export function trekReducer(state, action) {
             return {
                 ...state,
                 isPaused: false,
+                isResting: false,
+            };
+
+        case ACTIONS.REST_START:
+            return {
+                ...state,
+                isPaused: true,
+                isResting: true,
+            };
+
+        case ACTIONS.REST_END:
+            return {
+                ...state,
+                isPaused: false,
+                isResting: false,
             };
 
         case ACTIONS.TRAIL_BACK:
@@ -128,7 +145,14 @@ export function trekReducer(state, action) {
                 mapViewMode: 'navigation',
                 stats: {
                     ...INITIAL_STATE.stats
-                }
+                },
+                retraceFadedIndex: -1
+            };
+
+        case ACTIONS.UPDATE_TREK_BACK_PROGRESS:
+            return {
+                ...state,
+                retraceFadedIndex: Math.max(state.retraceFadedIndex, action.payload.index)
             };
 
         case ACTIONS.UPDATE_LOCATION:

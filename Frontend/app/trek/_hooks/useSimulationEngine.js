@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ACTIONS, TREK_CONFIG } from '../utils/constants';
+import { ACTIONS, TREK_CONFIG } from '../_utils/constants';
 
 export function useSimulationEngine(state, dispatch) {
     const simIntervalRef = useRef(null);

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet } from 'react-native';
-import NativeMap, { Polyline, Marker } from '../../../components/NativeMap';
+import { View, Text, StyleSheet } from 'react-native';
+import { Polyline, Marker } from 'react-native-maps';
+import NativeMap from '../../../components/NativeMap';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function MapLayer({ 
@@ -17,30 +18,66 @@ export default function MapLayer({
     mapViewMode,
     isNavMode,
     userHeading,
-    onMarkerPress
+    onMarkerPress,
+    retraceFadedIndex,
+    isTrailingBack
 }) {
     // Memoize the faded route logic for performance
     const renderNavPaths = useMemo(() => {
         if (!navigationPolyline || navigationPolyline.length < 2) return null;
+
+        if (isTrailingBack && retraceFadedIndex >= 0) {
+            const fadedPath = navigationPolyline.slice(0, retraceFadedIndex + 1);
+            const activePath = navigationPolyline.slice(retraceFadedIndex);
+
+            return (
+                <>
+                    {fadedPath.length > 1 && (
+                        <Polyline 
+                            coordinates={fadedPath} 
+                            strokeWidth={5} 
+                            strokeColor="rgba(0, 0, 0, 0.4)" 
+                            zIndex={3}
+                        />
+                    )}
+                    {activePath.length > 1 && (
+                        <Polyline 
+                            coordinates={activePath} 
+                            strokeWidth={6} 
+                            strokeColor="#007bff" 
+                            zIndex={4}
+                        />
+                    )}
+                    {reroutePath && reroutePath.length > 0 && (
+                         <Polyline coordinates={reroutePath} strokeWidth={4} strokeColor="#9c27b0" zIndex={5} />
+                    )}
+                </>
+            );
+        }
+
         return (
             <>
                 <Polyline 
                     coordinates={navigationPolyline} 
                     strokeWidth={5} 
-                    strokeColor="rgba(0, 123, 255, 0.3)" 
+                    strokeColor="rgba(0, 123, 255, 0.4)" 
                     lineDashPattern={[10, 10]} 
+                    zIndex={3}
                 />
                 {reroutePath && reroutePath.length > 0 && (
-                     <Polyline coordinates={reroutePath} strokeWidth={4} strokeColor="#9c27b0" />
+                     <Polyline coordinates={reroutePath} strokeWidth={4} strokeColor="#9c27b0" zIndex={5} />
                 )}
                 {offTrailPath && offTrailPath.length > 0 && (
-                     <Polyline coordinates={offTrailPath} strokeWidth={3} strokeColor="rgba(220, 53, 69, 0.5)" lineDashPattern={[5, 10]} />
+                     <Polyline coordinates={offTrailPath} strokeWidth={3} strokeColor="rgba(220, 53, 69, 0.5)" lineDashPattern={[5, 10]} zIndex={4} />
                 )}
             </>
         );
-    }, [navigationPolyline, reroutePath, offTrailPath]);
+    }, [navigationPolyline, reroutePath, offTrailPath, isTrailingBack, retraceFadedIndex]);
 
     const renderTrekPaths = useMemo(() => {
+        // If trailing back, we rely on renderNavPaths to show the faded/active return path
+        if (isTrailingBack) return null;
+
         return (
             <>
                 {pathSegments.map((seg, idx) => (
@@ -49,6 +86,7 @@ export default function MapLayer({
                         coordinates={seg} 
                         strokeWidth={6} 
                         strokeColor="#28a745" 
+                        zIndex={5}
                     />
                 ))}
                 {ghostSegments.map((seg, idx) => (
@@ -56,13 +94,14 @@ export default function MapLayer({
                         key={`ghost-${idx}`} 
                         coordinates={seg} 
                         strokeWidth={4} 
-                        strokeColor="rgba(0,0,0,0.2)" 
+                        strokeColor="rgba(0,0,0,0.3)" 
                         lineDashPattern={[5, 5]} 
+                        zIndex={2}
                     />
                 ))}
             </>
         );
-    }, [pathSegments, ghostSegments]);
+    }, [pathSegments, ghostSegments, isTrailingBack]);
 
     return (
         <NativeMap
@@ -78,6 +117,29 @@ export default function MapLayer({
         >
             {renderNavPaths}
             {renderTrekPaths}
+
+            {/* Trek Start & End Markers */}
+            {pathSegments.length > 0 && pathSegments[0].length > 0 && (
+                <Marker coordinate={pathSegments[0][0]}>
+                    <View style={styles.brandedMarker}>
+                        <Ionicons name="location" size={45} color="#fc4c02" />
+                        <View style={styles.markerLabelContainer}>
+                            <Text style={styles.markerLabelText}>START</Text>
+                        </View>
+                    </View>
+                </Marker>
+            )}
+
+            {pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 && (
+                <Marker coordinate={pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1]}>
+                    <View style={styles.brandedMarker}>
+                        <Ionicons name="location" size={45} color="#28a745" />
+                        <View style={styles.markerLabelContainer}>
+                            <Text style={styles.markerLabelText}>FINISH</Text>
+                        </View>
+                    </View>
+                </Marker>
+            )}
 
             {/* Global/Reference Trail Waypoints */}
             {baseWaypoints.map((wp, idx) => (
@@ -125,5 +187,31 @@ const styles = StyleSheet.create({
     userMarkerPulse: { position: 'absolute', width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,123,255,0.4)' },
     userMarkerContainerInner: { alignItems: 'center', justifyContent: 'center', width: 40, height: 40 },
     userMarkerDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#007bff', borderWidth: 3, borderColor: 'white' },
-    userMarkerArrow: { position: 'absolute', top: -6 }
+    userMarkerArrow: { position: 'absolute', top: -6 },
+    brandedMarker: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 50,
+        height: 50,
+    },
+    markerLabelContainer: {
+        position: 'absolute',
+        top: 6,
+        backgroundColor: 'white',
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 1,
+        elevation: 2,
+    },
+    markerLabelText: {
+        fontSize: 6,
+        fontWeight: '900',
+        color: '#333',
+    }
 });

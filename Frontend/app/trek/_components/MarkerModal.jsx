@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, TextInput, FlatList, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { MARKER_ICONS } from '../utils/constants';
+import { MARKER_ICONS } from '../_utils/constants';
 
 export default function MarkerModal({
     visible,
