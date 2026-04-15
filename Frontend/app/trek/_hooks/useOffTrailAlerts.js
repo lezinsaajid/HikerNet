@@ -21,7 +21,7 @@ export function useOffTrailAlerts(state) {
         const distance = state.navigation.distanceToTrail;
         const OFF_TRAIL_CRITICAL_THRESHOLD = 15; // 15 meters as per user request
 
-        if (distance > OFF_TRAIL_CRITICAL_THRESHOLD) {
+        if (distance > 0 && distance > OFF_TRAIL_CRITICAL_THRESHOLD) {
             const now = Date.now();
             if (now - lastAlertTime.current > ALERT_COOLDOWN) {
                 lastAlertTime.current = now;

@@ -116,16 +116,18 @@ export function useTrackingEngine(state, dispatch, location) {
         // 🔥 JITTER FILTER (CRITICAL)
         if (distM > 2) {
             newStats.distance += distM;
-        }
+            
+            // 🔥 Altitude-safe logic (only when moved)
+            if (
+                altitude != null &&
+                lastStatsPointRef.current?.altitude != null &&
+                altitude > lastStatsPointRef.current.altitude
+            ) {
+                newStats.elevationGain +=
+                    altitude - lastStatsPointRef.current.altitude;
+            }
 
-        // 🔥 Altitude-safe logic
-        if (
-            altitude != null &&
-            lastStatsPointRef.current?.altitude != null &&
-            altitude > lastStatsPointRef.current.altitude
-        ) {
-            newStats.elevationGain +=
-                altitude - lastStatsPointRef.current.altitude;
+            lastStatsPointRef.current = { latitude, longitude, altitude };
         }
 
         newStats.maxAltitude = Math.max(
@@ -144,7 +146,6 @@ export function useTrackingEngine(state, dispatch, location) {
                 )
                 : 0;
 
-        lastStatsPointRef.current = { latitude, longitude, altitude };
 
         dispatch({
             type: ACTIONS.UPDATE_LOCATION,

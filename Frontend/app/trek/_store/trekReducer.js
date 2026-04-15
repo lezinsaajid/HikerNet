@@ -38,7 +38,7 @@ export const INITIAL_STATE = {
     // Navigation State
     navigation: {
         guidance: "Initializing...",
-        distanceToTrail: 9999,
+        distanceToTrail: 0,
         offTrackWarning: false,
         targetBearing: 0,
         currentNavIndex: 0,
@@ -169,6 +169,15 @@ export function trekReducer(state, action) {
                 routeCoordinates: routeCoordinates || state.routeCoordinates,
                 stats: stats || state.stats,
                 offTrailPath: offTrailPath || state.offTrailPath,
+            };
+
+        case ACTIONS.UPDATE_STATS:
+            return {
+                ...state,
+                stats: {
+                    ...state.stats,
+                    ...action.payload
+                }
             };
 
         case ACTIONS.UPDATE_NAVIGATION:
