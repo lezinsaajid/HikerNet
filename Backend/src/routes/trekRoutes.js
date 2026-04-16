@@ -85,6 +85,23 @@ router.get("/feed/public", async (req, res) => {
     }
 });
 
+// Get live treks
+router.get("/feed/live", async (req, res) => {
+    try {
+        const treks = await Trek.find({
+            isLive: true,
+            status: 'ongoing'
+        })
+        .select("name stats user location")
+        .populate("user", "username profileImage")
+        .limit(10);
+        res.json(treks);
+    } catch (error) {
+        console.error("Error fetching live feed:", error);
+        res.status(500).json({ message: "Error fetching live feed" });
+    }
+});
+
 // Get user's treks
 router.get("/user/:userId", async (req, res) => {
     try {
@@ -182,7 +199,7 @@ router.get("/nearby", async (req, res) => {
 // Update trek (add points, update stats, finish)
 router.put("/update/:id", protectRoute, async (req, res) => {
     try {
-        const { coordinates, stats, status, images } = req.body; // Client still sends 'coordinates' or 'path'
+        const { coordinates, stats, status, images, isLive } = req.body; // Client still sends 'coordinates' or 'path'
         const trekId = req.params.id;
 
         if (!mongoose.Types.ObjectId.isValid(trekId)) {
@@ -244,7 +261,12 @@ router.put("/update/:id", protectRoute, async (req, res) => {
             trek.status = status;
             if (status === "completed") {
                 trek.endTime = new Date();
+                trek.isLive = false; // Force false when completed
             }
+        }
+        
+        if (typeof isLive === 'boolean') {
+            trek.isLive = isLive;
         }
 
         await trek.save();

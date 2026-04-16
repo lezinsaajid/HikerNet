@@ -45,13 +45,20 @@ export const useGroupSync = ({
             }
         });
 
-        socket.on('participant-left', ({ username }) => {
+        socket.on('participant-left', ({ userId, username }) => {
             setParticipants(prev => {
                 const updated = { ...prev };
-                // Remove by finding username if userId not available in disconnect
-                // Ideally backend sends userId in participant-left
+                if (userId) delete updated[userId];
+                else {
+                    // Fallback to username search if userId not provided
+                    const idToRemove = Object.keys(updated).find(id => updated[id].username === username);
+                    if (idToRemove) delete updated[idToRemove];
+                }
                 return updated;
             });
+            // Notify via alert or callback
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            onDriftAlert({ username, isOffTrail: false, isLeft: true }); // Reuse drift alert for notifications
         });
 
         socket.on("participant-location-received", ({ userId, username, profileImage, location, isOffTrail, distanceToTrail }) => {

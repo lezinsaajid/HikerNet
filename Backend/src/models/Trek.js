@@ -64,6 +64,10 @@ const trekSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User'
         }],
+        isLive: {
+            type: Boolean,
+            default: false
+        },
         stats: {
             distance: { type: Number, default: 0 }, // in meters
             duration: { type: Number, default: 0 }, // in seconds
