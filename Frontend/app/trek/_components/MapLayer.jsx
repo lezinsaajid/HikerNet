@@ -21,7 +21,8 @@ export default function MapLayer({
     onMarkerPress,
     retraceFadedIndex,
     isTrailingBack,
-    trailFinished
+    trailFinished,
+    participants = {}
 }) {
     // Memoize the faded route logic for performance
     const renderNavPaths = useMemo(() => {
@@ -153,6 +154,36 @@ export default function MapLayer({
                 </Marker>
             ))}
 
+            {/* Session Participants (Group Trek) */}
+            {Object.entries(participants).map(([uid, p]) => (
+                <Marker 
+                    key={`p-${uid}`} 
+                    coordinate={p.location} 
+                    title={p.username} 
+                    zIndex={100}
+                >
+                    <View style={styles.participantMarkerContainer}>
+                        <View style={[styles.participantAvatarWrapper, { borderColor: p.isOffTrail ? '#dc3545' : '#28a745' }]}>
+                            {p.profileImage ? (
+                                <Text style={{fontSize: 20}}>👤</Text> // Fallback to emoji if no image/RN Image issues
+                            ) : (
+                                <View style={styles.participantAvatarPlaceholder}>
+                                    <Text style={styles.participantAvatarInitial}>{p.username?.[0]?.toUpperCase()}</Text>
+                                </View>
+                            )}
+                            {p.isOffTrail && (
+                                <View style={styles.offTrailIndicator}>
+                                    <Ionicons name="warning" size={10} color="white" />
+                                </View>
+                            )}
+                        </View>
+                        <View style={[styles.participantLabel, { backgroundColor: p.isOffTrail ? '#dc3545' : '#28a745' }]}>
+                            <Text style={styles.participantLabelText}>{p.username}</Text>
+                        </View>
+                    </View>
+                </Marker>
+            ))}
+
             {/* Current Session Waypoints */}
             {markers.map((m, idx) => (
                 <Marker 
@@ -214,5 +245,46 @@ const styles = StyleSheet.create({
         fontSize: 6,
         fontWeight: '900',
         color: '#333',
+    },
+    // Participant Markers
+    participantMarkerContainer: { alignItems: 'center', justifyContent: 'center' },
+    participantAvatarWrapper: { 
+        width: 40, 
+        height: 40, 
+        borderRadius: 20, 
+        borderWidth: 2, 
+        backgroundColor: 'white', 
+        overflow: 'hidden', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2
+    },
+    participantAvatar: { width: '100%', height: '100%' },
+    participantAvatarPlaceholder: { width: '100%', height: '100%', backgroundColor: '#f0f4f0', justifyContent: 'center', alignItems: 'center' },
+    participantAvatarInitial: { color: '#28a745', fontWeight: 'bold', fontSize: 16 },
+    participantLabel: { 
+        paddingHorizontal: 8, 
+        paddingVertical: 2, 
+        borderRadius: 10, 
+        marginTop: 4,
+        elevation: 2 
+    },
+    participantLabelText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
+    offTrailIndicator: { 
+        position: 'absolute', 
+        top: 0, 
+        right: 0, 
+        backgroundColor: '#dc3545', 
+        width: 14, 
+        height: 14, 
+        borderRadius: 7, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'white'
     }
 });
