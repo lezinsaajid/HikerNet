@@ -30,6 +30,7 @@ export default function HomeFeed() {
     const [refreshing, setRefreshing] = useState(false);
 
     const fetchFeed = async () => {
+        if (!user) return;
         try {
             const [feedRes, liveRes] = await Promise.all([
                 client.get('/posts/feed'),

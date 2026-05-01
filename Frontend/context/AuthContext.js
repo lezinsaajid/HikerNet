@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
 import { getItem, setItem, deleteItem } from '../utils/platformStorage';
 import client from '../api/client';
 import { useRouter, useSegments } from 'expo-router';
@@ -26,7 +26,8 @@ export const AuthProvider = ({ children }) => {
     const [accounts, setAccounts] = useState([]); // List of { user, token }
     const [isLoading, setIsLoading] = useState(true);
     const [isAddingAccount, setIsAddingAccount] = useState(false); // Flag to bypass auth guard for adding account
-    const [isLoggingOut, setIsLoggingOut] = useState(false); // Prevent multiple logout calls
+    const [isLoggingOut, setIsLoggingOutState] = useState(false); // State for UI feedback
+    const isLoggingOutRef = useRef(false); // Ref for immediate interceptor checks
     const [isMounted, setIsMounted] = useState(false);
 
     const router = useRouter();
@@ -79,11 +80,11 @@ export const AuthProvider = ({ children }) => {
                     originalRequest.url?.includes('/auth/logout');
 
 
-                if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest && !isLoggingOut) {
+                if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest && !isLoggingOutRef.current) {
                     console.log("Session expired (401). Logging out current user...");
                     originalRequest._retry = true;
                     // Log out ONLY the current user
-                    logout(); // Don't await here to avoid blocking interceptor? No, await is better but we check flag.
+                    logout(true); // Pass true to indicate it was an expiration
                 }
                 return Promise.reject(error);
             }
@@ -270,16 +271,20 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    const logout = useCallback(async () => {
-        if (isLoggingOut) return;
+    const logout = useCallback(async (isExpired = false) => {
+        if (isLoggingOutRef.current) return;
         try {
-            setIsLoggingOut(true);
+            isLoggingOutRef.current = true;
+            setIsLoggingOutState(true);
             console.log("[AuthContext] Logout initiated...");
 
             // Notify server to set offline status (fire and forget, don't block UI)
-            client.post('/auth/logout').catch(err => {
-                console.warn("[AuthContext] Server logout notification failed (expected if token expired or offline):", err.message);
-            });
+            // Skip if session already expired (token is invalid)
+            if (!isExpired) {
+                client.post('/auth/logout').catch(err => {
+                    console.warn("[AuthContext] Server logout notification failed (expected if token expired or offline):", err.message);
+                });
+            }
 
             if (!user) {
                 console.warn("[AuthContext] Logout called but no user is active.");
@@ -335,9 +340,10 @@ export const AuthProvider = ({ children }) => {
             setAccounts([]);
             // router.replace('/login'); // Handled by AuthGuard
         } finally {
-            setIsLoggingOut(false);
+            isLoggingOutRef.current = false;
+            setIsLoggingOutState(false);
         }
-    }, [user, accounts, router, isLoggingOut]); // Added isLoggingOut dependency
+    }, [user, accounts, router]); // Removed isLoggingOut dependency
 
     const logoutAll = useCallback(async () => {
         try {
@@ -490,6 +496,11 @@ async function registerForPushNotificationsAsync() {
                 Constants?.expoConfig?.extra?.eas?.projectId ??
                 Constants?.easConfig?.projectId;
             
+            if (!projectId) {
+                console.warn('[Push] No projectId found in app.json. Push notifications are disabled. Run "npx eas project:init" to enable them.');
+                return null;
+            }
+
             token = (await Notifications.getExpoPushTokenAsync({
                 projectId,
             })).data;

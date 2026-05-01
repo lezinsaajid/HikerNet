@@ -47,7 +47,11 @@ client.interceptors.response.use(
         // Log details safely
         const url = config?.url || 'unknown';
         if (response) {
-            console.error(`[API Error] ${url}: ${response.status}`, response.data);
+            if (response.status === 401) {
+                console.warn(`[API Unauthorized] ${url}: 401 (Session may have expired)`);
+            } else {
+                console.error(`[API Error] ${url}: ${response.status}`, response.data);
+            }
         } else if (error.request) {
             console.error(`[Network Error] ${url}: No response`, message);
         } else {

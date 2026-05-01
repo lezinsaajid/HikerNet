@@ -6,7 +6,8 @@ let io;
 export const initSocket = (socketIo) => {
     io = socketIo;
 
-    const socketToUser = new Map(); // socket.id -> { trekId, userId, username }
+    const socketToUser = new Map(); // socket.id -> { trekId, userId, username, location, isOffTrail }
+    const groupIntervals = new Map(); // trekId -> intervalId
 
     io.on("connection", (socket) => {
         console.log("New client connected:", socket.id);
@@ -16,40 +17,62 @@ export const initSocket = (socketIo) => {
             const roomName = `trek_${trekId}`;
             socket.join(roomName);
             
-            socketToUser.set(socket.id, { trekId, userId, username });
+            socketToUser.set(socket.id, { trekId, userId, username, location: null });
             
+            // Start centroid monitoring if not already started for this trek
+            if (!groupIntervals.has(trekId)) {
+                const intervalId = setInterval(() => {
+                    calculateAndBroadcastGroupStats(trekId);
+                }, 10000); // Every 10 seconds
+                groupIntervals.set(trekId, intervalId);
+            }
+
             // Notify others
             socket.to(roomName).emit("participant-joined", { userId, username });
             console.log(`User ${username} (${userId}) joined room ${roomName}`);
         });
  
-        // Leader: Shared absolute trail point
-        socket.on("trail-point-shared", ({ trekId, point, isNewSegment }) => {
-            socket.to(`trek_${trekId}`).emit("trail-point-received", { point, isNewSegment });
-        });
-
-        // Leader: Full path replacement (e.g. loop removed)
-        socket.on("trail-path-replaced", ({ trekId, path }) => {
-            socket.to(`trek_${trekId}`).emit("trail-path-received", { path });
-        });
- 
         // Participant: Share current location
-        socket.on("participant-location-update", ({ trekId, userId, username, profileImage, location, isOffTrail, distanceToTrail }) => {
+        socket.on("participant-location-update", ({ trekId, userId, username, profileImage, location, isOffTrail, distanceToTrail, role }) => {
+            // Update local state for centroid calculation
+            const userData = socketToUser.get(socket.id);
+            if (userData) {
+                userData.location = location;
+                userData.isOffTrail = isOffTrail;
+                userData.role = role;
+            }
+
             socket.to(`trek_${trekId}`).emit("participant-location-received", {
                 userId,
                 username,
                 profileImage,
                 location,
                 isOffTrail,
-                distanceToTrail
+                distanceToTrail,
+                role
             });
         });
- 
+
+        // Leader: Specific Tracking Request (Zoom to member)
+        socket.on("leader-track-member", ({ trekId, targetUserId }) => {
+            socket.to(`trek_${trekId}`).emit("force-member-focus", { targetUserId });
+        });
+
         // Leader: Broadcast control actions
         socket.on("trek-control", ({ trekId, action }) => {
             socket.to(`trek_${trekId}`).emit("trek-control-received", { action });
         });
+
+        // Leader: Shared absolute trail point
+        socket.on("trail-point-shared", ({ trekId, point, isNewSegment }) => {
+            socket.to(`trek_${trekId}`).emit("trail-point-received", { point, isNewSegment });
+        });
  
+        // Leader: Full path replacement (e.g. loop removed)
+        socket.on("trail-path-replaced", ({ trekId, path }) => {
+            socket.to(`trek_${trekId}`).emit("trail-path-received", { path });
+        });
+
         // Real-time Waypoint (Pin) Sync
         socket.on("waypoint-added", ({ trekId, waypoint }) => {
             socket.to(`trek_${trekId}`).emit("waypoint-received", { waypoint });
@@ -63,18 +86,77 @@ export const initSocket = (socketIo) => {
                 isOffTrail
             });
         });
- 
+
         socket.on("disconnect", () => {
             const userData = socketToUser.get(socket.id);
             if (userData) {
                 const { trekId, userId, username } = userData;
                 socket.to(`trek_${trekId}`).emit("participant-left", { userId, username });
                 socketToUser.delete(socket.id);
-                console.log(`User ${username} left room trek_${trekId}`);
+
+                // If trek room is empty, clear interval
+                const roomName = `trek_${trekId}`;
+                const clientsInRoom = io.sockets.adapter.rooms.get(roomName);
+                if (!clientsInRoom || clientsInRoom.size === 0) {
+                    if (groupIntervals.has(trekId)) {
+                        clearInterval(groupIntervals.get(trekId));
+                        groupIntervals.delete(trekId);
+                    }
+                }
             }
-            console.log("Client disconnected:", socket.id);
         });
     });
+
+    // Helper: Centroid & Safety Monitoring
+    function calculateAndBroadcastGroupStats(trekId) {
+        const roomName = `trek_${trekId}`;
+        const usersInTrek = Array.from(socketToUser.values()).filter(u => u.trekId === trekId && u.location);
+        
+        if (usersInTrek.length === 0) return;
+
+        // 1. Calculate Centroid
+        let sumLat = 0, sumLon = 0;
+        usersInTrek.forEach(u => {
+            sumLat += u.location.latitude;
+            sumLon += u.location.longitude;
+        });
+        const centroid = { latitude: sumLat / usersInTrek.length, longitude: sumLon / usersInTrek.length };
+
+        // 2. Broadcast Centroid (for heatmap/clustering)
+        io.to(roomName).emit("group-centroid", { centroid, memberCount: usersInTrek.length });
+
+        // 3. Safety Monitoring: Deviation Check
+        const leader = usersInTrek.find(u => u.role === 'leader');
+        const anchor = leader ? leader.location : centroid;
+
+        usersInTrek.forEach(u => {
+            if (!u.location) return;
+            const dist = getDistance(u.location.latitude, u.location.longitude, anchor.latitude, anchor.longitude);
+            
+            if (dist > 15) { // 15m Threshold
+                io.to(roomName).emit("safety-alert", {
+                    userId: u.userId,
+                    username: u.username,
+                    deviation: Math.round(dist),
+                    anchor
+                });
+            }
+        });
+    }
 };
+
+// Helper: Haversine distance
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // metres
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+        Math.cos(φ1) * Math.cos(φ2) *
+        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
 
 export const getIO = () => io;

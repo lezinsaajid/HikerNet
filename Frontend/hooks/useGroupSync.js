@@ -110,6 +110,18 @@ export const useGroupSync = ({
             onDriftAlert({ username, isOffTrail });
         });
 
+        socket.on('group-centroid', ({ centroid, memberCount }) => {
+            onControlAction({ type: 'CENTROID', centroid, memberCount });
+        });
+
+        socket.on('safety-alert', ({ userId, username, deviation, anchor }) => {
+            onControlAction({ type: 'SAFETY_ALERT', userId, username, deviation, anchor });
+        });
+
+        socket.on('force-member-focus', ({ targetUserId }) => {
+            onControlAction({ type: 'FOCUS', targetUserId });
+        });
+
         // Cleanup stale markers periodically
         const cleanupInterval = setInterval(() => {
             setParticipants(prev => {
@@ -143,7 +155,17 @@ export const useGroupSync = ({
                 profileImage: currentUser?.profileImage,
                 location: { latitude: location.latitude, longitude: location.longitude },
                 isOffTrail,
-                distanceToTrail
+                distanceToTrail,
+                role // Include role for centroid/anchor calculation
+            });
+        }
+    };
+
+    const emitLeaderTrack = (targetUserId) => {
+        if (socketRef.current && trailId && role === 'leader') {
+            socketRef.current.emit('leader-track-member', {
+                trekId: String(trailId),
+                targetUserId
             });
         }
     };
@@ -203,6 +225,7 @@ export const useGroupSync = ({
         emitWaypoint, 
         emitPathReplaced, 
         emitPointShared,
-        emitDrift
+        emitDrift,
+        emitLeaderTrack
     };
 };

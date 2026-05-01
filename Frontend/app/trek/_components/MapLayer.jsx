@@ -22,8 +22,22 @@ export default function MapLayer({
     retraceFadedIndex,
     isTrailingBack,
     trailFinished,
-    participants = {}
+    participants = {},
+    role = 'member',
+    groupCentroid = null,
+    trackingUserId = null
 }) {
+    // Determine visibility based on role
+    const visibleParticipants = useMemo(() => {
+        const list = Object.entries(participants);
+        if (role === 'leader') {
+            // Leader sees the tracked member, or no one else if not tracking
+            return list.filter(([uid, p]) => p.role === 'leader' || uid === trackingUserId);
+        }
+        // Members see only the leader by default
+        return list.filter(([uid, p]) => p.role === 'leader');
+    }, [participants, role, trackingUserId]);
+
     // Memoize the faded route logic for performance
     const renderNavPaths = useMemo(() => {
         if (!navigationPolyline || navigationPolyline.length < 2) return null;
@@ -154,21 +168,42 @@ export default function MapLayer({
                 </Marker>
             ))}
 
+            {/* Group Centroid / Heat Zone (Leader View Only) */}
+            {role === 'leader' && groupCentroid && (
+                <Marker coordinate={groupCentroid} zIndex={10}>
+                    <View style={styles.centroidContainer}>
+                        <View style={styles.centroidPulse} />
+                        <View style={styles.centroidDot} />
+                    </View>
+                </Marker>
+            )}
+
             {/* Session Participants (Group Trek) */}
-            {Object.entries(participants).map(([uid, p]) => (
+            {visibleParticipants.map(([uid, p]) => (
                 <Marker 
                     key={`p-${uid}`} 
                     coordinate={p.location} 
                     title={p.username} 
-                    zIndex={100}
+                    zIndex={p.role === 'leader' ? 150 : 100}
                 >
                     <View style={styles.participantMarkerContainer}>
-                        <View style={[styles.participantAvatarWrapper, { borderColor: p.isOffTrail ? '#dc3545' : '#28a745' }]}>
+                        {p.role === 'leader' && (
+                            <View style={styles.crownContainer}>
+                                <Ionicons name="ribbon" size={18} color="#FFD700" />
+                            </View>
+                        )}
+                        <View style={[
+                            styles.participantAvatarWrapper, 
+                            { borderColor: p.isOffTrail ? '#dc3545' : (p.role === 'leader' ? '#FFD700' : '#28a745') },
+                            p.role === 'leader' && styles.leaderGlow
+                        ]}>
                             {p.profileImage ? (
-                                <Text style={{fontSize: 20}}>👤</Text> // Fallback to emoji if no image/RN Image issues
+                                <Text style={{fontSize: 20}}>👤</Text>
                             ) : (
                                 <View style={styles.participantAvatarPlaceholder}>
-                                    <Text style={styles.participantAvatarInitial}>{p.username?.[0]?.toUpperCase()}</Text>
+                                    <Text style={[styles.participantAvatarInitial, p.role === 'leader' && { color: '#FFD700' }]}>
+                                        {p.username?.[0]?.toUpperCase()}
+                                    </Text>
                                 </View>
                             )}
                             {p.isOffTrail && (
@@ -177,8 +212,10 @@ export default function MapLayer({
                                 </View>
                             )}
                         </View>
-                        <View style={[styles.participantLabel, { backgroundColor: p.isOffTrail ? '#dc3545' : '#28a745' }]}>
-                            <Text style={styles.participantLabelText}>{p.username}</Text>
+                        <View style={[styles.participantLabel, { backgroundColor: p.isOffTrail ? '#dc3545' : (p.role === 'leader' ? '#FFD700' : '#28a745') }]}>
+                            <Text style={[styles.participantLabelText, p.role === 'leader' && { color: '#333' }]}>
+                                {p.username} {p.role === 'leader' ? '(Leader)' : ''}
+                            </Text>
                         </View>
                     </View>
                 </Marker>
@@ -286,5 +323,25 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         borderWidth: 1,
         borderColor: 'white'
+    },
+    // Group Features Styles
+    centroidContainer: { alignItems: 'center', justifyContent: 'center' },
+    centroidPulse: { 
+        position: 'absolute', 
+        width: 60, 
+        height: 60, 
+        borderRadius: 30, 
+        backgroundColor: 'rgba(40, 167, 69, 0.2)',
+        borderWidth: 1,
+        borderColor: 'rgba(40, 167, 69, 0.5)'
+    },
+    centroidDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#28a745', opacity: 0.8 },
+    crownContainer: { position: 'absolute', top: -15, zIndex: 10, elevation: 5 },
+    leaderGlow: {
+        shadowColor: "#FFD700",
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.8,
+        shadowRadius: 10,
+        elevation: 10
     }
 });

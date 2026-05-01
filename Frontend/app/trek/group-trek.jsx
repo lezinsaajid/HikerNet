@@ -81,12 +81,15 @@ export default function GroupTrek() {
     const [mapViewMode, setMapViewMode] = useState('top-down'); 
     const [reroutePath, setReroutePath] = useState([]); 
     const [currentNavIndex, setCurrentNavIndex] = useState(0);
+    const [groupCentroid, setGroupCentroid] = useState(null);
+    const [trackingUserId, setTrackingUserId] = useState(null);
 
     // Modal & UI State
     const [showMarkerModal, setShowMarkerModal] = useState(false);
     const [showRestModal, setShowRestModal] = useState(false);
     const [selectedIcon, setSelectedIcon] = useState(null);
     const [waypointDescription, setWaypointDescription] = useState('');
+    const [iconSearchQuery, setIconSearchQuery] = useState('');
     const [waypointImages, setWaypointImages] = useState([]);
     const [selectedPinDetails, setSelectedPinDetails] = useState(null);
     const [groupMessage, setGroupMessage] = useState(null);
@@ -125,8 +128,8 @@ export default function GroupTrek() {
     } = useRestMode(smoothedLocation);
 
     // Show persistent group message (e.g. member left)
-    const showMessage = (msg, duration = 5000) => {
-        setGroupMessage(msg);
+    const showMessage = (msg, duration = 5000, type = 'info') => {
+        setGroupMessage({ text: msg, type });
         Animated.spring(messageAnim, { toValue: 20, useNativeDriver: true }).start();
         setTimeout(() => {
             Animated.timing(messageAnim, { toValue: -100, duration: 500, useNativeDriver: true }).start(() => {
@@ -143,22 +146,52 @@ export default function GroupTrek() {
         leaderId,
         baseUrl: client.defaults.baseURL,
         onControlAction: (action) => {
-            if (action === 'START') {
-                setHasStarted(true);
-                setIsTracking(true);
-                setHasJoinedTrail(true);
-                setNavGuidance("Trek started by leader.");
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            }
-            else if (action === 'PAUSE') setIsPaused(true);
-            else if (action === 'RESUME') setIsPaused(false);
-            else if (action === 'STOP') {
-                setTrailFinished(true);
-                setIsTracking(false);
-                setNavGuidance("Trek finished by leader.");
-            }
-            else if (action === 'TREKBACK') {
-                initiateTrekBack(true);
+            if (typeof action === 'string') {
+                if (action === 'START') {
+                    setHasStarted(true);
+                    setIsTracking(true);
+                    setHasJoinedTrail(true);
+                    setNavGuidance("Trek started by leader.");
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+                else if (action === 'PAUSE') setIsPaused(true);
+                else if (action === 'RESUME') setIsPaused(false);
+                else if (action === 'STOP') {
+                    setTrailFinished(true);
+                    setIsTracking(false);
+                    setNavGuidance("Trek finished by leader.");
+                }
+                else if (action === 'TREKBACK') {
+                    initiateTrekBack(true);
+                }
+            } else {
+                // Complex Object Actions (Centroid, Safety, Focus)
+                if (action.type === 'CENTROID') {
+                    setGroupCentroid(action.centroid);
+                }
+                else if (action.type === 'SAFETY_ALERT') {
+                    if (action.userId === currentUser?._id) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        showMessage(`SAFETY: You've deviated ${action.deviation}m! Returning to group...`, 8000, 'danger');
+                        // Dynamic Path Guidance back to group/anchor
+                        if (action.anchor) {
+                            client.get(`https://router.project-osrm.org/route/v1/foot/${smoothedLocation.longitude},${smoothedLocation.latitude};${action.anchor.longitude},${action.anchor.latitude}?overview=full&geometries=geojson`)
+                                .then(res => {
+                                    if (res.data.routes?.[0]) {
+                                        setReroutePath(res.data.routes[0].geometry.coordinates.map(p => ({ latitude: p[1], longitude: p[0] })));
+                                    }
+                                });
+                        }
+                    } else if (role === 'leader') {
+                        showMessage(`${action.username} has deviated ${action.deviation}m!`, 5000, 'warning');
+                    }
+                }
+                else if (action.type === 'FOCUS') {
+                    if (action.targetUserId === currentUser?._id) {
+                        // Leader is tracking me! (Visual cue?)
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    }
+                }
             }
         },
         onWaypointReceived: (waypoint) => {
@@ -366,6 +399,38 @@ export default function GroupTrek() {
     };
 
     // Media & Waypoints (Same as Solo Trek)
+    const compressImage = async (uri) => {
+        try {
+            const manipResult = await ImageManipulator.manipulateAsync(
+                uri,
+                [{ resize: { width: 1080 } }],
+                { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+            );
+            return manipResult.uri;
+        } catch (error) { return uri; }
+    };
+
+    const handleTakePhoto = async () => {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') return;
+        const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+        if (!result.canceled) {
+            const compressed = await compressImage(result.assets[0].uri);
+            setWaypointImages(prev => [...prev, compressed]);
+        }
+    };
+
+    const handlePickImage = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            quality: 0.8,
+        });
+        if (!result.canceled) {
+            const compressed = await compressImage(result.assets[0].uri);
+            setWaypointImages(prev => [...prev, compressed]);
+        }
+    };
+
     const addMarker = async () => {
         if (!smoothedLocation || !selectedIcon) return;
         const m = { 
@@ -381,6 +446,8 @@ export default function GroupTrek() {
         sync.emitWaypoint(m);
         setShowMarkerModal(false);
         setSelectedIcon(null);
+        setWaypointDescription('');
+        setIconSearchQuery('');
         setWaypointImages([]);
         await client.put(`/treks/update/${trailId}`, { waypoints: [m] });
     };
@@ -402,9 +469,19 @@ export default function GroupTrek() {
         <View style={styles.container}>
             {/* Notification Message Animated */}
             {groupMessage && (
-                <Animated.View style={[styles.messagePill, { transform: [{ translateY: messageAnim }] }]}>
-                    <Ionicons name="notifications" size={20} color="white" />
-                    <Text style={styles.messageText}>{groupMessage}</Text>
+                <Animated.View style={[
+                    styles.messagePill, 
+                    groupMessage.type === 'danger' && styles.messageDanger,
+                    groupMessage.type === 'warning' && styles.messageWarning,
+                    groupMessage.type === 'info' && styles.messageInfo,
+                    { transform: [{ translateY: messageAnim }] }
+                ]}>
+                    <Ionicons 
+                        name={groupMessage.type === 'danger' ? "alert-circle" : groupMessage.type === 'warning' ? "warning" : "notifications"} 
+                        size={20} 
+                        color="white" 
+                    />
+                    <Text style={styles.messageText}>{groupMessage.text}</Text>
                 </Animated.View>
             )}
 
@@ -424,6 +501,9 @@ export default function GroupTrek() {
                 onMarkerPress={setSelectedPinDetails}
                 participants={sync.participants}
                 trailFinished={trailFinished}
+                role={role}
+                groupCentroid={groupCentroid}
+                trackingUserId={trackingUserId}
             />
 
             {/* 2. Overlays */}
@@ -437,13 +517,32 @@ export default function GroupTrek() {
                 <View style={styles.participantsListContainer}>
                     <Text style={styles.participantsTitle}>Active Group</Text>
                     <View style={styles.participantRow}>
-                        <View style={[styles.statusDot, { backgroundColor: '#2e7d32' }]} />
+                        <View style={[styles.statusDot, { backgroundColor: '#FFD700' }]} />
                         <Text style={styles.participantName}>{currentUser?.username} (Leader)</Text>
                     </View>
-                    {Object.values(sync.participants).map((p, idx) => (
-                        <View key={idx} style={styles.participantRow}>
+                    {Object.entries(sync.participants).map(([uid, p]) => (
+                        <View key={uid} style={styles.participantRow}>
                             <View style={[styles.statusDot, { backgroundColor: p.isOffTrail ? '#d32f2f' : '#2e7d32' }]} />
-                            <Text style={styles.participantName}>{p.username}</Text>
+                            <Text style={styles.participantName} numberOfLines={1}>{p.username}</Text>
+                            {role === 'leader' && (
+                                <TouchableOpacity 
+                                    style={[styles.trackBtn, trackingUserId === uid && styles.trackBtnActive]}
+                                    onPress={() => {
+                                        const newTrackId = trackingUserId === uid ? null : uid;
+                                        setTrackingUserId(newTrackId);
+                                        if (newTrackId) {
+                                            sync.emitLeaderTrack(uid);
+                                            mapRef.current?.animateToRegion({
+                                                ...p.location,
+                                                latitudeDelta: 0.002,
+                                                longitudeDelta: 0.002
+                                            }, 1000);
+                                        }
+                                    }}
+                                >
+                                    <Ionicons name={trackingUserId === uid ? "eye" : "eye-outline"} size={14} color={trackingUserId === uid ? "white" : "#666"} />
+                                </TouchableOpacity>
+                            )}
                             {p.isOffTrail && <Text style={styles.offTrailSmall}>! OFF</Text>}
                         </View>
                     ))}
@@ -511,6 +610,13 @@ export default function GroupTrek() {
                 onClose={() => setShowMarkerModal(false)}
                 selectedIcon={selectedIcon}
                 setSelectedIcon={setSelectedIcon}
+                iconSearchQuery={iconSearchQuery}
+                setIconSearchQuery={setIconSearchQuery}
+                waypointDescription={waypointDescription}
+                setWaypointDescription={setWaypointDescription}
+                waypointImages={waypointImages}
+                handleTakePhoto={handleTakePhoto}
+                handlePickImage={handlePickImage}
                 addMarker={addMarker}
             />
 
@@ -550,8 +656,13 @@ const styles = StyleSheet.create({
         alignItems: 'center', 
         padding: 12, 
         zIndex: 2000,
-        elevation: 10
+        elevation: 10,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)'
     },
+    messageDanger: { backgroundColor: '#d32f2f' },
+    messageWarning: { backgroundColor: '#f57c00' },
+    messageInfo: { backgroundColor: '#1565c0' },
     messageText: { color: 'white', fontWeight: 'bold', marginLeft: 10, flex: 1 },
 
     // Top Overlays
@@ -589,21 +700,23 @@ const styles = StyleSheet.create({
     // Participants List Overlay
     participantsListContainer: { 
         position: 'absolute', 
-        top: 260, 
+        top: 230, 
         left: 20, 
         backgroundColor: 'rgba(255,255,255,0.92)', 
         padding: 12, 
         borderRadius: 15, 
-        width: 160, 
+        width: 180, 
         zIndex: 50,
         elevation: 4,
         borderWidth: 1,
         borderColor: 'rgba(0,0,0,0.05)'
     },
     participantsTitle: { fontSize: 10, fontWeight: 'bold', color: '#999', marginBottom: 8, textTransform: 'uppercase' },
-    participantRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
+    participantRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, justifyContent: 'space-between' },
     statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 8 },
-    participantName: { fontSize: 11, fontWeight: '600', color: '#333' },
+    participantName: { fontSize: 11, fontWeight: '600', color: '#333', flex: 1 },
+    trackBtn: { padding: 4, borderRadius: 4, backgroundColor: '#f0f0f0', marginLeft: 8 },
+    trackBtnActive: { backgroundColor: '#1565c0' },
     offTrailSmall: { fontSize: 8, color: '#d32f2f', fontWeight: 'bold', marginLeft: 5 },
 
     // FAB

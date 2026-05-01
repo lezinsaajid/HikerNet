@@ -50,8 +50,8 @@ class NotificationService {
             });
             await notification.save();
 
-            // 3. Send Push Notification
-            await this.sendPushNotification(userId, message, {
+            // 3. Send Push Notification (Non-blocking)
+            this.sendPushNotification(userId, message, {
                 type,
                 postId,
                 trekId,

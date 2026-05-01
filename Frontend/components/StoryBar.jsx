@@ -11,6 +11,7 @@ export default function StoryBar() {
     const { user } = useAuth();
 
     const fetchStories = useCallback(async () => {
+        if (!user) return;
         try {
             const res = await client.get('/stories/feed');
             if (Array.isArray(res.data)) {

@@ -79,6 +79,20 @@ export const getPublicFeed = async (req, res) => {
     }
 };
 
+export const getLiveTreks = async (req, res) => {
+    try {
+        const treks = await Trek.find({ status: "ongoing" })
+            .select("-path -waypoints")
+            .sort({ createdAt: -1 })
+            .populate("user", "username profileImage")
+            .limit(10);
+        res.json(treks);
+    } catch (error) {
+        console.error("Error fetching live treks:", error);
+        res.status(500).json({ message: "Error fetching live treks" });
+    }
+};
+
 export const getUserTreks = async (req, res) => {
     try {
         const treks = await Trek.find({ user: req.params.userId })
