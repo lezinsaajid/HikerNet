@@ -231,6 +231,14 @@ export function useTrekSession(params) {
         startTrek,
         stopTrek,
         togglePause,
-        retracePath
+        retracePath,
+        toggleLive: async () => {
+            const newLive = !state.isLive;
+            dispatch({ type: ACTIONS.UI_ACTION, payload: { isLive: newLive } });
+            if (state.trailId && !state.simulation.isActive) {
+                await TrekService.updateTrek(state.trailId, { isLive: newLive });
+                if (newLive) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+        }
     };
 }

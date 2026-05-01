@@ -67,8 +67,8 @@ export const initSocket = (socketIo) => {
         socket.on("disconnect", () => {
             const userData = socketToUser.get(socket.id);
             if (userData) {
-                const { trekId, username } = userData;
-                socket.to(`trek_${trekId}`).emit("participant-left", { username });
+                const { trekId, userId, username } = userData;
+                socket.to(`trek_${trekId}`).emit("participant-left", { userId, username });
                 socketToUser.delete(socket.id);
                 console.log(`User ${username} left room trek_${trekId}`);
             }

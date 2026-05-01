@@ -24,14 +24,19 @@ export default function HomeFeed() {
     const router = useRouter();
     const { unreadCount } = useNotifications();
     const [posts, setPosts] = useState([]);
+    const [liveTreks, setLiveTreks] = useState([]);
     const [processedData, setProcessedData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
     const fetchFeed = async () => {
         try {
-            const res = await client.get('/posts/feed');
-            setPosts(res.data);
+            const [feedRes, liveRes] = await Promise.all([
+                client.get('/posts/feed'),
+                client.get('/treks/feed/live')
+            ]);
+            setPosts(feedRes.data);
+            setLiveTreks(liveRes.data);
         } catch (error) {
             console.error("Error fetching feed", error);
         } finally {
@@ -118,7 +123,7 @@ export default function HomeFeed() {
                Commenting out widgets that made it look "not nice" or cluttered for now.
                If user wants them back in a different spot, we can uncomment.
             */}
-            <LiveTrekCard />
+            <LiveTrekCard treks={liveTreks} />
             <NewsSection />
             <UpcomingTreks />
             <TopTrekkers />

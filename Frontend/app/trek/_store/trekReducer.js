@@ -9,6 +9,7 @@ export const INITIAL_STATE = {
     hasStarted: false,
     hasJoinedTrail: true, 
     isResting: false,
+    isLive: false,
     hasReachedMidpoint: false,
     flowState: 'idle', // 'idle', 'trekking', 'goto-start'
 

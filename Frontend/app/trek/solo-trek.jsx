@@ -37,7 +37,8 @@ export default function SoloTrek() {
         startTrek,
         stopTrek,
         retracePath,
-        togglePause
+        togglePause,
+        toggleLive
     } = useTrekSession(params);
 
     const {
@@ -206,6 +207,20 @@ export default function SoloTrek() {
 
             {/* Right Tools */}
             <View style={styles.rightToolStack}>
+                {state.hasStarted && !state.trailFinished && (
+                    <TouchableOpacity 
+                        style={[styles.toolButton, state.isLive && styles.liveBtnActive]}
+                        onPress={toggleLive}
+                    >
+                        <Ionicons 
+                            name={state.isLive ? "videocam" : "videocam-outline"} 
+                            size={24} 
+                            color={state.isLive ? "white" : "#666"} 
+                        />
+                        {state.isLive && <View style={styles.liveIndicatorDot} />}
+                    </TouchableOpacity>
+                )}
+                
                 <TouchableOpacity 
                     style={[styles.toolButton, styles.cameraBtn]}
                     onPress={() => setShowMarkerModal(true)}
@@ -314,6 +329,18 @@ const styles = StyleSheet.create({
         shadowRadius: 3
     },
     cameraBtn: { backgroundColor: '#c62828' },
+    liveBtnActive: { backgroundColor: '#e74c3c', borderColor: 'white', borderWidth: 1 },
+    liveIndicatorDot: { 
+        position: 'absolute', 
+        top: 8, 
+        right: 8, 
+        width: 8, 
+        height: 8, 
+        borderRadius: 4, 
+        backgroundColor: 'white',
+        borderWidth: 1,
+        borderColor: '#e74c3c'
+    },
 
     // Simulation
     simOverlay: { position: 'absolute', top: 121, width: '100%', alignItems: 'center', zIndex: 500 },
