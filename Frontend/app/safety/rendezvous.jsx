@@ -87,15 +87,18 @@ export default function RendezvousFinder() {
                     }}
                     onPress={handleMapPress}
                 >
-                    {markers.map((marker, index) => (
-                        <Marker
-                            key={index}
-                            coordinate={marker}
-                            pinColor="#007AFF"
-                            title={`Buddy ${index + 1}`}
-                        />
-                    ))}
-                    {midpoint && (
+                    {markers.map((marker, index) => {
+                        if (!marker || typeof marker.latitude !== 'number') return null;
+                        return (
+                            <Marker
+                                key={index}
+                                coordinate={marker}
+                                pinColor="#007AFF"
+                                title={`Buddy ${index + 1}`}
+                            />
+                        );
+                    })}
+                    {midpoint && typeof midpoint.latitude === 'number' && (
                         <Marker
                             coordinate={midpoint}
                             pinColor="#28a745"

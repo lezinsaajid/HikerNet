@@ -135,7 +135,7 @@ export default function MapLayer({
             {renderTrekPaths}
 
             {/* Trek Start & End Markers (Only shown post-trek) */}
-            {trailFinished && pathSegments.length > 0 && pathSegments[0].length > 0 && (
+            {trailFinished && pathSegments.length > 0 && pathSegments[0].length > 0 && pathSegments[0][0] && (
                 <Marker coordinate={pathSegments[0][0]}>
                     <View style={styles.brandedMarker}>
                         <Ionicons name="location" size={45} color="#fc4c02" />
@@ -146,7 +146,7 @@ export default function MapLayer({
                 </Marker>
             )}
 
-            {trailFinished && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 && (
+            {trailFinished && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 && pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1] && (
                 <Marker coordinate={pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1]}>
                     <View style={styles.brandedMarker}>
                         <Ionicons name="location" size={45} color="#28a745" />
@@ -158,15 +158,19 @@ export default function MapLayer({
             )}
 
             {/* Global/Reference Trail Waypoints */}
-            {baseWaypoints.map((wp, idx) => (
-                <Marker 
-                    key={`base-wp-${idx}`} 
-                    coordinate={wp.coordinate || wp} 
-                    onPress={() => onMarkerPress(wp)}
-                >
-                    <Ionicons name="location" size={24} color="#888" />
-                </Marker>
-            ))}
+            {baseWaypoints.map((wp, idx) => {
+                const coord = wp.coordinate || wp;
+                if (!coord || !coord.latitude) return null;
+                return (
+                    <Marker 
+                        key={`base-wp-${idx}`} 
+                        coordinate={coord} 
+                        onPress={() => onMarkerPress(wp)}
+                    >
+                        <Ionicons name="location" size={24} color="#888" />
+                    </Marker>
+                );
+            })}
 
             {/* Group Centroid / Heat Zone (Leader View Only) */}
             {role === 'leader' && groupCentroid && (
@@ -179,61 +183,68 @@ export default function MapLayer({
             )}
 
             {/* Session Participants (Group Trek) */}
-            {visibleParticipants.map(([uid, p]) => (
-                <Marker 
-                    key={`p-${uid}`} 
-                    coordinate={p.location} 
-                    title={p.username} 
-                    zIndex={p.role === 'leader' ? 150 : 100}
-                >
-                    <View style={styles.participantMarkerContainer}>
-                        {p.role === 'leader' && (
-                            <View style={styles.crownContainer}>
-                                <Ionicons name="ribbon" size={18} color="#FFD700" />
+            {visibleParticipants.map(([uid, p]) => {
+                if (!p.location || !p.location.latitude) return null;
+                return (
+                    <Marker 
+                        key={`p-${uid}`} 
+                        coordinate={p.location} 
+                        title={p.username} 
+                        zIndex={p.role === 'leader' ? 150 : 100}
+                    >
+                        <View style={styles.participantMarkerContainer}>
+                            {p.role === 'leader' && (
+                                <View style={styles.crownContainer}>
+                                    <Ionicons name="ribbon" size={18} color="#FFD700" />
+                                </View>
+                            )}
+                            <View style={[
+                                styles.participantAvatarWrapper, 
+                                { borderColor: p.isOffTrail ? '#dc3545' : (p.role === 'leader' ? '#FFD700' : '#28a745') },
+                                p.role === 'leader' && styles.leaderGlow
+                            ]}>
+                                {p.profileImage ? (
+                                    <Text style={{fontSize: 20}}>👤</Text>
+                                ) : (
+                                    <View style={styles.participantAvatarPlaceholder}>
+                                        <Text style={[styles.participantAvatarInitial, p.role === 'leader' && { color: '#FFD700' }]}>
+                                            {p.username?.[0]?.toUpperCase()}
+                                        </Text>
+                                    </View>
+                                )}
+                                {p.isOffTrail && (
+                                    <View style={styles.offTrailIndicator}>
+                                        <Ionicons name="warning" size={10} color="white" />
+                                    </View>
+                                )}
                             </View>
-                        )}
-                        <View style={[
-                            styles.participantAvatarWrapper, 
-                            { borderColor: p.isOffTrail ? '#dc3545' : (p.role === 'leader' ? '#FFD700' : '#28a745') },
-                            p.role === 'leader' && styles.leaderGlow
-                        ]}>
-                            {p.profileImage ? (
-                                <Text style={{fontSize: 20}}>👤</Text>
-                            ) : (
-                                <View style={styles.participantAvatarPlaceholder}>
-                                    <Text style={[styles.participantAvatarInitial, p.role === 'leader' && { color: '#FFD700' }]}>
-                                        {p.username?.[0]?.toUpperCase()}
-                                    </Text>
-                                </View>
-                            )}
-                            {p.isOffTrail && (
-                                <View style={styles.offTrailIndicator}>
-                                    <Ionicons name="warning" size={10} color="white" />
-                                </View>
-                            )}
+                            <View style={[styles.participantLabel, { backgroundColor: p.isOffTrail ? '#dc3545' : (p.role === 'leader' ? '#FFD700' : '#28a745') }]}>
+                                <Text style={[styles.participantLabelText, p.role === 'leader' && { color: '#333' }]}>
+                                    {p.username} {p.role === 'leader' ? '(Leader)' : ''}
+                                </Text>
+                            </View>
                         </View>
-                        <View style={[styles.participantLabel, { backgroundColor: p.isOffTrail ? '#dc3545' : (p.role === 'leader' ? '#FFD700' : '#28a745') }]}>
-                            <Text style={[styles.participantLabelText, p.role === 'leader' && { color: '#333' }]}>
-                                {p.username} {p.role === 'leader' ? '(Leader)' : ''}
-                            </Text>
-                        </View>
-                    </View>
-                </Marker>
-            ))}
+                    </Marker>
+                );
+            })}
 
             {/* Current Session Waypoints */}
-            {markers.map((m, idx) => (
-                <Marker 
-                    key={`marker-${idx}`} 
-                    coordinate={m.coordinate || m} 
-                    onPress={() => onMarkerPress(m)}
-                >
-                    <Ionicons name={m.icon || 'location'} size={32} color={m.color || '#007bff'} />
-                </Marker>
-            ))}
+            {markers.map((m, idx) => {
+                const coord = m.coordinate || m;
+                if (!coord || !coord.latitude) return null;
+                return (
+                    <Marker 
+                        key={`marker-${idx}`} 
+                        coordinate={coord} 
+                        onPress={() => onMarkerPress(m)}
+                    >
+                        <Ionicons name={m.icon || 'location'} size={32} color={m.color || '#007bff'} />
+                    </Marker>
+                );
+            })}
 
             {/* Custom Interactive User Marker */}
-            {location && (
+            {location && location.latitude && (
                 <Marker coordinate={location}>
                     <View style={styles.userMarkerContainer}>
                         <View style={styles.userMarkerPulse} />

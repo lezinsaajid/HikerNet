@@ -193,7 +193,11 @@ export default function SoloTrek() {
                 </TouchableOpacity>
                 <TouchableOpacity 
                     style={styles.toolButton}
-                    onPress={() => mapRef.current?.animateCamera({ center: state.location, zoom: 18 })}
+                    onPress={() => {
+                        if (state.location && state.location.latitude) {
+                            mapRef.current?.animateCamera({ center: state.location, zoom: 18 });
+                        }
+                    }}
                 >
                     <Ionicons name="navigate" size={24} color="#2e7d32" />
                 </TouchableOpacity>

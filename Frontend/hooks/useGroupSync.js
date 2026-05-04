@@ -144,7 +144,7 @@ export const useGroupSync = ({
 
         socket.on('drift-notification', ({ userId, username, isOffTrail }) => {
             if (userId === currentUser?._id) return;
-            onDriftAlert({ username, isOffTrail });
+            onDriftAlert({ userId, username, isOffTrail });
         });
 
         socket.on('group-centroid', ({ centroid, memberCount }) => {

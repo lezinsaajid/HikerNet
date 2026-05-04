@@ -19,20 +19,23 @@ export default function PathPreviewMap({ coordinates, waypoints, style }) {
 
     // Ensure the map zooms whenever coordinates are loaded or updated
     React.useEffect(() => {
-        if (coordinates && coordinates.length > 0 && mapRef.current) {
-            mapRef.current.fitToCoordinates(coordinates, {
+        const validCoords = (coordinates || []).filter(c => c && c.latitude);
+        if (validCoords.length > 0 && mapRef.current) {
+            mapRef.current.fitToCoordinates(validCoords, {
                 edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
                 animated: true
             });
         }
     }, [coordinates]);
 
-    if (!coordinates || coordinates.length === 0) {
+    const validCoords = (coordinates || []).filter(c => c && c.latitude);
+
+    if (validCoords.length === 0) {
         return <View style={[styles.fallback, style]} />;
     }
 
-    const startPoint = coordinates[0];
-    const endPoint = coordinates[coordinates.length - 1];
+    const startPoint = validCoords[0];
+    const endPoint = validCoords[validCoords.length - 1];
 
     return (
         <NativeMap
@@ -45,7 +48,7 @@ export default function PathPreviewMap({ coordinates, waypoints, style }) {
         >
             {/* The Trail Path */}
             <Polyline
-                coordinates={coordinates}
+                coordinates={validCoords}
                 strokeWidth={5}
                 strokeColor="#fc4c02"
                 lineJoin="round"
@@ -64,7 +67,7 @@ export default function PathPreviewMap({ coordinates, waypoints, style }) {
             </Marker>
             
             {/* End Point Marker */}
-            {coordinates.length > 1 && (
+            {validCoords.length > 1 && (
                 <Marker coordinate={endPoint} zIndex={10}>
                     <View style={styles.brandedMarker}>
                         <Ionicons name="location" size={45} color="#28a745" />
@@ -76,18 +79,21 @@ export default function PathPreviewMap({ coordinates, waypoints, style }) {
             )}
 
             {/* Waypoints / Checkpoints recorded during session */}
-            {waypoints && waypoints.map((m, i) => (
-                <Marker
-                    key={`waypoint-${i}`}
-                    coordinate={{ latitude: m.latitude, longitude: m.longitude }}
-                    title={m.title || m.type}
-                    description={m.description}
-                >
-                    <View style={[styles.waypointDot, { backgroundColor: m.color || '#00838f' }]}>
-                        <Ionicons name={m.icon || 'location'} size={10} color="white" />
-                    </View>
-                </Marker>
-            ))}
+            {waypoints && waypoints.map((m, i) => {
+                if (!m || !m.latitude) return null;
+                return (
+                    <Marker
+                        key={`waypoint-${i}`}
+                        coordinate={{ latitude: m.latitude, longitude: m.longitude }}
+                        title={m.title || m.type}
+                        description={m.description}
+                    >
+                        <View style={[styles.waypointDot, { backgroundColor: m.color || '#00838f' }]}>
+                            <Ionicons name={m.icon || 'location'} size={10} color="white" />
+                        </View>
+                    </Marker>
+                );
+            })}
         </NativeMap>
     );
 }

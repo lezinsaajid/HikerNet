@@ -56,6 +56,17 @@ export const INITIAL_STATE = {
     mapType: 'standard',
     mapViewMode: 'top-down', // 'top-down', 'navigation', 'explore'
     isNavMode: false,
+    
+    // Group Session State
+    participants: {},
+    groupCentroid: null,
+    trackingUserId: null,
+    totalExpected: 1,
+    isFollowingLeader: false,
+    chatVisible: false,
+    messages: [],
+    unreadCount: 0,
+    groupMessage: null,
 };
 
 
@@ -157,12 +168,13 @@ export function trekReducer(state, action) {
             };
 
         case ACTIONS.UPDATE_LOCATION:
+            const data = typeof action.payload === 'function' ? action.payload(state) : action.payload;
             const { 
                 pathSegments, 
                 routeCoordinates, 
                 stats, 
                 offTrailPath 
-            } = action.payload;
+            } = data;
             
             return {
                 ...state,
@@ -227,6 +239,34 @@ export function trekReducer(state, action) {
             return {
                 ...state,
                 ...action.payload
+            };
+
+        case ACTIONS.UPDATE_PARTICIPANTS:
+            return {
+                ...state,
+                participants: {
+                    ...state.participants,
+                    ...action.payload
+                }
+            };
+
+        case ACTIONS.SET_PARTICIPANTS:
+            return {
+                ...state,
+                participants: action.payload
+            };
+
+        case ACTIONS.UPDATE_GROUP_STATS:
+            return {
+                ...state,
+                ...action.payload
+            };
+
+        case ACTIONS.ADD_MESSAGE:
+            return {
+                ...state,
+                messages: [...state.messages, action.payload],
+                unreadCount: state.chatVisible ? 0 : state.unreadCount + 1
             };
 
         default:

@@ -111,6 +111,7 @@ export const getRegionForCoordinates = (points, paddingMultiplier = 1.15) => {
     let minLat, maxLat, minLng, maxLng;
 
     points.forEach((point) => {
+        if (!point || typeof point.latitude !== 'number') return;
         const lat = point.latitude;
         const lng = point.longitude;
         minLat = minLat === undefined ? lat : Math.min(minLat, lat);
@@ -118,6 +119,8 @@ export const getRegionForCoordinates = (points, paddingMultiplier = 1.15) => {
         minLng = minLng === undefined ? lng : Math.min(minLng, lng);
         maxLng = maxLng === undefined ? lng : Math.max(maxLng, lng);
     });
+
+    if (minLat === undefined) return null;
 
     const latDelta = (maxLat - minLat) * paddingMultiplier; 
     const lngDelta = (maxLng - minLng) * paddingMultiplier;
