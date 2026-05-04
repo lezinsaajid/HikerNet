@@ -767,32 +767,51 @@ export default function GroupTrek() {
                 selectedPinDetails={selectedPinDetails}
             />
 
-            {/* FAB for Marker */}
-            {hasStarted && !trailFinished && (
-                <View style={styles.fabContainer}>
-                    <TouchableOpacity 
-                        style={[styles.fab, styles.chatFab]} 
-                        onPress={() => {
-                            setChatVisible(true);
-                            setUnreadCount(0);
-                        }}
-                    >
-                        <Ionicons name="chatbubbles" size={28} color="white" />
-                        {unreadCount > 0 && (
-                            <View style={styles.chatBadge}>
-                                <Text style={styles.chatBadgeText}>{unreadCount}</Text>
-                            </View>
-                        )}
-                    </TouchableOpacity>
+            {/* 3. Floating Tool Stacks */}
+            {/* Left Tools */}
+            <View style={styles.leftToolStack}>
+                <TouchableOpacity 
+                    style={styles.toolButton}
+                    onPress={() => mapRef.current?.animateCamera({ center: smoothedLocation, zoom: 18 })}
+                >
+                    <Ionicons name="navigate" size={24} color="#2e7d32" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                    style={styles.toolButton} 
+                    onPress={() => setMapType(prev => prev === 'satellite' ? 'standard' : 'satellite')}
+                >
+                    <Ionicons name="layers" size={24} color="#666" />
+                </TouchableOpacity>
+            </View>
 
-                    <TouchableOpacity 
-                        style={styles.fab} 
-                        onPress={() => setShowMarkerModal(true)}
-                    >
-                        <Ionicons name="camera" size={28} color="white" />
-                    </TouchableOpacity>
-                </View>
-            )}
+            {/* Right Tools */}
+            <View style={styles.rightToolStack}>
+                {hasStarted && !trailFinished && (
+                    <>
+                        <TouchableOpacity 
+                            style={[styles.toolButton, styles.chatToolButton]} 
+                            onPress={() => {
+                                setChatVisible(true);
+                                setUnreadCount(0);
+                            }}
+                        >
+                            <Ionicons name="chatbubbles-outline" size={24} color="#1565c0" />
+                            {unreadCount > 0 && (
+                                <View style={styles.chatBadge}>
+                                    <Text style={styles.chatBadgeText}>{unreadCount}</Text>
+                                </View>
+                            )}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                            style={[styles.toolButton, styles.cameraToolButton]} 
+                            onPress={() => setShowMarkerModal(true)}
+                        >
+                            <Ionicons name="camera" size={26} color="white" />
+                        </TouchableOpacity>
+                    </>
+                )}
+            </View>
 
             <GroupChatOverlay
                 visible={chatVisible}
@@ -831,55 +850,41 @@ const styles = StyleSheet.create({
     messageInfo: { backgroundColor: '#1565c0' },
     messageText: { color: 'white', fontWeight: 'bold', marginLeft: 10, flex: 1 },
 
-    // Top Overlays
-    topRightOverlay: { position: 'absolute', top: 50, right: 20, alignItems: 'flex-end', zIndex: 100 },
-    accuracyBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginTop: 8 },
-    groupBadgeText: {
-        color: 'white',
-        fontSize: 12,
-        fontWeight: 'bold',
-        marginLeft: 6
-    },
-
-    fabContainer: {
-        position: 'absolute',
-        bottom: 120,
-        right: 20,
+    // Tool Stacks
+    leftToolStack: { position: 'absolute', left: 20, bottom: 120, zIndex: 100 },
+    rightToolStack: { position: 'absolute', right: 20, bottom: 120, zIndex: 100 },
+    toolButton: { 
+        backgroundColor: 'white', 
+        width: 50, 
+        height: 50, 
+        borderRadius: 25, 
+        justifyContent: 'center', 
         alignItems: 'center',
-    },
-    fab: {
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: '#2e7d32',
-        justifyContent: 'center',
-        alignItems: 'center',
+        marginBottom: 15,
         elevation: 5,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 3.84,
-        marginTop: 15,
+        shadowOpacity: 0.2,
+        shadowRadius: 3
     },
-    chatFab: {
-        backgroundColor: '#1565c0',
-    },
+    cameraToolButton: { backgroundColor: '#c62828' },
+    chatToolButton: { backgroundColor: 'white' },
     chatBadge: {
         position: 'absolute',
         top: -5,
         right: -5,
         backgroundColor: '#d32f2f',
         borderRadius: 10,
-        minWidth: 20,
-        height: 20,
+        minWidth: 18,
+        height: 18,
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 2,
+        borderWidth: 1.5,
         borderColor: 'white',
     },
     chatBadgeText: {
         color: 'white',
-        fontSize: 10,
+        fontSize: 9,
         fontWeight: 'bold',
     },
 
@@ -973,18 +978,6 @@ const styles = StyleSheet.create({
     trackBtnActive: { backgroundColor: '#1565c0' },
     offTrailSmall: { fontSize: 8, color: '#d32f2f', fontWeight: 'bold', marginLeft: 5 },
 
-    // FAB
-    fab: { 
-        position: 'absolute', 
-        right: 20, 
-        bottom: 140, 
-        width: 60, 
-        height: 60, 
-        borderRadius: 30, 
-        backgroundColor: '#c62828', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        elevation: 8,
-        zIndex: 500
-    }
+    trackBtnActive: { backgroundColor: '#1565c0' },
+    offTrailSmall: { fontSize: 8, color: '#d32f2f' },
 });
