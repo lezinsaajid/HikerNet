@@ -15,6 +15,7 @@ import TrekControls from './_components/TrekControls';
 import MarkerModal from './_components/MarkerModal';
 import PinDetailsModal from './_components/PinDetailsModal';
 import RestModal from './_components/RestModal';
+import GroupChatOverlay from './_components/GroupChatOverlay';
 import WeatherWidget from '../../components/WeatherWidget';
 
 // Logic & API
@@ -96,6 +97,9 @@ export default function GroupTrek() {
     const [groupMessage, setGroupMessage] = useState(null);
     const [totalExpected, setTotalExpected] = useState(1); // Default to 1 (leader)
     const [isFollowingLeader, setIsFollowingLeader] = useState(false);
+    const [chatVisible, setChatVisible] = useState(false);
+    const [messages, setMessages] = useState([]);
+    const [unreadCount, setUnreadCount] = useState(0);
 
     // Refs for internal logic tracking
     const mapRef = useRef(null);
@@ -182,8 +186,11 @@ export default function GroupTrek() {
         isLeader,
         leaderId,
         baseUrl: client.defaults.baseURL,
-        onControlAction: (action) => {
-            if (typeof action === 'string') {
+        onControlAction: (payload) => {
+            const action = typeof payload === 'string' ? payload : payload.action;
+            const data = typeof payload === 'object' ? payload : {};
+
+            if (action) {
                 if (action === 'START') {
                     setHasStarted(true);
                     setIsTracking(true);
@@ -191,8 +198,19 @@ export default function GroupTrek() {
                     setNavGuidance("Trek started by leader.");
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }
-                else if (action === 'PAUSE') setIsPaused(true);
-                else if (action === 'RESUME') setIsPaused(false);
+                else if (action === 'PAUSE') {
+                    setIsPaused(true);
+                    if (data.reason === 'SAFETY_DEVIATION') {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        showMessage(`AUTO-PAUSE: ${data.username} is too far! Waiting for regroup.`, 8000, 'danger');
+                    }
+                }
+                else if (action === 'RESUME') {
+                    setIsPaused(false);
+                    if (data.reason === 'SAFETY_DEVIATION') {
+                        showMessage("Group regathered. Resuming trek.", 3000, 'success');
+                    }
+                }
                 else if (action === 'STOP') {
                     setTrailFinished(true);
                     setIsTracking(false);
@@ -206,18 +224,20 @@ export default function GroupTrek() {
                 else if (action === 'TREKBACK') {
                     initiateTrekBack(true);
                 }
-            } else {
-                // Complex Object Actions (Centroid, Safety, Focus)
-                if (action.type === 'CENTROID') {
-                    setGroupCentroid(action.centroid);
+            }
+            
+            // Handle complex type actions
+            if (payload.type) {
+                if (payload.type === 'CENTROID') {
+                    setGroupCentroid(payload.centroid);
                 }
-                else if (action.type === 'SAFETY_ALERT') {
-                    if (action.userId === currentUser?._id) {
+                else if (payload.type === 'SAFETY_ALERT') {
+                    if (payload.userId === currentUser?._id) {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                        showMessage(`SAFETY: You've deviated ${action.deviation}m! Returning to group...`, 8000, 'danger');
+                        showMessage(`SAFETY: You've deviated ${payload.deviation}m! Returning to group...`, 8000, 'danger');
                         // Dynamic Path Guidance back to group/anchor
-                        if (action.anchor) {
-                            client.get(`https://router.project-osrm.org/route/v1/foot/${smoothedLocation.longitude},${smoothedLocation.latitude};${action.anchor.longitude},${action.anchor.latitude}?overview=full&geometries=geojson`)
+                        if (payload.anchor) {
+                            client.get(`https://router.project-osrm.org/route/v1/foot/${smoothedLocation.longitude},${smoothedLocation.latitude};${payload.anchor.longitude},${payload.anchor.latitude}?overview=full&geometries=geojson`)
                                 .then(res => {
                                     if (res.data.routes?.[0]) {
                                         setReroutePath(res.data.routes[0].geometry.coordinates.map(p => ({ latitude: p[1], longitude: p[0] })));
@@ -225,12 +245,11 @@ export default function GroupTrek() {
                                 });
                         }
                     } else if (isLeader) {
-                        showMessage(`${action.username} has deviated ${action.deviation}m!`, 5000, 'warning');
+                        showMessage(`${payload.username} has deviated ${payload.deviation}m!`, 5000, 'warning');
                     }
                 }
-                else if (action.type === 'FOCUS') {
-                    if (action.targetUserId === currentUser?._id) {
-                        // Leader is tracking me! (Visual cue?)
+                else if (payload.type === 'FOCUS') {
+                    if (payload.targetUserId === currentUser?._id) {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                     }
                 }
@@ -256,6 +275,13 @@ export default function GroupTrek() {
             } else {
                 setNavGuidance(isOffTrail ? `${username} is off trail!` : "Group back on track.");
                 if (isOffTrail) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            }
+        },
+        onChatMessage: (message) => {
+            setMessages(prev => [...prev, message]);
+            if (!chatVisible) setUnreadCount(c => c + 1);
+            if (message.userId !== currentUser?._id) {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             }
         }
     });
@@ -743,13 +769,38 @@ export default function GroupTrek() {
 
             {/* FAB for Marker */}
             {hasStarted && !trailFinished && (
-                <TouchableOpacity 
-                    style={styles.fab} 
-                    onPress={() => setShowMarkerModal(true)}
-                >
-                    <Ionicons name="camera" size={28} color="white" />
-                </TouchableOpacity>
+                <View style={styles.fabContainer}>
+                    <TouchableOpacity 
+                        style={[styles.fab, styles.chatFab]} 
+                        onPress={() => {
+                            setChatVisible(true);
+                            setUnreadCount(0);
+                        }}
+                    >
+                        <Ionicons name="chatbubbles" size={28} color="white" />
+                        {unreadCount > 0 && (
+                            <View style={styles.chatBadge}>
+                                <Text style={styles.chatBadgeText}>{unreadCount}</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                        style={styles.fab} 
+                        onPress={() => setShowMarkerModal(true)}
+                    >
+                        <Ionicons name="camera" size={28} color="white" />
+                    </TouchableOpacity>
+                </View>
             )}
+
+            <GroupChatOverlay
+                visible={chatVisible}
+                onClose={() => setChatVisible(false)}
+                messages={messages}
+                currentUser={currentUser}
+                onSendMessage={(text) => sync.emitMessage(text)}
+            />
         </View>
     );
 }
@@ -783,8 +834,96 @@ const styles = StyleSheet.create({
     // Top Overlays
     topRightOverlay: { position: 'absolute', top: 50, right: 20, alignItems: 'flex-end', zIndex: 100 },
     accuracyBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginTop: 8 },
-    accuracyText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
-    
+    groupBadgeText: {
+        color: 'white',
+        fontSize: 12,
+        fontWeight: 'bold',
+        marginLeft: 6
+    },
+
+    fabContainer: {
+        position: 'absolute',
+        bottom: 120,
+        right: 20,
+        alignItems: 'center',
+    },
+    fab: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#2e7d32',
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        marginTop: 15,
+    },
+    chatFab: {
+        backgroundColor: '#1565c0',
+    },
+    chatBadge: {
+        position: 'absolute',
+        top: -5,
+        right: -5,
+        backgroundColor: '#d32f2f',
+        borderRadius: 10,
+        minWidth: 20,
+        height: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 2,
+        borderColor: 'white',
+    },
+    chatBadgeText: {
+        color: 'white',
+        fontSize: 10,
+        fontWeight: 'bold',
+    },
+
+    memberStatusOverlay: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        padding: 20,
+        backgroundColor: 'rgba(255,255,255,0.9)',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        elevation: 10,
+    },
+    statusBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 15,
+        paddingVertical: 10,
+        borderRadius: 20,
+        flex: 1,
+        marginRight: 15,
+    },
+    statusBannerText: {
+        color: 'white',
+        fontWeight: 'bold',
+        marginLeft: 8,
+    },
+    exitBtnSmall: {
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        backgroundColor: '#f5f5f5',
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#ddd',
+    },
+    exitBtnText: {
+        color: '#d32f2f',
+        fontWeight: 'bold',
+    },
+
     groupBadge: {
         position: 'absolute',
         top: 130,

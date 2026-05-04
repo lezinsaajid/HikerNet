@@ -15,6 +15,8 @@ export const useGroupSync = ({
     onWaypointReceived, // (waypoint) => void
     onPathReceived, // (path) => void
     onDriftAlert, // ({ username, isOffTrail }) => void
+    onChatMessage, // (message) => void
+    onTrekStarted, // ({ trekId, leaderId }) => void
     baseUrl
 }) => {
     const [participants, setParticipants] = useState({});
@@ -37,6 +39,10 @@ export const useGroupSync = ({
             username: currentUser?.username,
             leaderId: String(leaderId)
         });
+
+        // Join lobby room if provided (for real-time start)
+        const roomId = trailId; // Often room ID and trail ID are passed similarly or linked
+        socket.emit('join-room', { roomId, userId: currentUser?._id, username: currentUser?.username });
 
         // --- LISTENERS ---
 
@@ -102,16 +108,12 @@ export const useGroupSync = ({
             }
         });
 
-        socket.on('trek-control-received', ({ action }) => {
-            if (!isLeader) {
-                onControlAction(action);
-            }
+        socket.on('trek-control-received', (payload) => {
+            onControlAction(payload);
         });
 
         socket.on('waypoint-received', ({ waypoint }) => {
-            if (!isLeader) {
-                onWaypointReceived(waypoint);
-            }
+            onWaypointReceived(waypoint);
         });
 
         socket.on('drift-notification', ({ userId, username, isOffTrail }) => {
@@ -153,6 +155,14 @@ export const useGroupSync = ({
 
         socket.on('force-member-focus', ({ targetUserId }) => {
             onControlAction({ type: 'FOCUS', targetUserId });
+        });
+
+        socket.on('trek-started', ({ trekId, leaderId }) => {
+            if (onTrekStarted) onTrekStarted({ trekId, leaderId });
+        });
+
+        socket.on('message-received', (message) => {
+            if (onChatMessage) onChatMessage(message);
         });
 
         // Cleanup stale markers periodically
@@ -262,6 +272,18 @@ export const useGroupSync = ({
         }
     };
 
+    const emitMessage = (text) => {
+        if (socketRef.current && trailId) {
+            socketRef.current.emit('send-message', {
+                trekId: String(trailId),
+                userId: currentUser?._id,
+                username: currentUser?.username,
+                profileImage: currentUser?.profileImage,
+                text
+            });
+        }
+    };
+
     return { 
         participants, 
         emitLocation, 
@@ -271,6 +293,7 @@ export const useGroupSync = ({
         emitPointShared,
         emitDrift,
         emitLeaderTrack,
-        emitReady
+        emitReady,
+        emitMessage
     };
 };

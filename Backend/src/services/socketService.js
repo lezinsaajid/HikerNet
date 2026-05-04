@@ -8,9 +8,16 @@ export const initSocket = (socketIo) => {
 
     const socketToUser = new Map(); // socket.id -> { trekId, userId, username, location, isOffTrail }
     const groupIntervals = new Map(); // trekId -> intervalId
+    const autoPausedTreks = new Set(); // trekId
 
     io.on("connection", (socket) => {
         console.log("New client connected:", socket.id);
+
+        // Join Room (Lobby or Trek)
+        socket.on("join-room", ({ roomId, userId, username }) => {
+            socket.join(`room_${roomId}`);
+            console.log(`User ${username} joined lobby room_${roomId}`);
+        });
  
         // Join a specific trek room
         socket.on("join-trek", ({ trekId, userId, username, leaderId }) => {
@@ -84,6 +91,19 @@ export const initSocket = (socketIo) => {
         socket.on("waypoint-added", ({ trekId, waypoint }) => {
             socket.to(`trek_${trekId}`).emit("waypoint-received", { waypoint });
         });
+
+        // Group Chat
+        socket.on("send-message", ({ trekId, userId, username, text, profileImage }) => {
+            const message = {
+                id: Date.now().toString(),
+                userId,
+                username,
+                text,
+                profileImage,
+                timestamp: new Date()
+            };
+            io.to(`trek_${trekId}`).emit("message-received", message);
+        });
  
         // Drift notification broadcast
         socket.on("drift-notification", ({ trekId, userId, username, isOffTrail }) => {
@@ -136,19 +156,40 @@ export const initSocket = (socketIo) => {
         const leader = usersInTrek.find(u => u.userId === u.leaderId);
         const anchor = leader ? leader.location : centroid;
 
+        let anyDeviation = false;
         usersInTrek.forEach(u => {
             if (!u.location) return;
             const dist = getDistance(u.location.latitude, u.location.longitude, anchor.latitude, anchor.longitude);
             
             if (dist > 15) { // 15m Threshold
+                anyDeviation = true;
                 io.to(roomName).emit("safety-alert", {
                     userId: u.userId,
                     username: u.username,
                     deviation: Math.round(dist),
                     anchor
                 });
+
+                // AUTO-PAUSE: Notify all that trek is paused due to safety
+                if (!autoPausedTreks.has(trekId)) {
+                    autoPausedTreks.add(trekId);
+                    io.to(roomName).emit("trek-control-received", { 
+                        action: 'PAUSE',
+                        reason: 'SAFETY_DEVIATION',
+                        username: u.username 
+                    });
+                }
             }
         });
+
+        // AUTO-RESUME: If everyone is back and we were auto-paused
+        if (!anyDeviation && autoPausedTreks.has(trekId)) {
+            autoPausedTreks.delete(trekId);
+            io.to(roomName).emit("trek-control-received", { 
+                action: 'RESUME',
+                reason: 'SAFETY_DEVIATION'
+            });
+        }
     }
 };
 

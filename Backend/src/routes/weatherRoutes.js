@@ -1,4 +1,5 @@
 import express from "express";
+import axios from "axios";
 
 const router = express.Router();
 
@@ -28,11 +29,11 @@ router.get("/current", async (req, res) => {
         const endpoint = apiBase.endsWith('/weather') ? apiBase : `${apiBase}/weather`;
         const url = `${endpoint}?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
 
-        console.log(`[Weather] Fetching current real data`);
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Weather API responded with status: ${response.status}`);
+        console.log(`[Weather] Fetching current real data from: ${url.replace(apiKey, 'HIDDEN')}`);
+        
+        const response = await axios.get(url);
+        const data = response.data;
 
-        const data = await response.json();
         const weatherData = {
             temp: data.main?.temp ?? 0,
             condition: data.weather?.[0]?.main ?? "Unknown",
@@ -43,8 +44,13 @@ router.get("/current", async (req, res) => {
 
         res.json(weatherData);
     } catch (error) {
-        console.error("[Weather] Route Error:", error.message);
-        res.status(500).json({ temp: 0, condition: "Service Unavailable", city: "N/A", error: error.message });
+        console.error("[Weather] Route Error:", error.response?.data || error.message);
+        res.status(500).json({ 
+            temp: 0, 
+            condition: "Service Unavailable", 
+            city: "N/A", 
+            error: error.response?.data?.message || error.message 
+        });
     }
 });
 
@@ -71,11 +77,10 @@ router.get("/forecast", async (req, res) => {
         }
 
         const url = `${apiBase}/forecast?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Forecast API responded with status: ${response.status}`);
-
-        const data = await response.json();
-        res.json(data);
+        console.log(`[Weather] Fetching forecast from: ${url.replace(apiKey, 'HIDDEN')}`);
+        
+        const response = await axios.get(url);
+        res.json(response.data);
     } catch (error) {
         console.error("[Weather] Forecast Route Error:", error.message);
         res.status(500).json({ message: "Error fetching forecast", error: error.message });

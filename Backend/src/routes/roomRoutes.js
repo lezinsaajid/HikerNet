@@ -4,6 +4,7 @@ import User from "../models/User.js";
 import Trek from "../models/Trek.js";
 import protectRoute from "../middleware/auth.middleware.js";
 import NotificationService from "../services/notificationService.js";
+import { getIO } from "../services/socketService.js";
 import crypto from 'crypto';
 
 const router = express.Router();
@@ -425,6 +426,15 @@ router.post("/start", protectRoute, async (req, res) => {
                 });
             }
         });
+
+        // Real-time navigation trigger via Socket.io
+        const io = getIO();
+        if (io) {
+            io.to(`room_${roomId}`).emit("trek-started", {
+                trekId: newTrek._id,
+                leaderId: room.leaderId
+            });
+        }
 
         res.json({ trekId: newTrek._id });
     } catch (error) {

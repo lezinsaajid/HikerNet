@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert, Image, Activ
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import io from 'socket.io-client';
 import client from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import UserListModal from '../../components/UserListModal';
@@ -24,6 +25,7 @@ export default function RoomLobby() {
 
     // Polling Ref
     const pollingRef = useRef(null);
+    const socketRef = useRef(null);
 
     useEffect(() => {
         fetchRoom();
@@ -31,12 +33,32 @@ export default function RoomLobby() {
         // Start polling every 3 seconds (Only if NOT dummy)
         if (roomId !== 'dummy-room') {
             pollingRef.current = setInterval(fetchRoom, 3000);
+
+            // Socket setup for real-time start
+            const socketUrl = client.defaults.baseURL.replace('/api', '');
+            const socket = io(socketUrl, { transports: ['websocket'], jsonp: false });
+            socketRef.current = socket;
+
+            socket.emit('join-room', { roomId, userId: currentUser?._id, username: currentUser?.username });
+
+            socket.on('trek-started', ({ trekId, leaderId: sLeaderId }) => {
+                if (pollingRef.current) clearInterval(pollingRef.current);
+                router.replace({
+                    pathname: '/trek/active-trek',
+                    params: {
+                        trailId: trekId,
+                        mode: 'group',
+                        leaderId: sLeaderId?._id || sLeaderId
+                    }
+                });
+            });
         }
 
         return () => {
             if (pollingRef.current) clearInterval(pollingRef.current);
+            if (socketRef.current) socketRef.current.disconnect();
         };
-    }, []);
+    }, [roomId, currentUser]);
 
     const fetchRoom = async () => {
         if (roomId === 'dummy-room') {
