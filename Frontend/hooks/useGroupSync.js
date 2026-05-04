@@ -17,6 +17,7 @@ export const useGroupSync = ({
     onDriftAlert, // ({ username, isOffTrail }) => void
     onChatMessage, // (message) => void
     onTrekStarted, // ({ trekId, leaderId }) => void
+    onStatusChanged, // ({ userId, username, status, allParticipants }) => void
     baseUrl
 }) => {
     const [participants, setParticipants] = useState({});
@@ -37,6 +38,7 @@ export const useGroupSync = ({
             trekId: String(trailId), 
             userId: currentUser?._id, 
             username: currentUser?.username,
+            profileImage: currentUser?.profileImage,
             leaderId: String(leaderId)
         });
 
@@ -46,26 +48,48 @@ export const useGroupSync = ({
 
         // --- LISTENERS ---
 
-        socket.on('participant-joined', ({ username }) => {
-            if (isLeader) {
-                // Toast/Alert handled by parent if needed, or here for consistency
+        socket.on('participant-status-changed', ({ userId, username, status, allParticipants }) => {
+            if (userId !== currentUser?._id) {
+                if (status === 'inactive') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (status === 'left') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             }
-        });
 
-        socket.on('participant-left', ({ userId, username }) => {
             setParticipants(prev => {
                 const updated = { ...prev };
-                if (userId) delete updated[userId];
-                else {
-                    // Fallback to username search if userId not provided
-                    const idToRemove = Object.keys(updated).find(id => updated[id].username === username);
-                    if (idToRemove) delete updated[idToRemove];
+                
+                // Update specific user status
+                if (status === 'left') {
+                    delete updated[userId];
+                } else {
+                    updated[userId] = {
+                        ...(updated[userId] || {}),
+                        username,
+                        status,
+                        lastUpdate: Date.now()
+                    };
                 }
+
+                // If server sent allParticipants, we can use it to sync fully
+                if (allParticipants) {
+                    Object.entries(allParticipants).forEach(([id, data]) => {
+                        if (data.status === 'left') {
+                            delete updated[id];
+                        } else {
+                            updated[id] = {
+                                ...(updated[id] || {}),
+                                username: data.username,
+                                profileImage: data.profileImage,
+                                status: data.status,
+                                lastUpdate: data.lastActive
+                            };
+                        }
+                    });
+                }
+
                 return updated;
             });
-            // Notify via alert or callback
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            onDriftAlert({ username, isOffTrail: false, isLeft: true }); // Reuse drift alert for notifications
+
+            if (onStatusChanged) onStatusChanged({ userId, username, status, allParticipants });
         });
 
         socket.on("participant-location-received", ({ userId, username, profileImage, location, isOffTrail, distanceToTrail, leaderId: pLeaderId }) => {
@@ -74,11 +98,13 @@ export const useGroupSync = ({
             setParticipants(prev => ({
                 ...prev,
                 [userId]: { 
+                    ...(prev[userId] || {}),
                     username, 
                     profileImage, 
                     location, 
                     isOffTrail, 
                     distanceToTrail, 
+                    status: 'active', // Receiving location means they are active
                     role: userId === (pLeaderId || leaderId) ? 'leader' : 'member',
                     lastUpdate: Date.now() 
                 }
@@ -133,22 +159,15 @@ export const useGroupSync = ({
             if (userId === currentUser?._id) return;
             
             setParticipants(prev => {
-                const isNew = !prev[userId];
-                const updated = {
-                    ...prev,
-                    [userId]: { 
-                        username, 
-                        role: String(userId) === String(pLeaderId || leaderId) ? 'leader' : 'member',
-                        isInitialized: true,
-                        lastUpdate: Date.now() 
-                    }
+                const updated = { ...prev };
+                updated[userId] = { 
+                    ...(updated[userId] || {}),
+                    username, 
+                    status: 'active',
+                    role: String(userId) === String(pLeaderId || leaderId) ? 'leader' : 'member',
+                    isInitialized: true,
+                    lastUpdate: Date.now() 
                 };
-                
-                // If they are new to us, tell them we are here too
-                if (isNew) {
-                    emitReady();
-                }
-                
                 return updated;
             });
         });
@@ -165,14 +184,15 @@ export const useGroupSync = ({
             if (onChatMessage) onChatMessage(message);
         });
 
-        // Cleanup stale markers periodically
+        // Presence cleanup is now handled server-side, but we keep a local safety check for very stale data
         const cleanupInterval = setInterval(() => {
             setParticipants(prev => {
                 const now = Date.now();
                 const filtered = {};
                 let changed = false;
                 Object.entries(prev).forEach(([id, p]) => {
-                    if (now - p.lastUpdate < 30000) { // 30s timeout
+                    // If no update for 5 mins, assume left (server should have caught this)
+                    if (now - p.lastUpdate < 300000) { 
                         filtered[id] = p;
                     } else {
                         changed = true;
@@ -180,7 +200,7 @@ export const useGroupSync = ({
                 });
                 return changed ? filtered : prev;
             });
-        }, 10000);
+        }, 60000);
 
         return () => {
             clearInterval(cleanupInterval);
@@ -284,6 +304,16 @@ export const useGroupSync = ({
         }
     };
 
+    const leaveGroup = () => {
+        if (socketRef.current && trailId) {
+            socketRef.current.emit('leave-trek', {
+                trekId: String(trailId),
+                userId: currentUser?._id,
+                username: currentUser?.username
+            });
+            socketRef.current.disconnect();
+        }
+    };
     return { 
         participants, 
         emitLocation, 
@@ -294,6 +324,7 @@ export const useGroupSync = ({
         emitDrift,
         emitLeaderTrack,
         emitReady,
-        emitMessage
+        emitMessage,
+        leaveGroup
     };
 };

@@ -473,10 +473,24 @@ export default function GroupTrek() {
     };
 
     const handleExit = () => {
-        if (isLeader) {
-            sync.emitControl('EXIT');
-        }
-        router.replace('/(tabs)/trek');
+        Alert.alert(
+            "Leave Group",
+            "Are you sure you want to leave this group trekking session?",
+            [
+                { text: "Cancel", style: "cancel" },
+                { 
+                    text: "Leave", 
+                    style: "destructive", 
+                    onPress: () => {
+                        if (isLeader) {
+                            sync.emitControl('EXIT');
+                        }
+                        sync.leaveGroup();
+                        router.replace('/(tabs)/trek');
+                    }
+                }
+            ]
+        );
     };
 
     const stopTrek = () => {
@@ -646,9 +660,13 @@ export default function GroupTrek() {
                         <View key={uid} style={styles.participantRow}>
                             <View style={[
                                 styles.statusDot, 
-                                { backgroundColor: p.role === 'leader' ? '#FFD700' : (p.isOffTrail ? '#d32f2f' : '#2e7d32') }
+                                p.status === 'inactive' ? styles.statusInactive : styles.statusActive,
+                                p.isSelf && styles.statusActive
                             ]} />
-                            <Text style={styles.participantName} numberOfLines={1}>
+                            <Text style={[
+                                styles.participantName,
+                                p.status === 'inactive' && styles.participantInactive
+                            ]} numberOfLines={1}>
                                 {p.username} {p.isSelf && "(You)"} {p.role === 'leader' && "(Leader)"}
                             </Text>
                             
@@ -972,8 +990,11 @@ const styles = StyleSheet.create({
     },
     participantsTitle: { fontSize: 10, fontWeight: 'bold', color: '#999', marginBottom: 8, textTransform: 'uppercase' },
     participantRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, justifyContent: 'space-between' },
-    statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 8 },
+    statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
+    statusActive: { backgroundColor: '#4caf50' },
+    statusInactive: { backgroundColor: '#ff9800' },
     participantName: { fontSize: 11, fontWeight: '600', color: '#333', flex: 1 },
+    participantInactive: { color: '#999' },
     trackBtn: { padding: 4, borderRadius: 4, backgroundColor: '#f0f0f0', marginLeft: 8 },
     trackBtnActive: { backgroundColor: '#1565c0' },
     offTrailSmall: { fontSize: 8, color: '#d32f2f', fontWeight: 'bold', marginLeft: 5 },

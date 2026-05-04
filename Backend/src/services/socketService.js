@@ -9,6 +9,22 @@ export const initSocket = (socketIo) => {
     const socketToUser = new Map(); // socket.id -> { trekId, userId, username, location, isOffTrail }
     const groupIntervals = new Map(); // trekId -> intervalId
     const autoPausedTreks = new Set(); // trekId
+    const trekPresence = new Map(); // trekId -> Map(userId -> { status, lastActive, username, profileImage, timeoutId })
+    
+    const getSanitizedPresence = (trekId) => {
+        const presence = trekPresence.get(trekId);
+        if (!presence) return {};
+        const sanitized = {};
+        presence.forEach((data, id) => {
+            sanitized[id] = {
+                status: data.status,
+                username: data.username,
+                profileImage: data.profileImage,
+                lastActive: data.lastActive
+            };
+        });
+        return sanitized;
+    };
 
     io.on("connection", (socket) => {
         console.log("New client connected:", socket.id);
@@ -20,12 +36,32 @@ export const initSocket = (socketIo) => {
         });
  
         // Join a specific trek room
-        socket.on("join-trek", ({ trekId, userId, username, leaderId }) => {
+        socket.on("join-trek", ({ trekId, userId, username, profileImage, leaderId }) => {
             const roomName = `trek_${trekId}`;
             socket.join(roomName);
             
             socketToUser.set(socket.id, { trekId, userId, username, leaderId, location: null });
             
+            // Manage Presence
+            if (!trekPresence.has(trekId)) {
+                trekPresence.set(trekId, new Map());
+            }
+            const presence = trekPresence.get(trekId);
+            
+            // Clear any existing cleanup timeout if they are reconnecting
+            if (presence.has(userId)) {
+                const existing = presence.get(userId);
+                if (existing.timeoutId) clearTimeout(existing.timeoutId);
+            }
+
+            presence.set(userId, { 
+                status: 'active', 
+                username, 
+                profileImage,
+                lastActive: Date.now(),
+                timeoutId: null 
+            });
+
             // Start centroid monitoring if not already started for this trek
             if (!groupIntervals.has(trekId)) {
                 const intervalId = setInterval(() => {
@@ -34,9 +70,38 @@ export const initSocket = (socketIo) => {
                 groupIntervals.set(trekId, intervalId);
             }
 
-            // Notify others
-            socket.to(roomName).emit("participant-joined", { userId, username });
-            console.log(`User ${username} (${userId}) joined room ${roomName}`);
+            // Notify everyone (including joiner) of the current state
+            io.to(roomName).emit("participant-status-changed", { 
+                userId, 
+                username, 
+                status: 'active',
+                allParticipants: getSanitizedPresence(trekId)
+            });
+
+            console.log(`User ${username} (${userId}) joined room ${roomName} - Status: ACTIVE`);
+        });
+
+        socket.on("leave-trek", ({ trekId, userId, username }) => {
+            const roomName = `trek_${trekId}`;
+            const presence = trekPresence.get(trekId);
+            
+            if (presence && presence.has(userId)) {
+                const p = presence.get(userId);
+                if (p.timeoutId) clearTimeout(p.timeoutId);
+                
+                presence.set(userId, { ...p, status: 'left', lastActive: Date.now() });
+                
+                io.to(roomName).emit("participant-status-changed", {
+                    userId,
+                    username,
+                    status: 'left',
+                    allParticipants: getSanitizedPresence(trekId)
+                });
+            }
+            
+            socket.leave(roomName);
+            socketToUser.delete(socket.id);
+            console.log(`User ${username} explicitly LEFT trek ${trekId}`);
         });
  
         // Participant: Share current location
@@ -118,16 +183,48 @@ export const initSocket = (socketIo) => {
             const userData = socketToUser.get(socket.id);
             if (userData) {
                 const { trekId, userId, username } = userData;
-                socket.to(`trek_${trekId}`).emit("participant-left", { userId, username });
+                const presence = trekPresence.get(trekId);
+                
+                if (presence && presence.has(userId)) {
+                    const p = presence.get(userId);
+                    
+                    // Mark as Inactive
+                    presence.set(userId, { ...p, status: 'inactive', lastActive: Date.now() });
+                    
+                    io.to(`trek_${trekId}`).emit("participant-status-changed", {
+                        userId,
+                        username,
+                        status: 'inactive',
+                        allParticipants: getSanitizedPresence(trekId)
+                    });
+
+                    // Set timer to mark as 'left' after 2 minutes of inactivity
+                    p.timeoutId = setTimeout(() => {
+                        const currentPresence = presence.get(userId);
+                        if (currentPresence && currentPresence.status === 'inactive') {
+                            presence.set(userId, { ...currentPresence, status: 'left', timeoutId: null });
+                            io.to(`trek_${trekId}`).emit("participant-status-changed", {
+                                userId,
+                                username,
+                                status: 'left',
+                                allParticipants: getSanitizedPresence(trekId)
+                            });
+                        }
+                    }, 120000); // 2 minutes
+                }
+
                 socketToUser.delete(socket.id);
 
                 // If trek room is empty, clear interval
                 const roomName = `trek_${trekId}`;
                 const clientsInRoom = io.sockets.adapter.rooms.get(roomName);
                 if (!clientsInRoom || clientsInRoom.size === 0) {
-                    if (groupIntervals.has(trekId)) {
-                        clearInterval(groupIntervals.get(trekId));
-                        groupIntervals.delete(trekId);
+                    const activeUsers = Array.from(presence?.values() || []).filter(p => p.status === 'active');
+                    if (activeUsers.length === 0) {
+                        if (groupIntervals.has(trekId)) {
+                            clearInterval(groupIntervals.get(trekId));
+                            groupIntervals.delete(trekId);
+                        }
                     }
                 }
             }
@@ -137,7 +234,12 @@ export const initSocket = (socketIo) => {
     // Helper: Centroid & Safety Monitoring
     function calculateAndBroadcastGroupStats(trekId) {
         const roomName = `trek_${trekId}`;
-        const usersInTrek = Array.from(socketToUser.values()).filter(u => u.trekId === trekId && u.location);
+        // Only include ACTIVE users with valid locations for stats
+        const usersInTrek = Array.from(socketToUser.values()).filter(u => {
+            if (u.trekId !== trekId || !u.location) return false;
+            const presence = trekPresence.get(trekId)?.get(u.userId);
+            return presence?.status === 'active';
+        });
         
         if (usersInTrek.length === 0) return;
 
