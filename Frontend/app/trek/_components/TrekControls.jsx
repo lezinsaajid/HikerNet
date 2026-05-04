@@ -12,7 +12,9 @@ export default function TrekControls({
     onPause, 
     onExit, 
     onTrailBack,
-    onRest
+    onRest,
+    onChat,
+    isLeader
 }) {
     if (trailFinished) {
         return (
@@ -32,9 +34,14 @@ export default function TrekControls({
                                 <Text style={styles.actionButtonText}>Take a Rest</Text>
                             </TouchableOpacity>
 
+                            <TouchableOpacity style={[styles.actionButton, styles.chatGroupBtn, styles.fullWidthBtn]} onPress={onChat}>
+                                <Ionicons name="chatbubbles" size={24} color="white" style={{ marginRight: 8 }} />
+                                <Text style={styles.actionButtonText}>Chat Group</Text>
+                            </TouchableOpacity>
+
                             <TouchableOpacity style={[styles.actionButton, styles.exitBtn, styles.fullWidthBtn]} onPress={onExit}>
                                 <Ionicons name="checkmark-circle" size={24} color="white" style={{ marginRight: 8 }} />
-                                <Text style={styles.actionButtonText}>Finish & Exit</Text>
+                                <Text style={styles.actionButtonText}>{isLeader ? "Finish & Exit" : "Exit Session"}</Text>
                             </TouchableOpacity>
                         </View>
                     ) : (
@@ -97,5 +104,6 @@ const styles = StyleSheet.create({
     fullWidthBtn: { width: '100%' },
     trailBackBtn: { backgroundColor: '#0288d1' },
     exitBtn: { backgroundColor: '#2e7d32' },
+    chatGroupBtn: { backgroundColor: '#007bff', marginBottom: 12 },
     actionButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
 });

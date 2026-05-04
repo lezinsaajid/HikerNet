@@ -35,7 +35,7 @@ export default function MarkerModal({
                                         <TextInput style={styles.searchInput} placeholder="Search icons..." value={iconSearchQuery} onChangeText={setIconSearchQuery} />
                                     </View>
                                     <FlatList
-                                        data={MARKER_ICONS.filter(item => item.label.toLowerCase().includes(iconSearchQuery.toLowerCase()))}
+                                        data={MARKER_ICONS.filter(item => item.label.toLowerCase().includes((iconSearchQuery || '').toLowerCase()))}
                                         numColumns={3}
                                         keyExtractor={(item) => item.name}
                                         renderItem={({ item }) => (

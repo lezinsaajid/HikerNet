@@ -26,12 +26,12 @@ export const NAVIGATION_CONFIG = {
 export const TREK_CONFIG = {
     NEW_SEGMENT_THRESHOLD: 20, // meters since last point to force new segment
     LOOP_DETECTION: {
-        minPoints: 60,
-        ignoreLast: 40,
-        maxDistance: 12,
-        maxHeadingDiff: 75
+        minPoints: 40,
+        ignoreLast: 25,
+        maxDistance: 15,
+        maxHeadingDiff: 90
     },
-    LOOP_COOLDOWN: 60, // points to wait before detecting next loop
+    LOOP_COOLDOWN: 30, // points to wait before detecting next loop
     SYNC_INTERVAL: 1000,
     AUTO_START_DELAY: 1000,
 };
@@ -55,10 +55,6 @@ export const ACTIONS = {
     UPDATE_TREK_BACK_PROGRESS: 'UPDATE_TREK_BACK_PROGRESS',
     REST_START: 'REST_START',
     REST_END: 'REST_END',
-    UPDATE_PARTICIPANTS: 'UPDATE_PARTICIPANTS',
-    SET_PARTICIPANTS: 'SET_PARTICIPANTS',
-    UPDATE_GROUP_STATS: 'UPDATE_GROUP_STATS',
-    ADD_MESSAGE: 'ADD_MESSAGE',
 };
 
 

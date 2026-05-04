@@ -1,229 +1,254 @@
-import { useReducer, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Alert, Animated } from 'react-native';
-import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-
-import { trekReducer, INITIAL_STATE } from '../_store/trekReducer';
-import { TrekService } from '../_services/trekService';
+import client from '../../../api/client';
 import { useSmartLocation } from '../../../hooks/useSmartLocation';
 import { useCompass } from '../../../hooks/useCompass';
 import { useGroupSync } from '../../../hooks/useGroupSync';
 import { useRestMode } from './useRestMode';
-import { useGroupTrackingEngine } from './useGroupTrackingEngine';
-import { useGroupNavigationEngine } from './useGroupNavigationEngine';
-import { ACTIONS } from '../_utils/constants';
-import client from '../../../api/client';
+import { useGroupNavigation } from './useGroupNavigation';
+import { useGroupLeaderEngine } from './useGroupLeaderEngine';
 
-export function useGroupTrekSession(params, currentUser) {
-    const router = useRouter();
-    const [state, dispatch] = useReducer(trekReducer, {
-        ...INITIAL_STATE,
-        trailId: String(params.trailId),
-        hasJoinedTrail: !params.uploadedTrailId,
+/**
+ * Orchestrator hook for Group Trek sessions
+ */
+export function useGroupTrekSession({ trailId: initialTrailId, currentUser, leaderId, uploadedTrailId, router }) {
+    const isLeader = leaderId === currentUser?._id;
+
+    const [isTracking, setIsTracking] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
+    const [trailFinished, setTrailFinished] = useState(false); 
+    const [isTrailingBack, setIsTrailingBack] = useState(false);
+    const [hasStarted, setHasStarted] = useState(false);
+    const [hasJoinedTrail, setHasJoinedTrail] = useState(!uploadedTrailId);
+    const [trailId, setTrailId] = useState(initialTrailId);
+    
+    const [stats, setStats] = useState({
+        distance: 0,
+        duration: 0,
+        elevationGain: 0,
+        avgSpeed: 0,
+        maxAltitude: -Infinity
     });
 
-    const isLeader = params.leaderId === currentUser?._id;
+    const [pathSegments, setPathSegments] = useState([[]]); 
+    const [routeCoordinates, setRouteCoordinates] = useState([]); 
+    const [navigationPolyline, setNavigationPolyline] = useState([]); 
+    const [markers, setMarkers] = useState([]); 
+    const [baseWaypoints, setBaseWaypoints] = useState([]); 
+    const [mapType, setMapType] = useState('standard'); 
+    const [mapViewMode, setMapViewMode] = useState('top-down'); 
+    const [totalExpected, setTotalExpected] = useState(1);
+    const [isFollowingLeader, setIsFollowingLeader] = useState(false);
+    const [groupMessage, setGroupMessage] = useState(null);
+    const [messages, setMessages] = useState([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [chatVisible, setChatVisible] = useState(false);
+    const [showMarkerModal, setShowMarkerModal] = useState(false);
+    const [selectedIcon, setSelectedIcon] = useState(null);
+    const [waypointDescription, setWaypointDescription] = useState('');
+    const [waypointImages, setWaypointImages] = useState([]);
+    const [selectedPinDetails, setSelectedPinDetails] = useState(null);
+    const [iconSearchQuery, setIconSearchQuery] = useState('');
+    const [showRestModal, setShowRestModal] = useState(false);
+
     const mapRef = useRef(null);
     const messageAnim = useRef(new Animated.Value(-100)).current;
 
-    // 1. Unified Location Logic
+    // 1. Core Engines
     const {
         location: validatedLocation,
         smoothedLocation,
         gpsAccuracy,
         accuracyStatus,
         error: locationError
-    } = useSmartLocation(state.isTracking || state.isTrailingBack || !state.hasStarted);
+    } = useSmartLocation(isTracking || isTrailingBack || !hasStarted);
 
-    const userHeading = useCompass(!state.trailFinished);
+    const userHeading = useCompass(!trailFinished); 
 
-    // 2. Messaging UI Logic
-    const showMessage = useCallback((text, type = 'info', duration = 5000) => {
-        dispatch({ type: ACTIONS.UI_ACTION, payload: { groupMessage: { text, type } } });
+    const {
+        isResting,
+        restTimeLeft,
+        warningMode,
+        warningTimeLeft,
+        startRest,
+        endRest
+    } = useRestMode(smoothedLocation);
+
+    // 2. Messaging Logic
+    const showMessage = useCallback((msg, duration = 5000, type = 'info') => {
+        setGroupMessage({ text: msg, type });
         Animated.spring(messageAnim, { toValue: 20, useNativeDriver: true }).start();
         setTimeout(() => {
             Animated.timing(messageAnim, { toValue: -100, duration: 500, useNativeDriver: true }).start(() => {
-                dispatch({ type: ACTIONS.UI_ACTION, payload: { groupMessage: null } });
+                setGroupMessage(null);
             });
         }, duration);
-    }, []);
+    }, [messageAnim]);
 
-    // 3. Sync Hook
+    // 3. Sync Logic
     const sync = useGroupSync({
-        trailId: state.trailId,
+        trailId,
         currentUser,
         isLeader,
-        leaderId: params.leaderId,
+        leaderId,
         baseUrl: client.defaults.baseURL,
         onControlAction: (payload) => {
             const action = typeof payload === 'string' ? payload : payload.action;
             const data = typeof payload === 'object' ? payload : {};
 
             if (action === 'START') {
-                dispatch({ type: ACTIONS.START_TREK, payload: { hasJoinedTrail: true, guidance: "Trek started by leader." } });
+                setHasStarted(true);
+                setIsTracking(true);
+                setHasJoinedTrail(true);
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } else if (action === 'PAUSE') {
-                dispatch({ type: ACTIONS.PAUSE_TREK });
+                setIsPaused(true);
                 if (data.reason === 'SAFETY_DEVIATION') {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                    showMessage(`AUTO-PAUSE: ${data.username} is too far!`, 'danger', 8000);
+                    showMessage(`AUTO-PAUSE: ${data.username} is too far! Waiting for regroup.`, 8000, 'danger');
                 }
             } else if (action === 'RESUME') {
-                dispatch({ type: ACTIONS.RESUME_TREK });
-                if (data.reason === 'SAFETY_DEVIATION') showMessage("Group regathered. Resuming.", 'success', 3000);
+                setIsPaused(false);
+                if (data.reason === 'SAFETY_DEVIATION') showMessage("Group regathered. Resuming trek.", 3000, 'success');
             } else if (action === 'STOP') {
-                dispatch({ type: ACTIONS.STOP_TREK });
-                showMessage("Trek Completed!", 'success', 10000);
+                setTrailFinished(true);
+                setIsTracking(false);
+                showMessage("Trek Completed! Leader is reviewing summary.", 10000, 'success');
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } else if (action === 'EXIT') {
                 router.replace('/(tabs)/trek');
             } else if (action === 'TREKBACK') {
                 initiateTrekBack(true);
             }
             
-            // Complex types (Centroid, Safety)
-            if (payload.type === 'CENTROID') {
-                dispatch({ type: ACTIONS.UPDATE_GROUP_STATS, payload: { groupCentroid: payload.centroid } });
-            } else if (payload.type === 'SAFETY_ALERT') {
+            if (payload.type === 'CENTROID') setGroupCentroid(payload.centroid);
+            if (payload.type === 'SAFETY_ALERT') {
                 if (payload.userId === currentUser?._id) {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                    showMessage(`SAFETY: You've deviated ${payload.deviation}m!`, 'danger', 8000);
-                }
-            }
-        },
-        onWaypointReceived: (waypoint) => dispatch({ type: ACTIONS.ADD_MARKER, payload: waypoint }),
-        onPathReceived: (pathData) => {
-            if (typeof pathData === 'function') {
-                // If it's a functional update (e.g. from trail-point-received), 
-                // we need to resolve it against the current state
-                dispatch({ 
-                    type: ACTIONS.UPDATE_LOCATION, 
-                    payload: (prevState) => {
-                        const newPath = pathData(prevState.pathSegments);
-                        return { pathSegments: newPath, routeCoordinates: newPath.flat() };
+                    showMessage(`SAFETY: You've deviated ${payload.deviation}m! Returning to group...`, 8000, 'danger');
+                    if (payload.anchor) {
+                        client.get(`https://router.project-osrm.org/route/v1/foot/${smoothedLocation.longitude},${smoothedLocation.latitude};${payload.anchor.longitude},${payload.anchor.latitude}?overview=full&geometries=geojson`)
+                            .then(res => {
+                                if (res.data.routes?.[0]) setReroutePath(res.data.routes[0].geometry.coordinates.map(p => ({ latitude: p[1], longitude: p[0] })));
+                            });
                     }
-                });
-            } else {
-                dispatch({ 
-                    type: ACTIONS.UPDATE_LOCATION, 
-                    payload: { pathSegments: pathData, routeCoordinates: pathData.flat() } 
-                });
+                } else if (isLeader) showMessage(`${payload.username} has deviated ${payload.deviation}m!`, 5000, 'warning');
             }
         },
-        onDriftAlert: ({ username, isOffTrail, isLeft, userId }) => {
-            if (isLeft) {
-                showMessage(`Member Left: ${username} has disconnected.`, 'warning');
-            } else if (isOffTrail) {
-                // Only alert if this user wasn't already marked as off-trail in local state
-                const wasOffTrail = state.participants[userId]?.isOffTrail;
-                if (!wasOffTrail) {
-                    showMessage(`${username} is off trail!`, 'warning', 3000);
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                }
-            } else {
-                // Back on trail message (optional, but good for clarity)
-                const wasOffTrail = state.participants[userId]?.isOffTrail;
-                if (wasOffTrail) {
-                    showMessage(`${username} is back on trail.`, 'success', 2000);
-                }
-            }
+        onWaypointReceived: (waypoint) => setMarkers(prev => [...prev, waypoint]),
+        onPathReceived: (path, newPoint) => {
+            setPathSegments(path);
+            if (newPoint) setRouteCoordinates(prev => [...prev, newPoint]);
+            else setRouteCoordinates(path.flat());
         },
-        onChatMessage: (message) => dispatch({ type: ACTIONS.ADD_MESSAGE, payload: message })
+        onDriftAlert: ({ username, isLeft }) => {
+            if (isLeft) showMessage(`Member Left: ${username} has disconnected.`);
+        },
+        onChatMessage: (message) => {
+            setMessages(prev => [...prev, message]);
+            if (!chatVisible) setUnreadCount(c => c + 1);
+            if (message.userId !== currentUser?._id) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
     });
 
-    // 4. Engine Hooks
-    useGroupTrackingEngine(state, dispatch, validatedLocation, isLeader, state.trailId);
-    useGroupNavigationEngine(state, dispatch, smoothedLocation, sync);
-    const { startRest, endRest, restTimeLeft, isResting, warningMode, warningTimeLeft } = useRestMode(smoothedLocation);
+    // 4. Navigation Engine
+    const {
+        distanceToTrail,
+        offTrackWarning,
+        navGuidance,
+        setNavGuidance,
+        currentNavIndex,
+        reroutePath,
+        setReroutePath,
+        groupCentroid,
+        setGroupCentroid,
+        trackingUserId,
+        setTrackingUserId
+    } = useGroupNavigation({
+        smoothedLocation,
+        navigationPolyline,
+        hasJoinedTrail,
+        isLeader,
+        currentUser,
+        leaderId,
+        sync,
+        mapRef,
+        isFollowingLeader,
+        setIsFollowingLeader
+    });
 
-    // 5. Initialization
-    useEffect(() => {
-        const init = async () => {
-            try {
-                const data = await TrekService.getTrek(state.trailId);
-                const participantIds = data.participants?.map(p => typeof p === 'string' ? p : p._id) || [];
-                dispatch({ type: ACTIONS.UI_ACTION, payload: { totalExpected: new Set([...participantIds, data.user]).size } });
-                
-                if (data.path?.coordinates) {
-                    const coords = data.path.type === 'MultiLineString' 
-                        ? data.path.coordinates.map(s => s.map(p => ({ latitude: p[1], longitude: p[0] }))).flat()
-                        : data.path.coordinates.map(p => ({ latitude: p[1], longitude: p[0] }));
-                    dispatch({ type: ACTIONS.UI_ACTION, payload: { navigationPolyline: coords, targetRoute: coords } });
-                }
-            } catch (e) { console.error(e); }
-        };
-        init();
-        sync.emitReady();
-    }, [state.trailId]);
+    // 5. Leader Engine
+    const { resumedFromPauseRef } = useGroupLeaderEngine({
+        isLeader, isTracking, isTrailingBack, isPaused, trailFinished, validatedLocation, trailId,
+        stats, setStats, setPathSegments, setRouteCoordinates, sync
+    });
 
-    // 6. Navigation Actions
+    // Actions
     const startTrek = async () => {
         if (!isLeader) return;
-        dispatch({ type: ACTIONS.START_TREK, payload: { hasJoinedTrail: true, guidance: "Trek started." } });
+        setIsTracking(true);
+        setHasStarted(true);
+        setHasJoinedTrail(true);
         sync.emitControl('START');
-        if (smoothedLocation) {
-            const startMarker = { latitude: smoothedLocation.latitude, longitude: smoothedLocation.longitude, icon: 'flag', type: 'Start Point', timestamp: new Date() };
-            dispatch({ type: ACTIONS.ADD_MARKER, payload: startMarker });
-            sync.emitWaypoint(startMarker);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        const startLoc = validatedLocation || smoothedLocation;
+        if (startLoc) {
+            const m = { latitude: startLoc.latitude, longitude: startLoc.longitude, icon: 'flag', type: 'Start Point', timestamp: new Date() };
+            setMarkers([m]);
+            sync.emitWaypoint(m);
         }
     };
 
-    const stopTrek = () => {
+    const togglePause = () => {
         if (!isLeader) return;
-        Alert.alert("Finish Trek?", "End session for all?", [
-            { text: "Cancel" },
-            { text: "Finish", onPress: async () => {
-                dispatch({ type: ACTIONS.STOP_TREK });
-                sync.emitControl('STOP');
-                await TrekService.updateTrek(state.trailId, { status: 'completed', stats: state.stats });
-            }}
-        ]);
+        const newState = !isPaused;
+        setIsPaused(newState);
+        sync.emitControl(newState ? 'PAUSE' : 'RESUME');
+        if (!newState) resumedFromPauseRef.current = true;
     };
 
     const initiateTrekBack = (remote = false) => {
-        const source = state.navigationPolyline.length > 0 ? state.navigationPolyline : state.pathSegments.flat();
-        if (source.length < 5) return showMessage("Not enough data to Trek-Back", 'warning');
-        
-        dispatch({ 
-            type: ACTIONS.TRAIL_BACK, 
-            payload: { navigationPolyline: [...source].reverse() } 
-        });
+        const source = navigationPolyline.length > 0 ? navigationPolyline : pathSegments.flat();
+        if (source.length < 5) return showMessage("Not enough data to Trek-Back yet.", 3000, 'warning');
+        setNavigationPolyline([...source].reverse());
+        setIsTrailingBack(true);
+        setHasJoinedTrail(true);
+        setTrailFinished(false);
+        setIsTracking(true);
         if (!remote) sync.emitControl('TREKBACK');
     };
 
-    // Unified list for UI display
-    const displayParticipants = useMemo(() => {
-        const list = { ...sync.participants };
-        if (currentUser?._id) {
-            list[currentUser._id] = {
-                username: currentUser.username,
-                profileImage: currentUser.profileImage,
-                location: smoothedLocation,
-                isOffTrail: state.navigation.offTrackWarning,
-                role: isLeader ? 'leader' : 'member',
-                isSelf: true,
-                status: 'active'
-            };
-        }
-        return Object.entries(list).sort((a, b) => {
-            if (a[1].role === 'leader') return -1;
-            if (b[1].role === 'leader') return 1;
-            if (a[1].isSelf) return -1;
-            if (b[1].isSelf) return 1;
-            return a[1].username.localeCompare(b[1].username);
-        });
-    }, [sync.participants, currentUser, smoothedLocation, state.navigation.offTrackWarning, isLeader]);
-
     return {
-        state, dispatch, mapRef, messageAnim, userHeading, gpsAccuracy, accuracyStatus, locationError,
-        isLeader, sync, startTrek, stopTrek, initiateTrekBack, displayParticipants,
-        startRest: (m) => { startRest(m); dispatch({ type: ACTIONS.REST_START }); },
-        endRest: () => { endRest(); dispatch({ type: ACTIONS.REST_END }); },
-        restTimeLeft, isResting, warningMode, warningTimeLeft,
-        togglePause: () => {
-            const newState = !state.isPaused;
-            dispatch({ type: newState ? ACTIONS.PAUSE_TREK : ACTIONS.RESUME_TREK });
-            sync.emitControl(newState ? 'PAUSE' : 'RESUME');
-            if (!newState) dispatch({ type: ACTIONS.UI_ACTION, payload: { resumedFromPause: true } });
-        }
+        state: {
+            isTracking, isPaused, trailFinished, isTrailingBack, hasStarted, hasJoinedTrail,
+            stats, pathSegments, routeCoordinates, navigationPolyline, markers, baseWaypoints,
+            mapType, mapViewMode, totalExpected, isFollowingLeader, groupMessage, messages,
+            unreadCount, chatVisible, distanceToTrail, offTrackWarning, navGuidance,
+            reroutePath, groupCentroid, trackingUserId, gpsAccuracy, accuracyStatus, locationError,
+            showMarkerModal, selectedIcon, waypointDescription, waypointImages, selectedPinDetails,
+            iconSearchQuery, showRestModal
+        },
+        actions: {
+            setIsTracking, setIsPaused, setTrailFinished, setIsTrailingBack, setHasStarted,
+            setHasJoinedTrail, setStats, setPathSegments, setRouteCoordinates, setNavigationPolyline,
+            setMarkers, setBaseWaypoints, setMapType, setMapViewMode, setTotalExpected,
+            setIsFollowingLeader, showMessage, setMessages, setUnreadCount, setChatVisible,
+            setNavGuidance, setReroutePath, setGroupCentroid, setTrackingUserId,
+            startTrek, togglePause, initiateTrekBack,
+            setShowMarkerModal, setSelectedIcon, setWaypointDescription, setWaypointImages, setSelectedPinDetails,
+            setIconSearchQuery, setShowRestModal
+        },
+        sync,
+        mapRef,
+        messageAnim,
+        smoothedLocation,
+        userHeading,
+        isResting,
+        restTimeLeft,
+        warningMode,
+        warningTimeLeft,
+        startRest,
+        endRest
     };
 }
