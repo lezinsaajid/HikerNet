@@ -390,6 +390,9 @@ export default function Profile() {
     const renderPostGrid = ({ item }) => {
         if (activeTab === 'trails') {
             const isRemark = item.displayType === 'remark';
+            const isGroup = item.mode === 'group';
+            const isLeader = item.user?._id === userData?._id;
+            
             return (
                 <TouchableOpacity
                     activeOpacity={isRemark ? 1 : 0.7}
@@ -404,9 +407,9 @@ export default function Profile() {
                         <View style={styles.adventureHeader}>
                             <View style={styles.adventureUserGroup}>
                                 <Ionicons
-                                    name={isRemark ? "chatbubble-ellipses-outline" : "map-outline"}
+                                    name={isRemark ? "chatbubble-ellipses-outline" : (isGroup ? "people-outline" : "map-outline")}
                                     size={24}
-                                    color={isRemark ? "#28a745" : "#4A7C44"}
+                                    color={isRemark ? "#28a745" : (isGroup ? "#007AFF" : "#4A7C44")}
                                     style={{ marginRight: 10 }}
                                 />
                                 <View>
@@ -414,18 +417,56 @@ export default function Profile() {
                                     <Text style={styles.adventureDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
                                 </View>
                             </View>
+                            {!isRemark && isGroup && (
+                                <View style={[styles.roleBadge, { backgroundColor: isLeader ? '#E3F2FD' : '#F5F5F5' }]}>
+                                    <Text style={[styles.roleBadgeText, { color: isLeader ? '#1976D2' : '#666' }]}>
+                                        {isLeader ? 'Leader' : 'Member'}
+                                    </Text>
+                                </View>
+                            )}
                             {isOwner && (
-                                <TouchableOpacity onPress={() => handleDeleteAdventure(item)}>
+                                <TouchableOpacity onPress={() => handleDeleteAdventure(item)} style={{ marginLeft: 10 }}>
                                     <Ionicons name="trash-outline" size={18} color="#999" />
                                 </TouchableOpacity>
                             )}
                         </View>
+
+                        {!isRemark && isGroup && (
+                            <View style={styles.trekDetailsContainer}>
+                                <View style={styles.detailRow}>
+                                    <Text style={styles.detailLabel}>Leader: </Text>
+                                    <Text style={styles.detailValue}>{item.user?.username || 'Unknown'}</Text>
+                                </View>
+                                {item.participants && item.participants.length > 1 && (
+                                    <View style={styles.detailRow}>
+                                        <Text style={styles.detailLabel}>Members: </Text>
+                                        <Text style={styles.detailValue} numberOfLines={1}>
+                                            {item.participants
+                                                .filter(p => p._id !== item.user?._id)
+                                                .map(p => p.username)
+                                                .join(', ')}
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+                        )}
+
                         {isRemark ? (
                             <Text style={styles.adventureContent}>{item.content}</Text>
-                        ) : item.location && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                                <Ionicons name="location" size={14} color="#666" />
-                                <Text style={[styles.adventureContent, { marginLeft: 4 }]}>{item.location}</Text>
+                        ) : (
+                            <View style={styles.trekStatsRow}>
+                                {item.location && (
+                                    <View style={styles.trekStatItem}>
+                                        <Ionicons name="location" size={12} color="#666" />
+                                        <Text style={styles.trekStatText}>{item.location}</Text>
+                                    </View>
+                                )}
+                                <View style={styles.trekStatItem}>
+                                    <Ionicons name="analytics" size={12} color="#666" />
+                                    <Text style={styles.trekStatText}>
+                                        {((item.stats?.distance || 0) / 1000).toFixed(2)} km • {Math.floor((item.stats?.duration || 0) / 60)} min
+                                    </Text>
+                                </View>
                             </View>
                         )}
                     </View>
@@ -1611,5 +1652,49 @@ const styles = StyleSheet.create({
         color: '#FFF',
         fontSize: 13,
         fontWeight: '600',
+    },
+    roleBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+    },
+    roleBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+    },
+    trekDetailsContainer: {
+        marginTop: 5,
+        paddingTop: 5,
+        borderTopWidth: 1,
+        borderTopColor: '#F0F0F0',
+    },
+    detailRow: {
+        flexDirection: 'row',
+        marginBottom: 2,
+    },
+    detailLabel: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#888',
+    },
+    detailValue: {
+        fontSize: 12,
+        color: '#444',
+        flex: 1,
+    },
+    trekStatsRow: {
+        marginTop: 8,
+        gap: 6,
+    },
+    trekStatItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    trekStatText: {
+        fontSize: 12,
+        color: '#666',
+        marginLeft: 4,
+        fontWeight: '500',
     },
 });

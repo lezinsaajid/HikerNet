@@ -9,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 export const useGroupSync = ({
     trailId,
     currentUser,
-    role,
+    isLeader,
     leaderId,
     onControlAction, // (action) => void
     onWaypointReceived, // (waypoint) => void
@@ -34,13 +34,14 @@ export const useGroupSync = ({
         socket.emit('join-trek', { 
             trekId: String(trailId), 
             userId: currentUser?._id, 
-            username: currentUser?.username 
+            username: currentUser?.username,
+            leaderId: String(leaderId)
         });
 
         // --- LISTENERS ---
 
         socket.on('participant-joined', ({ username }) => {
-            if (role === 'leader') {
+            if (isLeader) {
                 // Toast/Alert handled by parent if needed, or here for consistency
             }
         });
@@ -61,19 +62,27 @@ export const useGroupSync = ({
             onDriftAlert({ username, isOffTrail: false, isLeft: true }); // Reuse drift alert for notifications
         });
 
-        socket.on("participant-location-received", ({ userId, username, profileImage, location, isOffTrail, distanceToTrail }) => {
+        socket.on("participant-location-received", ({ userId, username, profileImage, location, isOffTrail, distanceToTrail, leaderId: pLeaderId }) => {
             if (userId === currentUser?._id) return;
             
             setParticipants(prev => ({
                 ...prev,
-                [userId]: { username, profileImage, location, isOffTrail, distanceToTrail, lastUpdate: Date.now() }
+                [userId]: { 
+                    username, 
+                    profileImage, 
+                    location, 
+                    isOffTrail, 
+                    distanceToTrail, 
+                    role: userId === (pLeaderId || leaderId) ? 'leader' : 'member',
+                    lastUpdate: Date.now() 
+                }
             }));
 
             // Process leader-specific logic (e.g. auto-follow) handled by parent via participants state
         });
 
         socket.on('trail-point-received', ({ point, isNewSegment }) => {
-            if (role === 'member') {
+            if (!isLeader) {
                 onPathReceived(prev => {
                     const updated = [...prev];
                     if (isNewSegment || updated.length === 0) {
@@ -88,19 +97,19 @@ export const useGroupSync = ({
         });
 
         socket.on('trail-path-received', ({ path }) => {
-            if (role === 'member') {
+            if (!isLeader) {
                 onPathReceived(path);
             }
         });
 
         socket.on('trek-control-received', ({ action }) => {
-            if (role === 'member') {
+            if (!isLeader) {
                 onControlAction(action);
             }
         });
 
         socket.on('waypoint-received', ({ waypoint }) => {
-            if (role === 'member') {
+            if (!isLeader) {
                 onWaypointReceived(waypoint);
             }
         });
@@ -116,6 +125,30 @@ export const useGroupSync = ({
 
         socket.on('safety-alert', ({ userId, username, deviation, anchor }) => {
             onControlAction({ type: 'SAFETY_ALERT', userId, username, deviation, anchor });
+        });
+
+        socket.on('participant-ready', ({ userId, username, leaderId: pLeaderId }) => {
+            if (userId === currentUser?._id) return;
+            
+            setParticipants(prev => {
+                const isNew = !prev[userId];
+                const updated = {
+                    ...prev,
+                    [userId]: { 
+                        username, 
+                        role: String(userId) === String(pLeaderId || leaderId) ? 'leader' : 'member',
+                        isInitialized: true,
+                        lastUpdate: Date.now() 
+                    }
+                };
+                
+                // If they are new to us, tell them we are here too
+                if (isNew) {
+                    emitReady();
+                }
+                
+                return updated;
+            });
         });
 
         socket.on('force-member-focus', ({ targetUserId }) => {
@@ -144,7 +177,7 @@ export const useGroupSync = ({
             socket.disconnect();
             socketRef.current = null;
         };
-    }, [trailId, role]);
+    }, [trailId, isLeader, leaderId]);
 
     const emitLocation = (location, isOffTrail, distanceToTrail) => {
         if (socketRef.current && trailId) {
@@ -156,13 +189,13 @@ export const useGroupSync = ({
                 location: { latitude: location.latitude, longitude: location.longitude },
                 isOffTrail,
                 distanceToTrail,
-                role // Include role for centroid/anchor calculation
+                leaderId: String(leaderId)
             });
         }
     };
 
     const emitLeaderTrack = (targetUserId) => {
-        if (socketRef.current && trailId && role === 'leader') {
+        if (socketRef.current && trailId && isLeader) {
             socketRef.current.emit('leader-track-member', {
                 trekId: String(trailId),
                 targetUserId
@@ -198,7 +231,7 @@ export const useGroupSync = ({
     };
 
     const emitPointShared = (point, isNewSegment) => {
-        if (socketRef.current && trailId && role === 'leader') {
+        if (socketRef.current && trailId && isLeader) {
             socketRef.current.emit('trail-point-shared', {
                 trekId: String(trailId),
                 point,
@@ -218,6 +251,17 @@ export const useGroupSync = ({
         }
     };
 
+    const emitReady = () => {
+        if (socketRef.current && trailId) {
+            socketRef.current.emit('device-ready', {
+                trekId: String(trailId),
+                userId: currentUser?._id,
+                username: currentUser?.username,
+                leaderId: String(leaderId)
+            });
+        }
+    };
+
     return { 
         participants, 
         emitLocation, 
@@ -226,6 +270,7 @@ export const useGroupSync = ({
         emitPathReplaced, 
         emitPointShared,
         emitDrift,
-        emitLeaderTrack
+        emitLeaderTrack,
+        emitReady
     };
 };

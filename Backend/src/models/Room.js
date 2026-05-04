@@ -8,7 +8,7 @@ const roomSchema = new mongoose.Schema(
             unique: true,
             trim: true,
         },
-        leader: {
+        leaderId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
             required: true,

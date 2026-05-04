@@ -28,13 +28,22 @@ router.get("/profile/:id", async (req, res) => {
         const user = await User.findById(req.params.id).select("-password");
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        // Direct counts for accuracy and performance
-        const treksCount = await Trek.countDocuments({ user: req.params.id });
+        // Direct counts for accuracy and performance (including participant treks)
+        const treksCount = await Trek.countDocuments({ 
+            $or: [{ user: req.params.id }, { participants: req.params.id }] 
+        });
         const adventuresCount = await Adventure.countDocuments({ user: req.params.id });
 
-        // Calculate total distance properly
+        // Calculate total distance properly (including participant treks)
         const distanceAgg = await Trek.aggregate([
-            { $match: { user: new mongoose.Types.ObjectId(req.params.id) } },
+            { 
+                $match: { 
+                    $or: [
+                        { user: new mongoose.Types.ObjectId(req.params.id) },
+                        { participants: new mongoose.Types.ObjectId(req.params.id) }
+                    ]
+                } 
+            },
             { $group: { _id: null, total: { $sum: "$stats.distance" } } }
         ]);
         const totalDistance = distanceAgg.length > 0 ? distanceAgg[0].total : 0;
@@ -47,8 +56,19 @@ router.get("/profile/:id", async (req, res) => {
             {
                 $lookup: {
                     from: "treks",
-                    localField: "_id",
-                    foreignField: "user",
+                    let: { userId: "$_id" },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $or: [
+                                        { $eq: ["$user", "$$userId"] },
+                                        { $in: ["$$userId", { $ifNull: ["$participants", []] }] }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
                     as: "userTreks"
                 }
             },
@@ -83,6 +103,7 @@ router.get("/profile/:id", async (req, res) => {
             ...user.toObject(),
             rank: finalRank,
             treksCount: totalActivity,
+            treksCompleted: user.treksCompleted || 0,
             totalDistance: totalDistance,
             tier: getHikerTier(totalActivity),
         });
@@ -255,7 +276,12 @@ router.get("/leaderboard", async (req, res) => {
                             $match: {
                                 $expr: {
                                     $and: [
-                                        { $eq: ["$user", "$$userId"] },
+                                        { 
+                                            $or: [
+                                                { $eq: ["$user", "$$userId"] },
+                                                { $in: ["$$userId", { $ifNull: ["$participants", []] }] }
+                                            ]
+                                        },
                                         ...(timeframe !== 'all' ? [{ $gte: ["$createdAt", timeframe === 'week' ? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) : new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())] }] : [])
                                     ]
                                 }
@@ -277,7 +303,8 @@ router.get("/leaderboard", async (req, res) => {
                 $addFields: {
                     treksCount: { $size: "$filteredTreks" },
                     adventuresCount: { $size: "$filteredAdventures" },
-                    totalDistance: { $sum: "$filteredTreks.stats.distance" }
+                    totalDistance: { $sum: "$filteredTreks.stats.distance" },
+                    treksCompleted: { $ifNull: ["$treksCompleted", 0] }
                 }
             },
             {
@@ -293,7 +320,8 @@ router.get("/leaderboard", async (req, res) => {
                     username: 1,
                     profileImage: 1,
                     location: 1,
-                    treksCount: "$totalActivity", // Return combined activity as treksCount for UI compatibility
+                    treksCount: "$totalActivity",
+                    treksCompleted: 1,
                     totalDistance: 1,
                     tier: {
                         $switch: {

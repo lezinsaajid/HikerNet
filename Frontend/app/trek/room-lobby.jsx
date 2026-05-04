@@ -89,8 +89,7 @@ export default function RoomLobby() {
                     params: {
                         trailId: data.trekId,
                         mode: 'group',
-                        role: role, // Use current role
-                        leaderId: data.leader?._id
+                        leaderId: data.leaderId?._id
                     }
                 });
             }
@@ -192,8 +191,7 @@ export default function RoomLobby() {
                 params: {
                     trailId: trekId,
                     mode: 'group',
-                    role: 'leader',
-                    leaderId: currentUser?._id
+                    leaderId: room.leaderId?._id
                 }
             });
         } catch (error) {
@@ -257,7 +255,7 @@ export default function RoomLobby() {
         );
     }
 
-    const isLeader = role === 'leader';
+    const isLeader = room?.leaderId?._id === currentUser?._id;
     // Safely check if currentUser exists
     const me = (currentUser && room?.members) ? room.members.find(m => m.user?._id === currentUser._id) : null;
     const isMember = !!me;
@@ -277,7 +275,7 @@ export default function RoomLobby() {
                     <View style={styles.waitingCard}>
                         <Ionicons name="hourglass-outline" size={60} color="#007bff" />
                         <Text style={styles.waitingTitle}>Waiting for Approval</Text>
-                        <Text style={styles.waitingDesc}>We&apos;ve sent your request to {room?.leader?.username || "the leader"}. You&apos;ll join the room once they accept.</Text>
+                        <Text style={styles.waitingDesc}>We&apos;ve sent your request to {room?.leaderId?.username || "the leader"}. You&apos;ll join the room once they accept.</Text>
                         <ActivityIndicator size="large" color="#007bff" style={{ marginVertical: 20 }} />
 
                         {joinCooldown > 0 ? (
@@ -338,10 +336,15 @@ export default function RoomLobby() {
                                 <Image source={{ uri: item.user?.profileImage || 'https://via.placeholder.com/150' }} style={styles.avatar} />
                                 <View>
                                     <Text style={styles.username}>
-                                        {item.user?.username || 'Unknown'} {item.user?._id === room.leader?._id && <Text style={{ color: '#fcc419' }}> (Leader)</Text>}
+                                        {item.user?.username || 'Unknown'} 
+                                        {item.user?._id === room.leaderId?._id && (
+                                            <Text style={{ color: '#fcc419' }}> 
+                                                {item.user?._id === currentUser?._id ? " (You are Leader)" : " (Leader)"}
+                                            </Text>
+                                        )}
                                     </Text>
                                     <Text style={[styles.statusText, item.isReady ? styles.statusReady : styles.statusNot]}>
-                                        {item.isReady ? "READY" : "WAITING"}
+                                        {item.isReady ? "READY" : "NOT READY"}
                                     </Text>
                                 </View>
                             </View>
@@ -364,11 +367,11 @@ export default function RoomLobby() {
                 )}
                 {!isLeader && isMember && (
                     <TouchableOpacity
-                        style={[styles.mainButton, me.isReady ? styles.readyBtn : styles.notReadyBtn]}
+                        style={[styles.mainButton, me.isReady ? styles.notReadyBtn : styles.readyBtn]}
                         onPress={handleToggleReady}
                     >
                         <Text style={styles.mainButtonText}>
-                            {me.isReady ? "READY" : "NOT READY"}
+                            {me.isReady ? "NOT READY" : "READY"}
                         </Text>
                     </TouchableOpacity>
                 )}

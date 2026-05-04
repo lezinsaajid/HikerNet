@@ -13,11 +13,11 @@ export const initSocket = (socketIo) => {
         console.log("New client connected:", socket.id);
  
         // Join a specific trek room
-        socket.on("join-trek", ({ trekId, userId, username }) => {
+        socket.on("join-trek", ({ trekId, userId, username, leaderId }) => {
             const roomName = `trek_${trekId}`;
             socket.join(roomName);
             
-            socketToUser.set(socket.id, { trekId, userId, username, location: null });
+            socketToUser.set(socket.id, { trekId, userId, username, leaderId, location: null });
             
             // Start centroid monitoring if not already started for this trek
             if (!groupIntervals.has(trekId)) {
@@ -33,13 +33,13 @@ export const initSocket = (socketIo) => {
         });
  
         // Participant: Share current location
-        socket.on("participant-location-update", ({ trekId, userId, username, profileImage, location, isOffTrail, distanceToTrail, role }) => {
+        socket.on("participant-location-update", ({ trekId, userId, username, profileImage, location, isOffTrail, distanceToTrail, leaderId }) => {
             // Update local state for centroid calculation
             const userData = socketToUser.get(socket.id);
             if (userData) {
                 userData.location = location;
                 userData.isOffTrail = isOffTrail;
-                userData.role = role;
+                userData.leaderId = leaderId;
             }
 
             socket.to(`trek_${trekId}`).emit("participant-location-received", {
@@ -49,8 +49,15 @@ export const initSocket = (socketIo) => {
                 location,
                 isOffTrail,
                 distanceToTrail,
-                role
+                leaderId
             });
+        });
+
+        // Device Initialization Sync
+        socket.on("device-ready", ({ trekId, userId, username, leaderId }) => {
+            const roomName = `trek_${trekId}`;
+            // Broadcast to others that I am ready
+            socket.to(roomName).emit("participant-ready", { userId, username, leaderId });
         });
 
         // Leader: Specific Tracking Request (Zoom to member)
@@ -126,7 +133,7 @@ export const initSocket = (socketIo) => {
         io.to(roomName).emit("group-centroid", { centroid, memberCount: usersInTrek.length });
 
         // 3. Safety Monitoring: Deviation Check
-        const leader = usersInTrek.find(u => u.role === 'leader');
+        const leader = usersInTrek.find(u => u.userId === u.leaderId);
         const anchor = leader ? leader.location : centroid;
 
         usersInTrek.forEach(u => {

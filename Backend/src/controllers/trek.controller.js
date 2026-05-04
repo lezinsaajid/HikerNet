@@ -1,4 +1,5 @@
 import Trek from "../models/Trek.js";
+import User from "../models/User.js";
 import mongoose from "mongoose";
 import { discoverTreks, getTrekDetails } from "../lib/trekDiscoveryService.js";
 
@@ -95,9 +96,16 @@ export const getLiveTreks = async (req, res) => {
 
 export const getUserTreks = async (req, res) => {
     try {
-        const treks = await Trek.find({ user: req.params.userId })
+        const treks = await Trek.find({
+            $or: [
+                { user: req.params.userId },
+                { participants: req.params.userId }
+            ]
+        })
             .select("-path -waypoints")
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: -1 })
+            .populate("user", "username profileImage")
+            .populate("participants", "username profileImage");
         res.json(treks);
     } catch (error) {
         console.error("Error fetching user treks:", error);
@@ -139,6 +147,8 @@ export const updateTrek = async (req, res) => {
         const trek = await Trek.findOne({ _id: trekId, user: req.user._id });
         if (!trek) return res.status(404).json({ message: "Trek not found or unauthorized" });
 
+        const previousStatus = trek.status;
+
         // Modular feature handling
         handlePathUpdate(trek, req.body);
         handleStatsUpdate(trek, req.body.stats);
@@ -147,6 +157,21 @@ export const updateTrek = async (req, res) => {
         handleStatusUpdate(trek, req.body.status);
 
         await trek.save();
+
+        // Increment trek count if completed
+        if (req.body.status === "completed" && previousStatus !== "completed") {
+            const participantIds = new Set();
+            participantIds.add(trek.user.toString());
+            if (trek.mode === "group" && trek.participants) {
+                trek.participants.forEach(p => participantIds.add(p.toString()));
+            }
+
+            await User.updateMany(
+                { _id: { $in: Array.from(participantIds) } },
+                { $inc: { treksCompleted: 1 } }
+            );
+        }
+
         res.json(trek);
     } catch (error) {
         console.error("Error updating trek:", error);
@@ -165,6 +190,13 @@ export const syncTreks = async (req, res) => {
             await newTrek.save();
             savedTreks.push(newTrek._id);
         }
+
+        if (savedTreks.length > 0) {
+            await User.findByIdAndUpdate(req.user._id, {
+                $inc: { treksCompleted: savedTreks.length }
+            });
+        }
+
         res.json({ message: "Sync successful", count: savedTreks.length, ids: savedTreks });
     } catch (error) {
         console.error("Error syncing treks:", error);

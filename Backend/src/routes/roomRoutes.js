@@ -20,12 +20,12 @@ router.post("/invite", protectRoute, async (req, res) => {
         if (!targetUser) return res.status(404).json({ message: "User not found" });
 
         // Check if user is leader
-        if (room.leader.toString() !== req.user._id.toString()) {
+        if (room.leaderId.toString() !== req.user._id.toString()) {
             return res.status(403).json({ message: "Only the leader can invite users." });
         }
 
         // Check if already in room
-        const isMember = room.members.some(m => m.user.toString() === targetUserId) || room.leader.toString() === targetUserId;
+        const isMember = room.members.some(m => m.user.toString() === targetUserId) || room.leaderId.toString() === targetUserId;
         if (isMember) {
             return res.status(400).json({ message: "User is already in the room" });
         }
@@ -100,19 +100,17 @@ router.post("/create", protectRoute, async (req, res) => {
 
         const newRoom = new Room({
             code,
-            leader: req.user._id,
+            leaderId: req.user._id,
             trekName: trekName || "Group Trek",
             trekDescription: trekDescription || "",
             startLocation: startLocation || "",
-            members: [], // Leader is implicit, but let's add them to members too? No, keep separate or add as member?
-            // Let's add leader as a member too for easier map rendering, but mark them as special in Leader field.
             members: [{ user: req.user._id, isReady: true }] // Leader is always ready
         });
 
         await newRoom.save();
 
         const populatedRoom = await Room.findById(newRoom._id)
-            .populate("leader", "username profileImage")
+            .populate("leaderId", "username profileImage")
             .populate("members.user", "username profileImage");
 
         res.status(201).json(populatedRoom);
@@ -177,7 +175,7 @@ router.post("/join", protectRoute, async (req, res) => {
 
         // Trigger notification to leader
         NotificationService.createNotification({
-            userId: room.leader,
+            userId: room.leaderId,
             senderId: req.user._id,
             type: "trek_join",
             message: `${req.user.username} requested to join your trek: ${room.trekName}`,
@@ -196,7 +194,7 @@ router.post("/join", protectRoute, async (req, res) => {
 router.get("/:id", protectRoute, async (req, res) => {
     try {
         const room = await Room.findById(req.params.id)
-            .populate("leader", "username profileImage")
+            .populate("leaderId", "username profileImage")
             .populate("members.user", "username profileImage")
             .populate("requests.user", "username profileImage")
             .populate("joinLogs.user", "username profileImage");
@@ -219,7 +217,7 @@ router.post("/accept", protectRoute, async (req, res) => {
         const room = await Room.findById(roomId);
 
         if (!room) return res.status(404).json({ message: "Room not found" });
-        if (room.leader.toString() !== req.user._id.toString()) {
+        if (room.leaderId.toString() !== req.user._id.toString()) {
             return res.status(403).json({ message: "Only leader can accept requests" });
         }
 
@@ -258,7 +256,7 @@ router.post("/accept", protectRoute, async (req, res) => {
 
         // Return updated room
         const updatedRoom = await Room.findById(roomId)
-            .populate("leader", "username profileImage")
+            .populate("leaderId", "username profileImage")
             .populate("members.user", "username profileImage")
             .populate("requests.user", "username profileImage")
             .populate("joinLogs.user", "username profileImage");
@@ -277,7 +275,7 @@ router.post("/reject", protectRoute, async (req, res) => {
         const room = await Room.findById(roomId);
 
         if (!room) return res.status(404).json({ message: "Room not found" });
-        if (room.leader.toString() !== req.user._id.toString()) {
+        if (room.leaderId.toString() !== req.user._id.toString()) {
             return res.status(403).json({ message: "Only leader can reject requests" });
         }
 
@@ -309,7 +307,7 @@ router.post("/leave", protectRoute, async (req, res) => {
         if (!room) return res.status(404).json({ message: "Room not found" });
 
         const targetId = userId || req.user._id.toString();
-        const isLeader = room.leader.toString() === req.user._id.toString();
+        const isLeader = room.leaderId.toString() === req.user._id.toString();
 
         if (!isLeader && targetId !== req.user._id.toString()) {
             return res.status(403).json({ message: "You can only remove yourself" });
@@ -330,7 +328,7 @@ router.post("/leave", protectRoute, async (req, res) => {
         if (targetId === req.user._id.toString()) {
             // User left voluntarily, notify leader
             NotificationService.createNotification({
-                userId: room.leader,
+                userId: room.leaderId,
                 senderId: req.user._id,
                 type: "trek_leave",
                 message: `${req.user.username} left the trek: ${room.trekName}`,
@@ -381,7 +379,7 @@ router.post("/start", protectRoute, async (req, res) => {
         const room = await Room.findById(roomId);
         if (!room) return res.status(404).json({ message: "Room not found" });
 
-        if (room.leader.toString() !== req.user._id.toString()) {
+        if (room.leaderId.toString() !== req.user._id.toString()) {
             return res.status(403).json({ message: "Only leader can start the trek" });
         }
 

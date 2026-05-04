@@ -200,7 +200,7 @@ export function useTrekSession(params) {
                 onPress: async () => {
                     dispatch({ type: ACTIONS.STOP_TREK });
                     if (state.trailId && !state.simulation.isActive) {
-                       await TrekService.updateTrek(state.trailId, { isCompleted: true, stats: state.stats, endTime: new Date() });
+                       await TrekService.updateTrek(state.trailId, { status: 'completed', stats: state.stats, endTime: new Date() });
                     }
                 }
             }

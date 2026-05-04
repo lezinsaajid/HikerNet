@@ -48,9 +48,10 @@ export default function GroupTrek() {
         description, 
         trailId: paramTrailId, 
         uploadedTrailId, 
-        role, 
         leaderId 
     } = params;
+    
+    const isLeader = leaderId === currentUser?._id;
 
     const [isTracking, setIsTracking] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
@@ -76,7 +77,7 @@ export default function GroupTrek() {
     const [baseWaypoints, setBaseWaypoints] = useState([]); 
     const [distanceToTrail, setDistanceToTrail] = useState(9999);
     const [offTrackWarning, setOffTrackWarning] = useState(false);
-    const [navGuidance, setNavGuidance] = useState(role === 'leader' ? "Waiting to start..." : "Waiting for leader...");
+    const [navGuidance, setNavGuidance] = useState(isLeader ? "Waiting to start..." : "Waiting for leader...");
     const [mapType, setMapType] = useState('standard'); 
     const [mapViewMode, setMapViewMode] = useState('top-down'); 
     const [reroutePath, setReroutePath] = useState([]); 
@@ -93,6 +94,8 @@ export default function GroupTrek() {
     const [waypointImages, setWaypointImages] = useState([]);
     const [selectedPinDetails, setSelectedPinDetails] = useState(null);
     const [groupMessage, setGroupMessage] = useState(null);
+    const [totalExpected, setTotalExpected] = useState(1); // Default to 1 (leader)
+    const [isFollowingLeader, setIsFollowingLeader] = useState(false);
 
     // Refs for internal logic tracking
     const mapRef = useRef(null);
@@ -105,7 +108,41 @@ export default function GroupTrek() {
     const messageAnim = useRef(new Animated.Value(-100)).current;
 
     // ---------------------------------------------------------
-    // 2. CORE ENGINES (Location & Sync)
+    // 2. INITIALIZATION & DATA FETCHING
+    // ---------------------------------------------------------
+    useEffect(() => {
+        const fetchTrekDetails = async () => {
+            try {
+                const res = await client.get(`/treks/${trailId}`);
+                const data = res.data;
+                
+                // Group members includes everyone from the room lobby
+                // We use a Set to ensure unique user IDs
+                const participantIds = data.participants?.map(p => typeof p === 'string' ? p : p._id) || [];
+                const uniqueUsers = new Set([...participantIds]);
+                if (data.user) uniqueUsers.add(typeof data.user === 'string' ? data.user : data.user._id);
+                
+                setTotalExpected(uniqueUsers.size || 1);
+                
+                // If there's a predefined path, load it
+                if (data.path && data.path.coordinates) {
+                    let mappedRoute = [];
+                    if (data.path.type === 'MultiLineString') {
+                        mappedRoute = data.path.coordinates.map(segment => segment.map(p => ({ latitude: p[1], longitude: p[0] }))).flat();
+                    } else {
+                        mappedRoute = data.path.coordinates.map(p => ({ latitude: p[1], longitude: p[0] }));
+                    }
+                    setNavigationPolyline(mappedRoute);
+                }
+            } catch (err) {
+                console.error("Failed to fetch trek details:", err);
+            }
+        };
+        if (trailId) fetchTrekDetails();
+    }, [trailId]);
+
+    // ---------------------------------------------------------
+    // 3. CORE ENGINES (Location & Sync)
     // ---------------------------------------------------------
 
     const {
@@ -142,7 +179,7 @@ export default function GroupTrek() {
     const sync = useGroupSync({
         trailId,
         currentUser,
-        role,
+        isLeader,
         leaderId,
         baseUrl: client.defaults.baseURL,
         onControlAction: (action) => {
@@ -160,6 +197,11 @@ export default function GroupTrek() {
                     setTrailFinished(true);
                     setIsTracking(false);
                     setNavGuidance("Trek finished by leader.");
+                    showMessage("Trek Completed! Leader is reviewing summary.", 10000, 'success');
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+                else if (action === 'EXIT') {
+                    router.replace('/(tabs)/trek');
                 }
                 else if (action === 'TREKBACK') {
                     initiateTrekBack(true);
@@ -182,7 +224,7 @@ export default function GroupTrek() {
                                     }
                                 });
                         }
-                    } else if (role === 'leader') {
+                    } else if (isLeader) {
                         showMessage(`${action.username} has deviated ${action.deviation}m!`, 5000, 'warning');
                     }
                 }
@@ -217,6 +259,51 @@ export default function GroupTrek() {
             }
         }
     });
+
+    // Broadcast that this device is ready/initialized
+    useEffect(() => {
+        if (hasJoinedTrail) {
+            sync.emitReady();
+        }
+    }, [hasJoinedTrail, trailId]);
+
+    // Auto-follow leader logic for members
+    useEffect(() => {
+        if (!isLeader && isFollowingLeader && sync.participants[leaderId]?.location) {
+            mapRef.current?.animateToRegion({
+                ...sync.participants[leaderId].location,
+                latitudeDelta: 0.002,
+                longitudeDelta: 0.002
+            }, 1000);
+        }
+    }, [isFollowingLeader, sync.participants[leaderId]?.location, isLeader, leaderId]);
+
+    // Unified list for UI display
+    const displayParticipants = useMemo(() => {
+        const list = { ...sync.participants };
+        
+        // Add current user to the list for local display
+        if (currentUser?._id) {
+            list[currentUser._id] = {
+                username: currentUser.username,
+                profileImage: currentUser.profileImage,
+                location: smoothedLocation,
+                isOffTrail: offTrackWarning,
+                role: isLeader ? 'leader' : 'member',
+                isSelf: true
+            };
+        }
+        
+        return Object.entries(list).sort((a, b) => {
+            // Leader always at the top
+            if (a[1].role === 'leader') return -1;
+            if (b[1].role === 'leader') return 1;
+            // Then self
+            if (a[1].isSelf) return -1;
+            if (b[1].isSelf) return 1;
+            return a[1].username.localeCompare(b[1].username);
+        });
+    }, [sync.participants, currentUser, smoothedLocation, offTrackWarning, isLeader]);
 
     // ---------------------------------------------------------
     // 3. TRACKING & NAVIGATION ENGINE
@@ -266,7 +353,7 @@ export default function GroupTrek() {
                 if (distToGoal < 15) {
                     hasAlertedCompletion.current = true;
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    if (role === 'leader') showMessage("Destination Reached! You can finish the trek.");
+                    if (isLeader) showMessage("Destination Reached! You can finish the trek.");
                 }
             }
         }
@@ -275,7 +362,7 @@ export default function GroupTrek() {
 
     // Leader trail recording logic (Same as Solo Trek)
     useEffect(() => {
-        if ((!isTracking && !isTrailingBack) || !validatedLocation || trailFinished || isPaused || role !== 'leader') return;
+        if ((!isTracking && !isTrailingBack) || !validatedLocation || trailFinished || isPaused || !isLeader) return;
 
         const { latitude, longitude, altitude } = validatedLocation;
         const newPoint = { latitude, longitude };
@@ -342,7 +429,7 @@ export default function GroupTrek() {
     // ---------------------------------------------------------
 
     const startTrek = async () => {
-        if (role !== 'leader') return;
+        if (!isLeader) return;
         setIsTracking(true);
         setHasStarted(true);
         setHasJoinedTrail(true);
@@ -359,8 +446,15 @@ export default function GroupTrek() {
         }
     };
 
+    const handleExit = () => {
+        if (isLeader) {
+            sync.emitControl('EXIT');
+        }
+        router.replace('/(tabs)/trek');
+    };
+
     const stopTrek = () => {
-        if (role !== 'leader') return;
+        if (!isLeader) return;
         Alert.alert("Finish Trek?", "This will end the session for everyone.", [
             { text: "Continue", style: "cancel" },
             {
@@ -370,6 +464,7 @@ export default function GroupTrek() {
                     setIsTracking(false);
                     sync.emitControl('STOP');
                     await client.put(`/treks/update/${trailId}`, { status: 'completed', stats });
+                    showMessage("Trek Completed! You can now exit.", 5000, 'success');
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }
             }
@@ -377,7 +472,7 @@ export default function GroupTrek() {
     };
 
     const togglePause = () => {
-        if (role !== 'leader') return;
+        if (!isLeader) return;
         const newState = !isPaused;
         setIsPaused(newState);
         sync.emitControl(newState ? 'PAUSE' : 'RESUME');
@@ -386,13 +481,18 @@ export default function GroupTrek() {
 
     const initiateTrekBack = (remote = false) => {
         const source = navigationPolyline.length > 0 ? navigationPolyline : pathSegments.flat();
-        if (source.length < 5) return;
+        if (source.length < 5) {
+            showMessage("Not enough data to Trek-Back yet.", 3000, 'warning');
+            return;
+        }
         
         const reversed = [...source].reverse();
         setNavigationPolyline(reversed);
         setIsTrailingBack(true);
         setHasJoinedTrail(true);
         setCurrentNavIndex(0);
+        setTrailFinished(false); // Allow map interface to show again
+        setIsTracking(true);     // Ensure tracking is active
         
         if (!remote) sync.emitControl('TREKBACK');
         showMessage("Returning to start. Guidance enabled.");
@@ -501,7 +601,7 @@ export default function GroupTrek() {
                 onMarkerPress={setSelectedPinDetails}
                 participants={sync.participants}
                 trailFinished={trailFinished}
-                role={role}
+                role={isLeader ? 'leader' : 'member'}
                 groupCentroid={groupCentroid}
                 trackingUserId={trackingUserId}
             />
@@ -512,25 +612,37 @@ export default function GroupTrek() {
                 formatDuration={(s) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`} 
             />
 
-            {/* Group Participants List (Collapsible/Overlay) */}
+            {/* Group Participants List (Unified) */}
             {hasStarted && !trailFinished && (
                 <View style={styles.participantsListContainer}>
-                    <Text style={styles.participantsTitle}>Active Group</Text>
-                    <View style={styles.participantRow}>
-                        <View style={[styles.statusDot, { backgroundColor: '#FFD700' }]} />
-                        <Text style={styles.participantName}>{currentUser?.username} (Leader)</Text>
-                    </View>
-                    {Object.entries(sync.participants).map(([uid, p]) => (
+                    <Text style={styles.participantsTitle}>Active Group ({displayParticipants.length})</Text>
+                    {displayParticipants.map(([uid, p]) => (
                         <View key={uid} style={styles.participantRow}>
-                            <View style={[styles.statusDot, { backgroundColor: p.isOffTrail ? '#d32f2f' : '#2e7d32' }]} />
-                            <Text style={styles.participantName} numberOfLines={1}>{p.username}</Text>
-                            {role === 'leader' && (
+                            <View style={[
+                                styles.statusDot, 
+                                { backgroundColor: p.role === 'leader' ? '#FFD700' : (p.isOffTrail ? '#d32f2f' : '#2e7d32') }
+                            ]} />
+                            <Text style={styles.participantName} numberOfLines={1}>
+                                {p.username} {p.isSelf && "(You)"} {p.role === 'leader' && "(Leader)"}
+                            </Text>
+                            
+                            {/* Action Buttons */}
+                            {p.role === 'leader' && !isLeader && (
+                                <TouchableOpacity 
+                                    style={[styles.trackBtn, isFollowingLeader && styles.trackBtnActive]}
+                                    onPress={() => setIsFollowingLeader(!isFollowingLeader)}
+                                >
+                                    <Ionicons name={isFollowingLeader ? "eye" : "eye-outline"} size={14} color={isFollowingLeader ? "white" : "#666"} />
+                                </TouchableOpacity>
+                            )}
+
+                            {isLeader && !p.isSelf && (
                                 <TouchableOpacity 
                                     style={[styles.trackBtn, trackingUserId === uid && styles.trackBtnActive]}
                                     onPress={() => {
                                         const newTrackId = trackingUserId === uid ? null : uid;
                                         setTrackingUserId(newTrackId);
-                                        if (newTrackId) {
+                                        if (newTrackId && p.location) {
                                             sync.emitLeaderTrack(uid);
                                             mapRef.current?.animateToRegion({
                                                 ...p.location,
@@ -543,7 +655,8 @@ export default function GroupTrek() {
                                     <Ionicons name={trackingUserId === uid ? "eye" : "eye-outline"} size={14} color={trackingUserId === uid ? "white" : "#666"} />
                                 </TouchableOpacity>
                             )}
-                            {p.isOffTrail && <Text style={styles.offTrailSmall}>! OFF</Text>}
+
+                            {p.isOffTrail && !p.isSelf && <Text style={styles.offTrailSmall}>! OFF</Text>}
                         </View>
                     ))}
                 </View>
@@ -560,7 +673,9 @@ export default function GroupTrek() {
             {/* Group Count Badge */}
             <View style={styles.groupBadge}>
                 <Ionicons name="people" size={16} color="white" />
-                <Text style={styles.groupBadgeText}>{Object.keys(sync.participants).length + 1}</Text>
+                <Text style={styles.groupBadgeText}>
+                    {Object.keys(sync.participants).length + 1} / {totalExpected}
+                </Text>
             </View>
 
             {/* 3. Navigation Banner */}
@@ -573,7 +688,7 @@ export default function GroupTrek() {
             )}
 
             {/* 4. Controls */}
-            {role === 'leader' ? (
+            {isLeader ? (
                 !hasStarted ? (
                     <View style={styles.bottomActionContainer}>
                         <TouchableOpacity style={styles.startTrekPill} onPress={startTrek}>
@@ -588,7 +703,7 @@ export default function GroupTrek() {
                         onStart={startTrek}
                         onStop={stopTrek}
                         onPause={togglePause}
-                        onExit={() => router.replace('/(tabs)/trek')}
+                        onExit={handleExit}
                         onTrailBack={() => initiateTrekBack()}
                     />
                 )
@@ -598,7 +713,7 @@ export default function GroupTrek() {
                         <Ionicons name={isPaused ? "pause-circle" : "walk"} size={20} color="white" />
                         <Text style={styles.statusBannerText}>{isPaused ? "Leader Paused" : "Active Session"}</Text>
                     </View>
-                    <TouchableOpacity style={styles.exitBtnSmall} onPress={() => router.replace('/(tabs)/trek')}>
+                    <TouchableOpacity style={styles.exitBtnSmall} onPress={handleExit}>
                         <Text style={styles.exitBtnText}>Leave Group</Text>
                     </TouchableOpacity>
                 </View>
