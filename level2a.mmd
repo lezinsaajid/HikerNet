@@ -1,0 +1,95 @@
+graph TB
+    Admin[Admin]
+    Trekker[Trekker]
+    OSM((Open-Street<br/>Map API))
+    Weather((Weather<br/>API))
+    
+    %% Authentication Process
+    Auth[(Authorisation)]
+    
+    %% Trek Management Process
+    TrailRec((Trail Recording,<br/>Trail<br/>Suggestions))
+    TrailValidation((Trail<br/>Validation))
+    
+    %% Group Management Process
+    GroupMgmt((Group<br/>Management))
+    LiveLoc((Live<br/>Location))
+    
+    %% Safety and Alert Process
+    SafetyAlert((Safety And<br/>Alerts))
+    
+    %% Leaderboard Process
+    Leaderboard((Leaderboard))
+    
+    %% Databases
+    TrekDB[(Trek DB)]
+    GroupDB[(Group DB)]
+    
+    LocDB[(Location<br/>DB)]
+    SOSDB[(SOS DB)]
+    ScoreDB[(Score DB)]
+    
+    %% Authentication Flow
+    Admin -->|Login Credentials| Auth
+    Trekker -->|Login Credentials| Auth
+    Auth -->|Verified User| Admin
+    Auth -->|Verified User| Trekker
+    
+    %% Trek Management Flow
+    Trekker -->|Trek Trail Creation| TrailRec
+    OSM -->|Map| TrailRec
+    TrailRec -->|Trail Data| TrailValidation
+    
+    %% Trail Validation Flow
+    Admin -->|Validate Trail| TrailValidation
+    TrailValidation -->|Validated Trail| TrekDB
+    TrailValidation -->|Recorded Trail| TrekDB
+    TrekDB -->|Trek Details| TrailRec
+    Trekker -->|Trek Section| TrailRec
+    TrailRec -->|Trek Trail Creation| Trekker
+    
+    %% Group Management Flow
+    Trekker -->|Room Creation| GroupMgmt
+    GroupMgmt -->|Hash Code,<br/>Group Details, Group Info| GroupDB
+    GroupDB -->|Hash Code,<br/>Group Details| GroupMgmt
+    
+    
+  
+    
+    %% Live Location Flow
+    LiveLoc -->|Share<br/>Location, Location| LocDB
+    LocDB -->|Last Stored Location| LiveLoc
+    LiveLoc -->|Map<br/>Details| Trekker
+    OSM -->|Map Data and Routes| LiveLoc
+    
+    %% Safety and Alert Flow
+    Admin -->|Safety Alert| SafetyAlert
+    Trekker -->|SOS Request| SafetyAlert
+    Weather -->|Weather<br/>Data| SafetyAlert
+    SafetyAlert -->|Emergency Contacts,<br/>Time and date| SOSDB
+    SOSDB -->|Alert Contacts| SafetyAlert
+    TrekDB -->|Trek Details| SafetyAlert
+    SafetyAlert -->|Safety<br/>Checks| Trekker
+    
+    %% Leaderboard Flow
+    TrekDB -->|Trek and User<br/>Data| Leaderboard
+    Leaderboard -->|Scores,Ranks| ScoreDB
+    ScoreDB -->|Scores,Ranks| Leaderboard
+    Trekker -->|Check Scores| Leaderboard
+    
+    style Admin fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style Trekker fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style OSM fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style Weather fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style Auth fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style TrailRec fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style TrailValidation fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style GroupMgmt fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style LiveLoc fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style SafetyAlert fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style Leaderboard fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style TrekDB fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style GroupDB fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style LocDB fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style SOSDB fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style ScoreDB fill:#fff,stroke:#000,stroke-width:2px,color:#000

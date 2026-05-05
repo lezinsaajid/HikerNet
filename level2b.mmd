@@ -1,0 +1,76 @@
+graph TB
+    Admin[Admin]
+    Trekker[Trekker]
+    
+    %% Authentication Process
+    Auth[(Authorisation)]
+    
+    %% Social Feed Process
+    SocialFeed((Social<br/>Feed))
+    
+    %% Chat Management Process
+    ChatMgmt((Chat<br/>Management))
+    
+    %% User Management Process
+    UserMgmt((User<br/>Management))
+    
+    %% Notification Process
+    Notification((Notification))
+    
+    %% Databases
+    FeedDB[(Feed DB)]
+    ChatDB[(Chat DB)]
+    UserDB[(User DB)]
+    LocDB[(Location<br/>DB)]
+    
+    %% Authentication Flow
+    Admin -->|Login Credentials| Auth
+    Trekker -->|Login Credentials| Auth
+    Auth -->|Verified User| Admin
+    Auth -->|Verified User| Trekker
+    
+    %% Social Feed Flow
+    LocDB -->|Last Stored Location| SocialFeed
+    Trekker -->|Create and<br/>Upload Posts| SocialFeed
+    SocialFeed -->|Create and<br/>Upload Posts, Uploaded<br/>Posts| FeedDB
+    FeedDB -->|Check for<br/>Explicit Contents| Admin
+    SocialFeed -->|Community<br/>section| Trekker
+    
+    %% Chat Management Flow
+    LocDB -->|Last Stored Location| ChatMgmt
+    Trekker -->|Messaging| ChatMgmt
+    ChatMgmt -->|Stores<br/>Chats, Chat History,<br/>Messages| ChatDB
+    ChatDB -->|Chat History,<br/>Messages| ChatMgmt
+    ChatMgmt -->|Messaging| Trekker
+    
+    %% User Management Flow
+    Admin -->|Profile Creation| UserMgmt
+    Trekker -->|Profile Creation| UserMgmt
+    UserMgmt -->|Profile<br/>Details, Profile<br/>Info| UserDB
+    UserDB -->|Checks Profile<br/>Details| UserMgmt
+    UserMgmt -->|Profile| Trekker
+    UserMgmt -->|Profile| Admin
+    
+    %% Notification Flow
+    FeedDB -->|Social<br/>Notifications| Notification
+    ChatDB -->|Chat<br/>Notifications| Notification
+    UserDB -->|User<br/>Notifications| Notification
+    LocDB -->|Location<br/>Notifications| Notification
+    
+    Notification -->|All Notifications| Trekker
+    
+    %% User Data Cross-Reference
+    UserDB -->|User Data| SocialFeed
+    UserDB -->|User Data| ChatMgmt
+    
+    style Admin fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style Trekker fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style Auth fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style SocialFeed fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style ChatMgmt fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style UserMgmt fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style Notification fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style FeedDB fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style ChatDB fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style UserDB fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    style LocDB fill:#fff,stroke:#000,stroke-width:2px,color:#000
