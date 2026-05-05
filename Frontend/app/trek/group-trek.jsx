@@ -238,7 +238,7 @@ export default function GroupTrek() {
                         <View key={uid} style={styles.participantRow}>
                             <View style={[styles.statusDot, p.status === 'inactive' ? styles.statusInactive : styles.statusActive, p.isSelf && styles.statusActive]} />
                             <Text style={[styles.participantName, p.status === 'inactive' && styles.participantInactive]} numberOfLines={1}>
-                                {p.username} {p.isSelf && "(You)"}
+                                {p.username} {p.role === 'leader' && "(Leader)"} {p.isSelf && "(You)"}
                             </Text>
                             {(p.role === 'leader' && !isLeader) && (
                                 <TouchableOpacity style={[styles.trackBtn, state.isFollowingLeader && styles.trackBtnActive]} onPress={() => actions.setIsFollowingLeader(!state.isFollowingLeader)}>

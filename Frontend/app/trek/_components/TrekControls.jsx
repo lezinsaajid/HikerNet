@@ -34,10 +34,12 @@ export default function TrekControls({
                                 <Text style={styles.actionButtonText}>Take a Rest</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={[styles.actionButton, styles.chatGroupBtn, styles.fullWidthBtn]} onPress={onChat}>
-                                <Ionicons name="chatbubbles" size={24} color="white" style={{ marginRight: 8 }} />
-                                <Text style={styles.actionButtonText}>Chat Group</Text>
-                            </TouchableOpacity>
+                            {onChat && (
+                                <TouchableOpacity style={[styles.actionButton, styles.chatGroupBtn, styles.fullWidthBtn]} onPress={onChat}>
+                                    <Ionicons name="chatbubbles" size={24} color="white" style={{ marginRight: 8 }} />
+                                    <Text style={styles.actionButtonText}>Chat Group</Text>
+                                </TouchableOpacity>
+                            )}
 
                             <TouchableOpacity style={[styles.actionButton, styles.exitBtn, styles.fullWidthBtn]} onPress={onExit}>
                                 <Ionicons name="checkmark-circle" size={24} color="white" style={{ marginRight: 8 }} />

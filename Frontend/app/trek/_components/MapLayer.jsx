@@ -245,14 +245,30 @@ export default function MapLayer({
 
             {/* Custom Interactive User Marker */}
             {location && location.latitude && (
-                <Marker coordinate={location}>
-                    <View style={styles.userMarkerContainer}>
-                        <View style={styles.userMarkerPulse} />
-                        <View style={styles.userMarkerContainerInner}>
-                            <View style={styles.userMarkerDot} />
-                            <View style={[styles.userMarkerArrow, { transform: [{ rotate: `${userHeading}deg` }] }]}>
-                                <Ionicons name="caret-up" size={14} color="#007bff" />
+                <Marker coordinate={location} zIndex={role === 'leader' ? 200 : 180}>
+                    <View style={styles.participantMarkerContainer}>
+                        {role === 'leader' && (
+                            <View style={styles.crownContainer}>
+                                <Ionicons name="ribbon" size={18} color="#FFD700" />
                             </View>
+                        )}
+                        <View style={[
+                            styles.userMarkerContainer,
+                            role === 'leader' && styles.leaderGlow,
+                            { borderColor: role === 'leader' ? '#FFD700' : '#007bff', borderWidth: 2, borderRadius: 30, backgroundColor: 'white' }
+                        ]}>
+                            <View style={styles.userMarkerPulse} />
+                            <View style={styles.userMarkerContainerInner}>
+                                <View style={[styles.userMarkerDot, { backgroundColor: role === 'leader' ? '#FFD700' : '#007bff' }]} />
+                                <View style={[styles.userMarkerArrow, { transform: [{ rotate: `${userHeading}deg` }] }]}>
+                                    <Ionicons name="caret-up" size={14} color={role === 'leader' ? '#FFD700' : '#007bff'} />
+                                </View>
+                            </View>
+                        </View>
+                        <View style={[styles.participantLabel, { backgroundColor: role === 'leader' ? '#FFD700' : '#007bff' }]}>
+                            <Text style={[styles.participantLabelText, role === 'leader' && { color: '#333' }]}>
+                                You {role === 'leader' ? '(Leader)' : ''}
+                            </Text>
                         </View>
                     </View>
                 </Marker>

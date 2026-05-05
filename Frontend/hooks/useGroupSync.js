@@ -104,13 +104,11 @@ export const useGroupSync = ({
                     location, 
                     isOffTrail, 
                     distanceToTrail, 
-                    status: 'active', // Receiving location means they are active
-                    role: userId === (pLeaderId || leaderId) ? 'leader' : 'member',
+                    status: 'active',
+                    role: String(userId) === String(pLeaderId || leaderId) ? 'leader' : 'member',
                     lastUpdate: Date.now() 
                 }
             }));
-
-            // Process leader-specific logic (e.g. auto-follow) handled by parent via participants state
         });
 
         socket.on('trail-point-received', ({ point, isNewSegment }) => {
