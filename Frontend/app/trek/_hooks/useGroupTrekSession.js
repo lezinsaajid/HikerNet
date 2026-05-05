@@ -85,13 +85,25 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
     // 2. Messaging Logic
     const showMessage = useCallback((msg, duration = 5000, type = 'info') => {
         setGroupMessage({ text: msg, type });
-        Animated.spring(messageAnim, { toValue: 20, useNativeDriver: true }).start();
+        Animated.spring(messageAnim, { toValue: 0, useNativeDriver: true }).start();
         setTimeout(() => {
             Animated.timing(messageAnim, { toValue: -100, duration: 500, useNativeDriver: true }).start(() => {
                 setGroupMessage(null);
             });
         }, duration);
     }, [messageAnim]);
+
+    const completeTrekBack = (remote = false) => {
+        setIsTrailingBack(false);
+        setNavigationPolyline([]);
+        setTrailFinished(true);
+        setIsTracking(false);
+        setMapViewMode('explore');
+        if (!remote && isLeader) {
+            sync.emitControl('FINISH_TREK_BACK');
+        }
+        Alert.alert("Trek Completed", "Return journey finished.");
+    };
 
     // 3. Sync Logic
     const sync = useGroupSync({
@@ -117,7 +129,7 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
                 }
             } else if (action === 'RESUME') {
                 setIsPaused(false);
-                if (data.reason === 'SAFETY_DEVIATION') showMessage("Group regathered. Resuming trek.", 3000, 'success');
+                if (data.reason === 'SAFETY_DEVIATION') showMessage("Group regathered. Resuming trek.", 3000, 'info');
             } else if (action === 'STOP') {
                 setTrailFinished(true);
                 setIsTracking(false);
@@ -127,14 +139,11 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
                 router.replace('/(tabs)/trek');
             } else if (action === 'TREKBACK') {
                 initiateTrekBack(true);
+            } else if (action === 'FINISH_TREK_BACK') {
+                completeTrekBack(true);
             } else if (typeof action === 'object') {
                 if (action.type === 'FINISH_TREK_BACK') {
-                    setIsTrailingBack(false);
-                    setNavigationPolyline([]);
-                    setTrailFinished(true);
-                    setIsTracking(false);
-                    setMapViewMode('explore');
-                    Alert.alert("Trek Completed", "Return journey finished.");
+                    completeTrekBack(true);
                 } else if (action.type === 'LOOP_DETECTED') {
                     setPathSegments(action.pruned);
                     setRouteCoordinates(action.pruned.flat());
@@ -196,13 +205,14 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
         mapRef,
         isFollowingLeader,
         setIsFollowingLeader,
-        isTrailingBack
+        isTrailingBack,
+        onFinishTrekBack: completeTrekBack
     });
 
     // 5. Leader Engine
     const { resumedFromPauseRef } = useGroupLeaderEngine({
         isLeader, isTracking, isTrailingBack, isPaused, trailFinished, validatedLocation, trailId,
-        stats, setStats, setPathSegments, setRouteCoordinates, sync
+        stats, setStats, setPathSegments, setRouteCoordinates, sync, showMessage
     });
 
     // 5.1 Timer Engine (For both Leader and Member)
@@ -287,7 +297,7 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
 
     const initiateTrekBack = (remote = false) => {
         const source = navigationPolyline.length > 0 ? navigationPolyline : pathSegments.flat();
-        const validSource = source.filter(p => p && typeof p.latitude === 'number' && typeof p.longitude === 'number');
+        const validSource = source.filter(p => p && typeof p.latitude === 'number' && !isNaN(p.latitude) && typeof p.longitude === 'number' && !isNaN(p.longitude));
         if (validSource.length < 5) return showMessage("Not enough data to Trek-Back yet.", 3000, 'warning');
         setNavigationPolyline([...validSource].reverse());
         setIsTrailingBack(true);

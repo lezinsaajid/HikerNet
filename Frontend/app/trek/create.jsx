@@ -181,16 +181,7 @@ export default function CreateTrailScreen() {
                             </View>
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                            style={[styles.actionButton, styles.simButton]}
-                            onPress={() => handleStart('solo', true)}
-                        >
-                            <Ionicons name="flask" size={24} color="white" />
-                            <View style={styles.buttonContent}>
-                                <Text style={styles.buttonTitle}>Simulate Trek</Text>
-                                <Text style={styles.buttonSubtitle}>Run automated test tour</Text>
-                            </View>
-                        </TouchableOpacity>
+
                     </View>
                 </ScrollView>
             </KeyboardAvoidingView>

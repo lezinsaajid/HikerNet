@@ -17,7 +17,8 @@ export function useGroupNavigation({
     mapRef,
     isFollowingLeader,
     setIsFollowingLeader,
-    isTrailingBack
+    isTrailingBack,
+    onFinishTrekBack
 }) {
     const [distanceToTrail, setDistanceToTrail] = useState(9999);
     const [offTrackWarning, setOffTrackWarning] = useState(false);
@@ -62,18 +63,26 @@ export function useGroupNavigation({
         }
 
         // Completion Detection
-        if (hasReachedMidpoint && !hasAlertedCompletion.current) {
+        if (!hasAlertedCompletion.current) {
             const finalPoint = navigationPolyline[navigationPolyline.length - 1];
             const distToGoal = getDistance(currentLoc.latitude, currentLoc.longitude, finalPoint.latitude, finalPoint.longitude);
-            if (distToGoal < 15) {
+            const proximityThreshold = isTrailingBack ? 10 : 10;
+            
+            // Allow completion if we've reached midpoint OR if we're very close to the end of a trekback
+            const canFinish = hasReachedMidpoint || (isTrailingBack && currentNavIndex > 5);
+
+            if (distToGoal < proximityThreshold && canFinish) {
                 hasAlertedCompletion.current = true;
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                if (isLeader && isTrailingBack && sync.emitControl) {
-                    sync.emitControl('FINISH_TREK_BACK');
+                
+                if (isLeader && isTrailingBack && onFinishTrekBack) {
+                    onFinishTrekBack();
+                } else if (!isLeader && isTrailingBack) {
+                    setNavGuidance("Arrived at goal! Waiting for leader...");
                 }
             }
         }
-    }, [smoothedLocation, navigationPolyline, hasJoinedTrail, offTrackWarning, isTrailingBack, hasReachedMidpoint]);
+    }, [smoothedLocation, navigationPolyline, hasJoinedTrail, offTrackWarning, isTrailingBack, hasReachedMidpoint, currentNavIndex]);
 
     // 1.5. Navigation Guidance & Reset logic
     useEffect(() => {

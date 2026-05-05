@@ -25,7 +25,7 @@ export default function NavigationBanner({ navigation, offTrackWarning, onToggle
 }
 
 const styles = StyleSheet.create({
-  navBanner: { position: 'absolute', top: 60, left: 20, right: 20, backgroundColor: '#007bff', borderRadius: 15, padding: 15, zIndex: 1001, flexDirection: 'row' },
+  navBanner: { position: 'absolute', top: 120, left: 20, right: 20, backgroundColor: '#007bff', borderRadius: 15, padding: 15, zIndex: 1001, flexDirection: 'row' },
   navBannerAlert: { backgroundColor: '#dc3545' },
   navIconContainer: { marginRight: 15 },
   navTextContainer: { flex: 1 },
