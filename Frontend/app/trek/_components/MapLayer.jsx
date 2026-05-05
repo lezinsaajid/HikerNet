@@ -31,8 +31,8 @@ export default function MapLayer({
     const visibleParticipants = useMemo(() => {
         const list = Object.entries(participants);
         if (role === 'leader') {
-            // Leader sees the tracked member, or no one else if not tracking
-            return list.filter(([uid, p]) => p.role === 'leader' || uid === trackingUserId);
+            // Leader sees all members
+            return list;
         }
         // Members see only the leader by default
         return list.filter(([uid, p]) => p.role === 'leader');
@@ -42,9 +42,9 @@ export default function MapLayer({
     const renderNavPaths = useMemo(() => {
         if (!navigationPolyline || navigationPolyline.length < 2) return null;
 
-        if (isTrailingBack && retraceFadedIndex >= 0) {
-            const fadedPath = navigationPolyline.slice(0, retraceFadedIndex + 1);
-            const activePath = navigationPolyline.slice(retraceFadedIndex);
+        if (isTrailingBack) {
+            const fadedPath = retraceFadedIndex >= 0 ? navigationPolyline.slice(0, retraceFadedIndex + 1) : [];
+            const activePath = retraceFadedIndex >= 0 ? navigationPolyline.slice(retraceFadedIndex) : navigationPolyline;
 
             return (
                 <>
@@ -260,8 +260,8 @@ export default function MapLayer({
                             <View style={styles.userMarkerPulse} />
                             <View style={styles.userMarkerContainerInner}>
                                 <View style={[styles.userMarkerDot, { backgroundColor: role === 'leader' ? '#FFD700' : '#007bff' }]} />
-                                <View style={[styles.userMarkerArrow, { transform: [{ rotate: `${userHeading}deg` }] }]}>
-                                    <Ionicons name="caret-up" size={14} color={role === 'leader' ? '#FFD700' : '#007bff'} />
+                                <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'flex-start', transform: [{ rotate: `${userHeading}deg` }] }]}>
+                                    <Ionicons name="caret-up" size={12} color={role === 'leader' ? '#FFD700' : '#007bff'} style={{ marginTop: -2 }} />
                                 </View>
                             </View>
                         </View>
@@ -279,11 +279,10 @@ export default function MapLayer({
 
 const styles = StyleSheet.create({
     map: { flex: 1 },
-    userMarkerContainer: { alignItems: 'center', justifyContent: 'center', width: 60, height: 60 },
-    userMarkerPulse: { position: 'absolute', width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,123,255,0.4)' },
-    userMarkerContainerInner: { alignItems: 'center', justifyContent: 'center', width: 40, height: 40 },
-    userMarkerDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#007bff', borderWidth: 3, borderColor: 'white' },
-    userMarkerArrow: { position: 'absolute', top: -6 },
+    userMarkerContainer: { alignItems: 'center', justifyContent: 'center', width: 40, height: 40 },
+    userMarkerPulse: { position: 'absolute', width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,123,255,0.4)' },
+    userMarkerContainerInner: { alignItems: 'center', justifyContent: 'center', width: 30, height: 30 },
+    userMarkerDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#007bff', borderWidth: 2, borderColor: 'white' },
     brandedMarker: {
         alignItems: 'center',
         justifyContent: 'center',

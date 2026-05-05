@@ -63,14 +63,32 @@ export function useGroupLeaderEngine({
                 // Advanced: Loop Detection
                 const fullPath = updated.flat();
                 const loop = detectIntersectionLoop(newPoint, fullPath, fullPath.length, {
-                    minPoints: 30,
-                    ignoreLast: 15,
-                    maxDistance: 12
+                    minPoints: 10,
+                    ignoreLast: 5,
+                    maxDistance: 15
                 });
                 
                 if (loop && loop.isLoop) {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                    // Pruning logic would go here if fully implemented
+                    const loopStart = loop.loopStartIndex;
+                    let acc = 0;
+                    const pruned = [];
+                    let ghost = [];
+
+                    for (const s of updated) {
+                        const end = acc + s.length;
+                        if (end <= loopStart) pruned.push(s);
+                        else if (acc < loopStart) { 
+                            pruned.push(s.slice(0, loopStart - acc + 1));
+                            ghost = ghost.concat(s.slice(loopStart - acc + 1));
+                        } else ghost = ghost.concat(s);
+                        acc = end;
+                    }
+                    
+                    updated = pruned;
+                    if (updated.length === 0) updated.push([]);
+                    targetIdx = updated.length - 1;
+                    sync.emitControl({ type: 'LOOP_DETECTED', pruned, ghost });
                 }
                 updated[targetIdx] = [...updated[targetIdx], newPoint];
             }
@@ -82,11 +100,13 @@ export function useGroupLeaderEngine({
         });
 
         // 3. Backend Sync (Auto-save)
-        client.put(`/treks/update/${trailId}`, { 
-            coordinates: [newPoint], 
-            isNewSegment: resumedFromPauseRef.current,
-            stats: { ...stats, distance: stats.distance + distStep } 
-        }).catch(() => {});
+        if (trailId) {
+            client.put(`/treks/update/${trailId}`, { 
+                coordinates: [newPoint], 
+                isNewSegment: resumedFromPauseRef.current,
+                stats: { ...stats, distance: stats.distance + distStep } 
+            }).catch(() => {});
+        }
 
     }, [isTracking, validatedLocation, isPaused, trailFinished, isTrailingBack, isLeader]);
 

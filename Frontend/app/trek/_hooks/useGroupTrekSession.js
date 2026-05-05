@@ -39,11 +39,13 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
     const [mapType, setMapType] = useState('standard'); 
     const [mapViewMode, setMapViewMode] = useState('top-down'); 
     const [totalExpected, setTotalExpected] = useState(1);
+    const [retraceFadedIndex, setRetraceFadedIndex] = useState(-1);
     const [isFollowingLeader, setIsFollowingLeader] = useState(false);
     const [groupMessage, setGroupMessage] = useState(null);
     const [messages, setMessages] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [chatVisible, setChatVisible] = useState(false);
+    const [ghostSegments, setGhostSegments] = useState([]);
     const [showMarkerModal, setShowMarkerModal] = useState(false);
     const [selectedIcon, setSelectedIcon] = useState(null);
     const [waypointDescription, setWaypointDescription] = useState('');
@@ -63,6 +65,11 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
         accuracyStatus,
         error: locationError
     } = useSmartLocation(isTracking || isTrailingBack || !hasStarted);
+
+    const locationRef = useRef(smoothedLocation);
+    useEffect(() => {
+        locationRef.current = smoothedLocation;
+    }, [smoothedLocation]);
 
     const userHeading = useCompass(!trailFinished); 
 
@@ -120,6 +127,19 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
                 router.replace('/(tabs)/trek');
             } else if (action === 'TREKBACK') {
                 initiateTrekBack(true);
+            } else if (typeof action === 'object') {
+                if (action.type === 'FINISH_TREK_BACK') {
+                    setIsTrailingBack(false);
+                    setNavigationPolyline([]);
+                    setTrailFinished(true);
+                    setIsTracking(false);
+                    setMapViewMode('explore');
+                    Alert.alert("Trek Completed", "Return journey finished.");
+                } else if (action.type === 'LOOP_DETECTED') {
+                    setPathSegments(action.pruned);
+                    setRouteCoordinates(action.pruned.flat());
+                    setGhostSegments(prev => [...prev, action.ghost]);
+                }
             }
             
             if (payload.type === 'CENTROID') setGroupCentroid(payload.centroid);
@@ -127,8 +147,8 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
                 if (payload.userId === currentUser?._id) {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                     showMessage(`SAFETY: You've deviated ${payload.deviation}m! Returning to group...`, 8000, 'danger');
-                    if (payload.anchor) {
-                        client.get(`https://router.project-osrm.org/route/v1/foot/${smoothedLocation.longitude},${smoothedLocation.latitude};${payload.anchor.longitude},${payload.anchor.latitude}?overview=full&geometries=geojson`)
+                    if (payload.anchor && locationRef.current) {
+                        client.get(`https://router.project-osrm.org/route/v1/foot/${locationRef.current.longitude},${locationRef.current.latitude};${payload.anchor.longitude},${payload.anchor.latitude}?overview=full&geometries=geojson`)
                             .then(res => {
                                 if (res.data.routes?.[0]) setReroutePath(res.data.routes[0].geometry.coordinates.map(p => ({ latitude: p[1], longitude: p[0] })));
                             });
@@ -175,7 +195,8 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
         sync,
         mapRef,
         isFollowingLeader,
-        setIsFollowingLeader
+        setIsFollowingLeader,
+        isTrailingBack
     });
 
     // 5. Leader Engine
@@ -184,12 +205,68 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
         stats, setStats, setPathSegments, setRouteCoordinates, sync
     });
 
+    // 5.1 Timer Engine (For both Leader and Member)
+    useEffect(() => {
+        let timer = null;
+        if (isTracking && !isPaused && !trailFinished && !offTrackWarning) {
+            timer = setInterval(() => {
+                setStats(prev => ({ ...prev, duration: prev.duration + 1 }));
+            }, 1000);
+        }
+        return () => { if (timer) clearInterval(timer); };
+    }, [isTracking, isPaused, trailFinished, offTrackWarning]);
+
+    // 5.5 Emit Location
+    useEffect(() => {
+        if (!smoothedLocation || trailFinished) return;
+        sync.emitLocation(smoothedLocation, offTrackWarning, distanceToTrail);
+        const interval = setInterval(() => {
+            sync.emitLocation(smoothedLocation, offTrackWarning, distanceToTrail);
+        }, 3000);
+        return () => clearInterval(interval);
+    }, [smoothedLocation, trailFinished, offTrackWarning, distanceToTrail]);
+
+    // 5.6 Trek Back Fading Logic
+    useEffect(() => {
+        if (!isTrailingBack || !isTracking || isPaused) return;
+        if (distanceToTrail <= 15 && currentNavIndex > retraceFadedIndex) {
+            setRetraceFadedIndex(currentNavIndex);
+        }
+    }, [isTrailingBack, isTracking, isPaused, distanceToTrail, currentNavIndex, retraceFadedIndex]);
+
+    // 5.7 Camera & Map Interactions
+    useEffect(() => {
+        if (!smoothedLocation || !mapRef.current) return;
+
+        if (trailFinished) {
+            const fullPath = pathSegments.flat();
+            if (fullPath.length > 0) {
+                mapRef.current.fitToCoordinates(fullPath, {
+                    edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+                    animated: true
+                });
+            }
+            return;
+        }
+
+        if (mapViewMode !== 'explore') {
+             mapRef.current.animateCamera({
+                center: { latitude: smoothedLocation.latitude, longitude: smoothedLocation.longitude },
+                pitch: mapViewMode === 'navigation' ? 45 : 0, 
+                heading: mapViewMode === 'navigation' ? userHeading : 0,
+                altitude: 500,
+                zoom: 20
+            }, { duration: 1000 });
+        }
+    }, [smoothedLocation, mapViewMode, userHeading, trailFinished]);
+
     // Actions
     const startTrek = async () => {
         if (!isLeader) return;
         setIsTracking(true);
         setHasStarted(true);
         setHasJoinedTrail(true);
+        setMapViewMode('navigation');
         sync.emitControl('START');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         const startLoc = validatedLocation || smoothedLocation;
@@ -210,12 +287,15 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
 
     const initiateTrekBack = (remote = false) => {
         const source = navigationPolyline.length > 0 ? navigationPolyline : pathSegments.flat();
-        if (source.length < 5) return showMessage("Not enough data to Trek-Back yet.", 3000, 'warning');
-        setNavigationPolyline([...source].reverse());
+        const validSource = source.filter(p => p && typeof p.latitude === 'number' && typeof p.longitude === 'number');
+        if (validSource.length < 5) return showMessage("Not enough data to Trek-Back yet.", 3000, 'warning');
+        setNavigationPolyline([...validSource].reverse());
         setIsTrailingBack(true);
         setHasJoinedTrail(true);
         setTrailFinished(false);
         setIsTracking(true);
+        setMapViewMode('navigation');
+        setRetraceFadedIndex(-1);
         if (!remote) sync.emitControl('TREKBACK');
     };
 
@@ -227,7 +307,7 @@ export function useGroupTrekSession({ trailId: initialTrailId, currentUser, lead
             unreadCount, chatVisible, distanceToTrail, offTrackWarning, navGuidance,
             reroutePath, groupCentroid, trackingUserId, gpsAccuracy, accuracyStatus, locationError,
             showMarkerModal, selectedIcon, waypointDescription, waypointImages, selectedPinDetails,
-            iconSearchQuery, showRestModal
+            iconSearchQuery, showRestModal, retraceFadedIndex, ghostSegments
         },
         actions: {
             setIsTracking, setIsPaused, setTrailFinished, setIsTrailingBack, setHasStarted,

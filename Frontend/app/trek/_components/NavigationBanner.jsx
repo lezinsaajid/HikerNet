@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function NavigationBanner({ navigation, offTrackWarning, onToggleNavMode }) {
-  if (!navigation) return null;
+  if (!navigation || (!offTrackWarning && navigation.guidance === 'Follow the trail...')) return null;
 
   return (
     <View style={[styles.navBanner, offTrackWarning && styles.navBannerAlert]}>

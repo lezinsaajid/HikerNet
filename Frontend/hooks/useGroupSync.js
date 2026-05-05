@@ -23,6 +23,16 @@ export const useGroupSync = ({
     const [participants, setParticipants] = useState({});
     const socketRef = useRef(null);
 
+    const latestCallbacks = useRef({
+        onControlAction, onWaypointReceived, onPathReceived, onDriftAlert, onChatMessage, onTrekStarted, onStatusChanged
+    });
+
+    useEffect(() => {
+        latestCallbacks.current = {
+            onControlAction, onWaypointReceived, onPathReceived, onDriftAlert, onChatMessage, onTrekStarted, onStatusChanged
+        };
+    });
+
     useEffect(() => {
         if (!trailId) return;
 
@@ -89,7 +99,7 @@ export const useGroupSync = ({
                 return updated;
             });
 
-            if (onStatusChanged) onStatusChanged({ userId, username, status, allParticipants });
+            if (latestCallbacks.current.onStatusChanged) latestCallbacks.current.onStatusChanged({ userId, username, status, allParticipants });
         });
 
         socket.on("participant-location-received", ({ userId, username, profileImage, location, isOffTrail, distanceToTrail, leaderId: pLeaderId }) => {
@@ -113,7 +123,7 @@ export const useGroupSync = ({
 
         socket.on('trail-point-received', ({ point, isNewSegment }) => {
             if (!isLeader) {
-                onPathReceived(prev => {
+                latestCallbacks.current.onPathReceived(prev => {
                     const updated = [...prev];
                     if (isNewSegment || updated.length === 0) {
                         updated.push([point]);
@@ -128,29 +138,29 @@ export const useGroupSync = ({
 
         socket.on('trail-path-received', ({ path }) => {
             if (!isLeader) {
-                onPathReceived(path);
+                latestCallbacks.current.onPathReceived(path);
             }
         });
 
         socket.on('trek-control-received', (payload) => {
-            onControlAction(payload);
+            latestCallbacks.current.onControlAction(payload);
         });
 
         socket.on('waypoint-received', ({ waypoint }) => {
-            onWaypointReceived(waypoint);
+            latestCallbacks.current.onWaypointReceived(waypoint);
         });
 
         socket.on('drift-notification', ({ userId, username, isOffTrail }) => {
             if (userId === currentUser?._id) return;
-            onDriftAlert({ username, isOffTrail });
+            latestCallbacks.current.onDriftAlert({ username, isOffTrail });
         });
 
         socket.on('group-centroid', ({ centroid, memberCount }) => {
-            onControlAction({ type: 'CENTROID', centroid, memberCount });
+            latestCallbacks.current.onControlAction({ type: 'CENTROID', centroid, memberCount });
         });
 
         socket.on('safety-alert', ({ userId, username, deviation, anchor }) => {
-            onControlAction({ type: 'SAFETY_ALERT', userId, username, deviation, anchor });
+            latestCallbacks.current.onControlAction({ type: 'SAFETY_ALERT', userId, username, deviation, anchor });
         });
 
         socket.on('participant-ready', ({ userId, username, leaderId: pLeaderId }) => {
@@ -171,15 +181,15 @@ export const useGroupSync = ({
         });
 
         socket.on('force-member-focus', ({ targetUserId }) => {
-            onControlAction({ type: 'FOCUS', targetUserId });
+            latestCallbacks.current.onControlAction({ type: 'FOCUS', targetUserId });
         });
 
         socket.on('trek-started', ({ trekId, leaderId }) => {
-            if (onTrekStarted) onTrekStarted({ trekId, leaderId });
+            if (latestCallbacks.current.onTrekStarted) latestCallbacks.current.onTrekStarted({ trekId, leaderId });
         });
 
         socket.on('message-received', (message) => {
-            if (onChatMessage) onChatMessage(message);
+            if (latestCallbacks.current.onChatMessage) latestCallbacks.current.onChatMessage(message);
         });
 
         // Presence cleanup is now handled server-side, but we keep a local safety check for very stale data
