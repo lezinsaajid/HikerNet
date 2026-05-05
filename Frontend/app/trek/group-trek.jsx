@@ -211,7 +211,7 @@ export default function GroupTrek() {
                 mapRef={mapRef}
                 location={smoothedLocation}
                 pathSegments={state.pathSegments}
-                ghostSegments={[]}
+                ghostSegments={state.ghostSegments}
                 markers={state.markers}
                 baseWaypoints={state.baseWaypoints}
                 navigationPolyline={state.navigationPolyline}
@@ -225,6 +225,8 @@ export default function GroupTrek() {
                 role={isLeader ? 'leader' : 'member'}
                 groupCentroid={state.groupCentroid}
                 trackingUserId={state.trackingUserId}
+                isTrailingBack={state.isTrailingBack}
+                retraceFadedIndex={state.retraceFadedIndex}
             />
 
             {/* Top Stats Overlay */}
@@ -271,7 +273,7 @@ export default function GroupTrek() {
             </View>
 
             {/* Navigation Guidance */}
-            {state.hasStarted && !state.trailFinished && (
+            {((state.hasStarted && !state.trailFinished) || (!isLeader && !state.hasStarted && !state.trailFinished)) && (
                 <NavigationBanner navigation={{ guidance: state.navGuidance, distance: state.distanceToTrail }} offTrackWarning={state.offTrackWarning} onToggleNavMode={() => actions.setMapViewMode(prev => prev === 'navigation' ? 'explore' : 'navigation')} />
             )}
 
@@ -315,7 +317,7 @@ export default function GroupTrek() {
 
             {/* Side Tool Stacks */}
             <View style={styles.leftToolStack}>
-                <TouchableOpacity style={styles.toolButton} onPress={() => { if (smoothedLocation?.latitude) mapRef.current?.animateCamera({ center: smoothedLocation, zoom: 18 }); }}>
+                <TouchableOpacity style={styles.toolButton} onPress={() => { if (smoothedLocation?.latitude) mapRef.current?.animateCamera({ center: smoothedLocation, zoom: 20 }); }}>
                     <Ionicons name="navigate" size={24} color="#2e7d32" />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.toolButton} onPress={() => actions.setMapType(prev => prev === 'satellite' ? 'standard' : 'satellite')}>

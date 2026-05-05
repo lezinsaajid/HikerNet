@@ -16,7 +16,8 @@ export function useGroupNavigation({
     sync,
     mapRef,
     isFollowingLeader,
-    setIsFollowingLeader
+    setIsFollowingLeader,
+    isTrailingBack
 }) {
     const [distanceToTrail, setDistanceToTrail] = useState(9999);
     const [offTrackWarning, setOffTrackWarning] = useState(false);
@@ -67,9 +68,25 @@ export function useGroupNavigation({
             if (distToGoal < 15) {
                 hasAlertedCompletion.current = true;
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                if (isLeader && isTrailingBack && sync.emitControl) {
+                    sync.emitControl('FINISH_TREK_BACK');
+                }
             }
         }
-    }, [smoothedLocation, navigationPolyline, hasJoinedTrail, offTrackWarning]);
+    }, [smoothedLocation, navigationPolyline, hasJoinedTrail, offTrackWarning, isTrailingBack, hasReachedMidpoint]);
+
+    // 1.5. Navigation Guidance & Reset logic
+    useEffect(() => {
+        if (hasJoinedTrail && (navGuidance === "Waiting for leader..." || navGuidance === "Waiting to start...")) {
+            setNavGuidance("Follow the trail...");
+        }
+    }, [hasJoinedTrail, navGuidance]);
+
+    useEffect(() => {
+        setHasReachedMidpoint(false);
+        hasAlertedCompletion.current = false;
+        setCurrentNavIndex(0);
+    }, [navigationPolyline]);
 
     // 2. Auto-follow leader logic for members
     useEffect(() => {

@@ -24,15 +24,23 @@ export default function TrekControls({
                     
                     {!isTrailingBack ? (
                         <View style={styles.column}>
-                             <TouchableOpacity style={[styles.actionButton, styles.trailBackBtn, styles.fullWidthBtn]} onPress={onTrailBack}>
-                                <Ionicons name="arrow-back" size={24} color="white" style={{ marginRight: 8 }} />
-                                <Text style={styles.actionButtonText}>Trail Back</Text>
-                            </TouchableOpacity>
+                            {isLeader ? (
+                                <>
+                                     <TouchableOpacity style={[styles.actionButton, styles.trailBackBtn, styles.fullWidthBtn]} onPress={onTrailBack}>
+                                        <Ionicons name="arrow-back" size={24} color="white" style={{ marginRight: 8 }} />
+                                        <Text style={styles.actionButtonText}>Trail Back</Text>
+                                    </TouchableOpacity>
 
-                            <TouchableOpacity style={[styles.actionButton, styles.restBtn, styles.fullWidthBtn]} onPress={onRest}>
-                                <Ionicons name="cafe" size={24} color="white" style={{ marginRight: 8 }} />
-                                <Text style={styles.actionButtonText}>Take a Rest</Text>
-                            </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.actionButton, styles.restBtn, styles.fullWidthBtn]} onPress={onRest}>
+                                        <Ionicons name="cafe" size={24} color="white" style={{ marginRight: 8 }} />
+                                        <Text style={styles.actionButtonText}>Take a Rest</Text>
+                                    </TouchableOpacity>
+                                </>
+                            ) : (
+                                <Text style={{fontSize: 16, textAlign: 'center', marginBottom: 20, color: '#666', fontWeight: 'bold'}}>
+                                    Awaiting Leader's Instruction...
+                                </Text>
+                            )}
 
                             {onChat && (
                                 <TouchableOpacity style={[styles.actionButton, styles.chatGroupBtn, styles.fullWidthBtn]} onPress={onChat}>
