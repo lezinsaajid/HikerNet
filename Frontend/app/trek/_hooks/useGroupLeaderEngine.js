@@ -20,7 +20,8 @@ export function useGroupLeaderEngine({
     setStats,
     setPathSegments,
     setRouteCoordinates,
-    sync
+    sync,
+    showMessage
 }) {
     const lastStatsPointRef = useRef(null);
     const resumedFromPauseRef = useRef(false);
@@ -63,9 +64,10 @@ export function useGroupLeaderEngine({
                 // Advanced: Loop Detection
                 const fullPath = updated.flat();
                 const loop = detectIntersectionLoop(newPoint, fullPath, fullPath.length, {
-                    minPoints: 10,
-                    ignoreLast: 5,
-                    maxDistance: 15
+                    minPoints: 15,
+                    ignoreLast: 10,
+                    maxDistance: 18,
+                    maxHeadingDiff: 120
                 });
                 
                 if (loop && loop.isLoop) {
@@ -89,6 +91,7 @@ export function useGroupLeaderEngine({
                     if (updated.length === 0) updated.push([]);
                     targetIdx = updated.length - 1;
                     sync.emitControl({ type: 'LOOP_DETECTED', pruned, ghost });
+                    if (showMessage) showMessage("Loop detected! Optimizing trail...", 4000, 'info');
                 }
                 updated[targetIdx] = [...updated[targetIdx], newPoint];
             }

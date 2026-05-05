@@ -134,28 +134,6 @@ export default function MapLayer({
             {renderNavPaths}
             {renderTrekPaths}
 
-            {/* Trek Start & End Markers (Only shown post-trek) */}
-            {trailFinished && pathSegments.length > 0 && pathSegments[0].length > 0 && pathSegments[0][0] && (
-                <Marker coordinate={pathSegments[0][0]}>
-                    <View style={styles.brandedMarker}>
-                        <Ionicons name="location" size={45} color="#fc4c02" />
-                        <View style={styles.markerLabelContainer}>
-                            <Text style={styles.markerLabelText}>START</Text>
-                        </View>
-                    </View>
-                </Marker>
-            )}
-
-            {trailFinished && pathSegments.length > 0 && pathSegments[pathSegments.length - 1].length > 0 && pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1] && (
-                <Marker coordinate={pathSegments[pathSegments.length - 1][pathSegments[pathSegments.length - 1].length - 1]}>
-                    <View style={styles.brandedMarker}>
-                        <Ionicons name="location" size={45} color="#28a745" />
-                        <View style={styles.markerLabelContainer}>
-                            <Text style={styles.markerLabelText}>FINISH</Text>
-                        </View>
-                    </View>
-                </Marker>
-            )}
 
             {/* Global/Reference Trail Waypoints */}
             {baseWaypoints.map((wp, idx) => {
@@ -172,15 +150,6 @@ export default function MapLayer({
                 );
             })}
 
-            {/* Group Centroid / Heat Zone (Leader View Only) */}
-            {role === 'leader' && groupCentroid && (
-                <Marker coordinate={groupCentroid} zIndex={10}>
-                    <View style={styles.centroidContainer}>
-                        <View style={styles.centroidPulse} />
-                        <View style={styles.centroidDot} />
-                    </View>
-                </Marker>
-            )}
 
             {/* Session Participants (Group Trek) */}
             {visibleParticipants.map(([uid, p]) => {
